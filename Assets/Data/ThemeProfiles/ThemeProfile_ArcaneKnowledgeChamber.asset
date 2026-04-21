@@ -1,0 +1,100 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8f1f4897586bf4f0285383c878a64bfb, type: 3}
+  m_Name: ThemeProfile_ArcaneKnowledgeChamber
+  m_EditorClassIdentifier: 
+  ThemeId: arcane_knowledge_chamber
+  DisplayName: Arcane Knowledge Chamber
+  ShortDescription: Warm archival lighting and ceremonial accents for an ancient-study reinterpretation.
+  Category: 1
+  AccentColor: {r: 0.86, g: 0.63, b: 0.24, a: 1}
+  SurfaceMaterials:
+    WallMaterial: {fileID: 0}
+    FloorMaterial: {fileID: 0}
+    CeilingMaterial: {fileID: 0}
+    WallColor: {r: 0.63, g: 0.36, b: 0.16, a: 0.9}
+    FloorColor: {r: 0.34, g: 0.2, b: 0.08, a: 0.78}
+    CeilingColor: {r: 0.86, g: 0.67, b: 0.42, a: 0.58}
+    SurfaceOpacity: 0.78
+    EmissionIntensity: 0.1
+  Mood:
+    MainLightColor: {r: 1, g: 0.84, b: 0.65, a: 1}
+    MainLightIntensity: 0.92
+    AmbientSkyColor: {r: 0.31, g: 0.2, b: 0.12, a: 1}
+    AmbientEquatorColor: {r: 0.2, g: 0.13, b: 0.08, a: 1}
+    AmbientGroundColor: {r: 0.09, g: 0.06, b: 0.04, a: 1}
+  DefaultTableProxy: {fileID: 0}
+  DefaultSeatProxy: {fileID: 0}
+  DefaultStorageProxy: {fileID: 0}
+  DefaultScreenTreatmentPrefab: {fileID: 0}
+  PreserveCollisionSensitiveFootprints: 1
+  ReplacementRules:
+  - SemanticLabel: wall
+    FunctionTag: boundary
+    Mode: 1
+    ProxyPrefab: {fileID: 0}
+    PrimaryMaterial: {fileID: 0}
+    SecondaryMaterial: {fileID: 0}
+    PreserveFootprint: 1
+    PreserveYawOrientation: 1
+    CollisionSensitive: 0
+    Notes: Layer walls with warm archive surfaces instead of new geometry.
+  - SemanticLabel: floor
+    FunctionTag: boundary
+    Mode: 1
+    ProxyPrefab: {fileID: 0}
+    PrimaryMaterial: {fileID: 0}
+    SecondaryMaterial: {fileID: 0}
+    PreserveFootprint: 1
+    PreserveYawOrientation: 1
+    CollisionSensitive: 0
+    Notes: Use floor treatment only, no path changes.
+  - SemanticLabel: table
+    FunctionTag: support_surface
+    Mode: 2
+    ProxyPrefab: {fileID: 0}
+    PrimaryMaterial: {fileID: 0}
+    SecondaryMaterial: {fileID: 0}
+    PreserveFootprint: 1
+    PreserveYawOrientation: 1
+    CollisionSensitive: 1
+    Notes: Convert tables into reading altars without moving them.
+  - SemanticLabel: screen
+    FunctionTag: display_surface
+    Mode: 3
+    ProxyPrefab: {fileID: 0}
+    PrimaryMaterial: {fileID: 0}
+    SecondaryMaterial: {fileID: 0}
+    PreserveFootprint: 1
+    PreserveYawOrientation: 1
+    CollisionSensitive: 0
+    Notes: Displays become illuminated manuscript surfaces.
+  - SemanticLabel: storage
+    FunctionTag: storage
+    Mode: 2
+    ProxyPrefab: {fileID: 0}
+    PrimaryMaterial: {fileID: 0}
+    SecondaryMaterial: {fileID: 0}
+    PreserveFootprint: 1
+    PreserveYawOrientation: 1
+    CollisionSensitive: 1
+    Notes: Storage reads as archive cabinets and shelves.
+  - SemanticLabel: seat
+    FunctionTag: seating
+    Mode: 2
+    ProxyPrefab: {fileID: 0}
+    PrimaryMaterial: {fileID: 0}
+    SecondaryMaterial: {fileID: 0}
+    PreserveFootprint: 1
+    PreserveYawOrientation: 1
+    CollisionSensitive: 1
+    Notes: Seating remains legible and safe.
