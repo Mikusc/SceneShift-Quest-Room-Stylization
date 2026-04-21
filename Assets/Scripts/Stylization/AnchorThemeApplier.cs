@@ -23,6 +23,9 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField] private bool hideOriginalVolumeVisuals = true;
     [SerializeField, Min(0.1f)] private float proxyFootprintPadding = 0.92f;
     [SerializeField, Min(0.1f)] private float proxyHeightPadding = 0.96f;
+    [SerializeField, Range(-180f, 180f)] private float tableProxyYawOffsetDegrees = 90f;
+    [SerializeField] private bool augmentFlatTableProxies = true;
+    [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
 
     public event Action SummaryChanged;
 
@@ -299,6 +302,7 @@ public class AnchorThemeApplier : MonoBehaviour
         var lastEntryId = "none";
         var lastPrefabName = "none";
         var lastFailure = "none";
+        var lastAugmentation = "none";
 
         for (var index = 0; index < room.Anchors.Count; index++)
         {
@@ -327,10 +331,11 @@ public class AnchorThemeApplier : MonoBehaviour
 
             resolvedPrefabCount++;
             lastPrefabName = proxyPrefab.name;
-            if (TrySpawnTableProxy(anchor, proxyPrefab, planEntry, theme))
+            if (TrySpawnTableProxy(anchor, proxyPrefab, planEntry, theme, out var augmentationStatus))
             {
                 proxyCount++;
                 lastFailure = "none";
+                lastAugmentation = augmentationStatus;
             }
             else
             {
@@ -339,7 +344,7 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         _lastTableProxyStatus =
-            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, entry={lastEntryId}, prefab={lastPrefabName}, failure={lastFailure}";
+            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, entry={lastEntryId}, prefab={lastPrefabName}, augment={lastAugmentation}, failure={lastFailure}";
         return proxyCount;
     }
 
@@ -347,8 +352,11 @@ public class AnchorThemeApplier : MonoBehaviour
         MRUKAnchor anchor,
         GameObject proxyPrefab,
         StylizationPlanEntry planEntry,
-        ThemeProfile theme)
+        ThemeProfile theme,
+        out string augmentationStatus)
     {
+        augmentationStatus = "none";
+
         if (proxyObjectsRoot == null || proxyPrefab == null || !anchor.VolumeBounds.HasValue)
         {
             return false;
@@ -360,7 +368,7 @@ public class AnchorThemeApplier : MonoBehaviour
         var volumeBounds = anchor.VolumeBounds.Value;
         proxyRoot.transform.position = anchor.transform.TransformPoint(volumeBounds.center);
 
-        proxyRoot.transform.rotation = GetTableProxyRotation(anchor, planEntry.PreserveYawOrientation);
+        proxyRoot.transform.rotation = GetTableProxyRotation(anchor, planEntry.PreserveYawOrientation, tableProxyYawOffsetDegrees);
 
         var proxyInstance = Instantiate(proxyPrefab, proxyRoot.transform);
         proxyInstance.name = $"{proxyPrefab.name}_{planEntry.EntryId}";
@@ -368,13 +376,14 @@ public class AnchorThemeApplier : MonoBehaviour
         proxyInstance.transform.localRotation = Quaternion.identity;
         proxyInstance.transform.localScale = Vector3.one;
 
-        if (!FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, volumeBounds.size))
+        if (!FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, volumeBounds.size, out var fittedBounds, out var targetSize))
         {
             SafeDestroy(proxyRoot);
             return false;
         }
 
         ApplyProxyAccent(proxyInstance, theme);
+        augmentationStatus = AugmentFlatTableProxy(proxyRoot.transform, proxyInstance.transform, fittedBounds, targetSize, theme);
 
         if (hideOriginalVolumeVisuals)
         {
@@ -385,15 +394,23 @@ public class AnchorThemeApplier : MonoBehaviour
         return true;
     }
 
-    private bool FitProxyToTableAnchor(Transform proxyRoot, Transform proxyInstance, Vector3 anchorSize)
+    private bool FitProxyToTableAnchor(
+        Transform proxyRoot,
+        Transform proxyInstance,
+        Vector3 anchorSize,
+        out Bounds fittedBounds,
+        out Vector3 targetSize)
     {
+        fittedBounds = default;
+        targetSize = default;
+
         if (!TryCalculateLocalBounds(proxyRoot, out var initialBounds))
         {
             return false;
         }
 
         var sourceSize = initialBounds.size;
-        var targetSize = new Vector3(
+        targetSize = new Vector3(
             Mathf.Max(anchorSize.x * proxyFootprintPadding, 0.05f),
             Mathf.Max(anchorSize.y * proxyHeightPadding, 0.05f),
             Mathf.Max(anchorSize.z * proxyFootprintPadding, 0.05f));
@@ -405,7 +422,7 @@ public class AnchorThemeApplier : MonoBehaviour
 
         proxyInstance.localScale = Vector3.Scale(proxyInstance.localScale, scale);
 
-        if (!TryCalculateLocalBounds(proxyRoot, out var fittedBounds))
+        if (!TryCalculateLocalBounds(proxyRoot, out fittedBounds))
         {
             return false;
         }
@@ -417,7 +434,118 @@ public class AnchorThemeApplier : MonoBehaviour
         return true;
     }
 
-    private static Quaternion GetTableProxyRotation(MRUKAnchor anchor, bool preserveYawOrientation)
+    private string AugmentFlatTableProxy(
+        Transform proxyRoot,
+        Transform proxyInstance,
+        Bounds fittedBounds,
+        Vector3 targetSize,
+        ThemeProfile theme)
+    {
+        if (!augmentFlatTableProxies)
+        {
+            return "disabled";
+        }
+
+        if (proxyRoot == null || theme == null)
+        {
+            return "missing_context";
+        }
+
+        if (fittedBounds.size.y >= targetSize.y * flatTableHeightThreshold)
+        {
+            return "not_needed";
+        }
+
+        SetProxyVisualState(proxyInstance, false);
+
+        var tabletopMaterial = CreateGeneratedTableSupportMaterial(theme, 0.16f, 0.7f);
+        var legMaterial = CreateGeneratedTableSupportMaterial(theme, 0.34f, 1.35f);
+        var railMaterial = CreateGeneratedTableSupportMaterial(theme, 0.48f, 0.85f);
+        if (tabletopMaterial == null || legMaterial == null || railMaterial == null)
+        {
+            return "material_failed";
+        }
+
+        var floorY = -targetSize.y * 0.5f;
+        var undersideY = Mathf.Clamp(fittedBounds.min.y, floorY + 0.08f, targetSize.y * 0.5f);
+        var legHeight = undersideY - floorY;
+        if (legHeight <= 0.05f)
+        {
+            return "insufficient_height";
+        }
+
+        var tabletopThickness = Mathf.Clamp(targetSize.y * 0.08f, 0.035f, 0.08f);
+        var tabletopCenterY = targetSize.y * 0.5f - tabletopThickness * 0.5f;
+        var legThickness = Mathf.Clamp(Mathf.Min(targetSize.x, targetSize.z) * 0.1f, 0.05f, 0.12f);
+        var railThickness = Mathf.Clamp(legThickness * 0.55f, 0.03f, 0.08f);
+        var xOffset = Mathf.Max(targetSize.x * 0.5f - legThickness * 1.25f, legThickness * 0.75f);
+        var zOffset = Mathf.Max(targetSize.z * 0.5f - legThickness * 1.25f, legThickness * 0.75f);
+        var legCenterY = floorY + legHeight * 0.5f;
+        var railY = undersideY - railThickness * 0.75f;
+
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableTop",
+            new Vector3(0f, tabletopCenterY, 0f),
+            new Vector3(Mathf.Max(targetSize.x, 0.1f), tabletopThickness, Mathf.Max(targetSize.z, 0.1f)),
+            tabletopMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableLeg_FL",
+            new Vector3(-xOffset, legCenterY, zOffset),
+            new Vector3(legThickness, legHeight, legThickness),
+            legMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableLeg_FR",
+            new Vector3(xOffset, legCenterY, zOffset),
+            new Vector3(legThickness, legHeight, legThickness),
+            legMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableLeg_BL",
+            new Vector3(-xOffset, legCenterY, -zOffset),
+            new Vector3(legThickness, legHeight, legThickness),
+            legMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableLeg_BR",
+            new Vector3(xOffset, legCenterY, -zOffset),
+            new Vector3(legThickness, legHeight, legThickness),
+            legMaterial);
+
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableRail_Front",
+            new Vector3(0f, railY, zOffset),
+            new Vector3(Mathf.Max(targetSize.x - legThickness * 1.8f, legThickness), railThickness, railThickness),
+            railMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableRail_Back",
+            new Vector3(0f, railY, -zOffset),
+            new Vector3(Mathf.Max(targetSize.x - legThickness * 1.8f, legThickness), railThickness, railThickness),
+            railMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableRail_Left",
+            new Vector3(-xOffset, railY, 0f),
+            new Vector3(railThickness, railThickness, Mathf.Max(targetSize.z - legThickness * 1.8f, legThickness)),
+            railMaterial);
+        CreateGeneratedTablePart(
+            proxyRoot,
+            "GeneratedTableRail_Right",
+            new Vector3(xOffset, railY, 0f),
+            new Vector3(railThickness, railThickness, Mathf.Max(targetSize.z - legThickness * 1.8f, legThickness)),
+            railMaterial);
+
+        return "generated_supports";
+    }
+
+    private static Quaternion GetTableProxyRotation(
+        MRUKAnchor anchor,
+        bool preserveYawOrientation,
+        float yawOffsetDegrees)
     {
         if (anchor == null)
         {
@@ -440,7 +568,7 @@ public class AnchorThemeApplier : MonoBehaviour
             return Quaternion.identity;
         }
 
-        return Quaternion.LookRotation(forward.normalized, Vector3.up);
+        return Quaternion.LookRotation(forward.normalized, Vector3.up) * Quaternion.Euler(0f, yawOffsetDegrees, 0f);
     }
 
     private void ApplyProxyAccent(GameObject proxyInstance, ThemeProfile theme)
@@ -493,6 +621,80 @@ public class AnchorThemeApplier : MonoBehaviour
         SetMaterialColor(materialInstance, tintedColor);
     }
 
+    private Material CreateGeneratedTableSupportMaterial(ThemeProfile theme, float valueBlend, float emissionScale)
+    {
+        var fallbackShader = Shader.Find("Universal Render Pipeline/Lit") ??
+                             Shader.Find("Universal Render Pipeline/Unlit") ??
+                             Shader.Find("Standard");
+        if (fallbackShader == null)
+        {
+            return null;
+        }
+
+        var material = new Material(fallbackShader);
+        var baseColor = Color.Lerp(new Color(0.12f, 0.14f, 0.18f, 1f), theme.AccentColor, valueBlend);
+        baseColor.a = 1f;
+        SetMaterialColor(material, baseColor);
+        SetMaterialTexture(material);
+        SetEmission(material, theme.AccentColor * Mathf.Max(0.08f, theme.SurfaceMaterials.EmissionIntensity * emissionScale));
+        ConfigureOpaqueProxyMaterial(material);
+        _runtimeMaterials.Add(material);
+        return material;
+    }
+
+    private void CreateGeneratedTablePart(
+        Transform parent,
+        string partName,
+        Vector3 localPosition,
+        Vector3 localScale,
+        Material sharedMaterial)
+    {
+        var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        part.name = partName;
+        part.transform.SetParent(parent, false);
+        part.transform.localPosition = localPosition;
+        part.transform.localRotation = Quaternion.identity;
+        part.transform.localScale = localScale;
+
+        var collider = part.GetComponent<Collider>();
+        if (collider != null)
+        {
+            SafeDestroy(collider);
+        }
+
+        var renderer = part.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            renderer.sharedMaterial = sharedMaterial;
+        }
+    }
+
+    private static void SetProxyVisualState(Transform root, bool isVisible)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        var renderers = root.GetComponentsInChildren<Renderer>(true);
+        foreach (var renderer in renderers)
+        {
+            if (renderer != null)
+            {
+                renderer.enabled = isVisible;
+            }
+        }
+
+        var colliders = root.GetComponentsInChildren<Collider>(true);
+        foreach (var collider in colliders)
+        {
+            if (collider != null)
+            {
+                collider.enabled = isVisible;
+            }
+        }
+    }
+
     private void SuppressAnchorRenderers(MRUKAnchor anchor)
     {
         if (anchor == null)
@@ -537,6 +739,86 @@ public class AnchorThemeApplier : MonoBehaviour
 
             renderer.enabled = false;
         }
+
+        SuppressRoomModelSemanticVisual(anchor);
+    }
+
+    private void SuppressRoomModelSemanticVisual(MRUKAnchor anchor)
+    {
+        var semanticRootName = GetDebugSemanticRootName(anchor);
+        if (string.IsNullOrEmpty(semanticRootName))
+        {
+            return;
+        }
+
+        var transforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        Transform closestMatch = null;
+        var closestDistance = float.MaxValue;
+
+        foreach (var current in transforms)
+        {
+            if (current == null || !string.Equals(current.name, semanticRootName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (!HasAncestorNamed(current, "RoomModel"))
+            {
+                continue;
+            }
+
+            var distance = Vector3.SqrMagnitude(current.position - anchor.transform.position);
+            if (distance >= closestDistance)
+            {
+                continue;
+            }
+
+            closestDistance = distance;
+            closestMatch = current;
+        }
+
+        if (closestMatch == null)
+        {
+            return;
+        }
+
+        var visualObject = closestMatch.gameObject;
+        if (!_originalVisualObjectStates.ContainsKey(visualObject))
+        {
+            _originalVisualObjectStates[visualObject] = visualObject.activeSelf;
+        }
+
+        visualObject.SetActive(false);
+    }
+
+    private static string GetDebugSemanticRootName(MRUKAnchor anchor)
+    {
+        if (anchor == null)
+        {
+            return null;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.TABLE))
+        {
+            return "TABLE";
+        }
+
+        return null;
+    }
+
+    private static bool HasAncestorNamed(Transform current, string ancestorName)
+    {
+        while (current != null)
+        {
+            if (string.Equals(current.name, ancestorName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            current = current.parent;
+        }
+
+        return false;
     }
 
     private static StylizationPlanEntry FindPlanEntry(
@@ -934,6 +1216,41 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         materialInstance.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+    }
+
+    private static void ConfigureOpaqueProxyMaterial(Material materialInstance)
+    {
+        if (materialInstance.HasProperty("_Surface"))
+        {
+            materialInstance.SetFloat("_Surface", 0f);
+        }
+
+        if (materialInstance.HasProperty("_Blend"))
+        {
+            materialInstance.SetFloat("_Blend", 0f);
+        }
+
+        if (materialInstance.HasProperty("_AlphaClip"))
+        {
+            materialInstance.SetFloat("_AlphaClip", 0f);
+        }
+
+        if (materialInstance.HasProperty("_SrcBlend"))
+        {
+            materialInstance.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+        }
+
+        if (materialInstance.HasProperty("_DstBlend"))
+        {
+            materialInstance.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+        }
+
+        if (materialInstance.HasProperty("_ZWrite"))
+        {
+            materialInstance.SetFloat("_ZWrite", 1f);
+        }
+
+        materialInstance.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
     }
 
     private static void SetEmission(Material materialInstance, Color emissionColor)
