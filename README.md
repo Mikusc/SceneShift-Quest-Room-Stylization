@@ -50,6 +50,7 @@ For the rolling implementation tracker, see [docs/08_PROGRESS_STATUS.md](docs/08
 - URP
 - Unity Input System
 - Unity MCP relay workflow for editor inspection and iteration
+- Meta Quest Developer Hub (`MQDH`) for true-device deployment, capture, and profiling
 
 ## Quick Start
 
@@ -64,8 +65,26 @@ For the rolling implementation tracker, see [docs/08_PROGRESS_STATUS.md](docs/08
    - stylization plan state
    - applier state
    - best-view candidate / last capture state
+6. When moving from simulator checks to headset validation, use `MQDH` to:
+   - install the current APK build on-device
+   - cast, screenshot, or record the MR result
+   - inspect device logs / metrics / traces
+   - pull generated capture files from the headset if needed
 
 Development-stage validation may use `MetaXRSimulator`, but final validation is still defined against the known real discussion room.
+
+## MQDH Role
+
+`MQDH` is not a replacement for `Unity`, `MRUK`, `MetaXRSimulator`, or `Unity MCP`.
+In this repository it should be treated as the supporting tool for **true-device iteration**:
+
+- deploy builds to a Quest headset quickly
+- mirror, screenshot, and record MR output for debugging or demo capture
+- inspect performance through logs, metrics, and traces
+- export files produced on-device during capture or testing
+
+For simulator-first work, `MetaXRSimulator` remains the primary validation path.
+For passthrough-camera, real-room capture, and performance verification, `MQDH` becomes part of the normal workflow.
 
 ## Repository Guide
 

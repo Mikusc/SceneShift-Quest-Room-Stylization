@@ -151,6 +151,31 @@ YourUnityProject/
 
 ---
 
+## 关于 MQDH 的定位
+
+`MQDH`（Meta Quest Developer Hub）适合放在**真机开发和验证流程**里，不是用来替代 `Unity`、`MRUK`、`MetaXRSimulator` 或 `Unity MCP` 的主工具。
+
+对这个项目，它最有价值的用途是：
+- 往 Quest 头显快速安装 APK
+- 投屏、截图、录屏，方便看 MR 风格化结果和录 demo
+- 看 device logs、metrics、traces，排查性能和运行时问题
+- 把真机上导出的截图、录像、采集文件拉回电脑
+
+所以你可以把它理解成：
+
+- `MetaXRSimulator`：当前日常开发主路径
+- `MQDH`：真机部署、观察、采集、性能分析的辅助工具
+
+尤其是后面如果你开始做：
+- passthrough 真机验证
+- `BestViewCaptureService` 的真实房间采集
+- demo 录制
+- 性能 profiling
+
+那 `MQDH` 就应该成为固定工作流的一部分。
+
+---
+
 ## 关于课程方向
 
 虽然你现在在搭一个更完整的技术系统，但你提交 coursework 时，叙事仍然应该写成：
