@@ -30,13 +30,16 @@ public class AnchorThemeApplier : MonoBehaviour
     public int LastAppliedAnchorCount => _lastAppliedAnchorCount;
     public int LastAppliedRendererCount => _lastAppliedRendererCount;
     public int LastAppliedTableProxyCount => _lastAppliedTableProxyCount;
+    public string LastTableProxyStatus => _lastTableProxyStatus;
 
     private readonly Dictionary<Renderer, Material[]> _originalSharedMaterials = new();
     private readonly Dictionary<Renderer, bool> _originalRendererStates = new();
+    private readonly Dictionary<GameObject, bool> _originalVisualObjectStates = new();
     private readonly List<Material> _runtimeMaterials = new();
     private readonly List<GameObject> _spawnedProxyRoots = new();
 
     private string _latestSummary = "[AnchorThemeApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
+    private string _lastTableProxyStatus = "idle";
     private int _lastAppliedAnchorCount;
     private int _lastAppliedRendererCount;
     private int _lastAppliedTableProxyCount;
@@ -268,6 +271,7 @@ public class AnchorThemeApplier : MonoBehaviour
         builder.AppendLine($"Renderers: {_lastAppliedRendererCount}");
         builder.AppendLine($"Table Proxies: {_lastAppliedTableProxyCount}");
         builder.AppendLine($"Plan Entries: {plan?.EntryCount ?? 0}");
+        builder.AppendLine($"Table Status: {_lastTableProxyStatus}");
         builder.Append($"Coverage: floor={floorCount}, wall={wallCount}, ceiling={ceilingCount}");
         _latestSummary = builder.ToString();
         _needsRefresh = _lastAppliedRendererCount == 0;
@@ -284,10 +288,18 @@ public class AnchorThemeApplier : MonoBehaviour
     {
         if (theme == null || room == null || plan == null || proxyObjectsRoot == null)
         {
+            _lastTableProxyStatus = $"blocked(theme={theme != null}, room={room != null}, plan={plan != null}, proxyRoot={proxyObjectsRoot != null})";
             return 0;
         }
 
         var proxyCount = 0;
+        var tableAnchorCount = 0;
+        var matchedPlanCount = 0;
+        var resolvedPrefabCount = 0;
+        var lastEntryId = "none";
+        var lastPrefabName = "none";
+        var lastFailure = "none";
+
         for (var index = 0; index < room.Anchors.Count; index++)
         {
             var anchor = room.Anchors[index];
@@ -296,24 +308,38 @@ public class AnchorThemeApplier : MonoBehaviour
                 continue;
             }
 
+            tableAnchorCount++;
             var planEntry = FindPlanEntry(plan, theme.ThemeId, "table", index);
             if (planEntry == null || planEntry.ReplacementMode != ReplacementMode.ProxyPrefab)
             {
+                lastFailure = planEntry == null ? $"missing_plan_{index}" : $"mode_{planEntry.ReplacementMode}";
                 continue;
             }
 
+            matchedPlanCount++;
+            lastEntryId = planEntry.EntryId;
             var proxyPrefab = ResolveProxyPrefab(theme, planEntry);
             if (proxyPrefab == null)
             {
+                lastFailure = $"missing_prefab_{planEntry.EntryId}";
                 continue;
             }
 
+            resolvedPrefabCount++;
+            lastPrefabName = proxyPrefab.name;
             if (TrySpawnTableProxy(anchor, proxyPrefab, planEntry, theme))
             {
                 proxyCount++;
+                lastFailure = "none";
+            }
+            else
+            {
+                lastFailure = $"spawn_failed_{planEntry.EntryId}";
             }
         }
 
+        _lastTableProxyStatus =
+            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, entry={lastEntryId}, prefab={lastPrefabName}, failure={lastFailure}";
         return proxyCount;
     }
 
@@ -334,8 +360,7 @@ public class AnchorThemeApplier : MonoBehaviour
         var volumeBounds = anchor.VolumeBounds.Value;
         proxyRoot.transform.position = anchor.transform.TransformPoint(volumeBounds.center);
 
-        var yaw = planEntry.PreserveYawOrientation ? anchor.transform.eulerAngles.y : 0f;
-        proxyRoot.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        proxyRoot.transform.rotation = GetTableProxyRotation(anchor, planEntry.PreserveYawOrientation);
 
         var proxyInstance = Instantiate(proxyPrefab, proxyRoot.transform);
         proxyInstance.name = $"{proxyPrefab.name}_{planEntry.EntryId}";
@@ -343,7 +368,7 @@ public class AnchorThemeApplier : MonoBehaviour
         proxyInstance.transform.localRotation = Quaternion.identity;
         proxyInstance.transform.localScale = Vector3.one;
 
-        if (!FitProxyToAnchor(proxyRoot.transform, proxyInstance.transform, volumeBounds.size))
+        if (!FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, volumeBounds.size))
         {
             SafeDestroy(proxyRoot);
             return false;
@@ -360,7 +385,7 @@ public class AnchorThemeApplier : MonoBehaviour
         return true;
     }
 
-    private bool FitProxyToAnchor(Transform proxyRoot, Transform proxyInstance, Vector3 anchorSize)
+    private bool FitProxyToTableAnchor(Transform proxyRoot, Transform proxyInstance, Vector3 anchorSize)
     {
         if (!TryCalculateLocalBounds(proxyRoot, out var initialBounds))
         {
@@ -375,7 +400,7 @@ public class AnchorThemeApplier : MonoBehaviour
 
         var scale = new Vector3(
             sourceSize.x > 0.001f ? targetSize.x / sourceSize.x : 1f,
-            sourceSize.y > 0.001f ? targetSize.y / sourceSize.y : 1f,
+            sourceSize.y > 0.001f ? Mathf.Min(targetSize.y / sourceSize.y, 1f) : 1f,
             sourceSize.z > 0.001f ? targetSize.z / sourceSize.z : 1f);
 
         proxyInstance.localScale = Vector3.Scale(proxyInstance.localScale, scale);
@@ -385,8 +410,37 @@ public class AnchorThemeApplier : MonoBehaviour
             return false;
         }
 
-        proxyInstance.localPosition -= fittedBounds.center;
+        proxyInstance.localPosition = new Vector3(
+            -fittedBounds.center.x,
+            targetSize.y * 0.5f - fittedBounds.max.y,
+            -fittedBounds.center.z);
         return true;
+    }
+
+    private static Quaternion GetTableProxyRotation(MRUKAnchor anchor, bool preserveYawOrientation)
+    {
+        if (anchor == null)
+        {
+            return Quaternion.identity;
+        }
+
+        if (!preserveYawOrientation)
+        {
+            return Quaternion.identity;
+        }
+
+        var forward = Vector3.ProjectOnPlane(anchor.transform.forward, Vector3.up);
+        if (forward.sqrMagnitude < 0.0001f)
+        {
+            forward = Vector3.ProjectOnPlane(anchor.transform.right, Vector3.up);
+        }
+
+        if (forward.sqrMagnitude < 0.0001f)
+        {
+            return Quaternion.identity;
+        }
+
+        return Quaternion.LookRotation(forward.normalized, Vector3.up);
     }
 
     private void ApplyProxyAccent(GameObject proxyInstance, ThemeProfile theme)
@@ -396,8 +450,8 @@ public class AnchorThemeApplier : MonoBehaviour
             return;
         }
 
-        var accentTint = Color.Lerp(Color.white, theme.AccentColor, 0.18f);
-        var accentEmission = theme.AccentColor * Mathf.Max(0.05f, theme.SurfaceMaterials.EmissionIntensity);
+        var accentTint = Color.Lerp(Color.white, theme.AccentColor, 0.12f);
+        var accentEmission = theme.AccentColor * Mathf.Max(0.12f, theme.SurfaceMaterials.EmissionIntensity);
         var renderers = proxyInstance.GetComponentsInChildren<Renderer>(true);
         foreach (var renderer in renderers)
         {
@@ -417,7 +471,7 @@ public class AnchorThemeApplier : MonoBehaviour
                     continue;
                 }
 
-                SetMaterialColor(materialInstance, accentTint);
+                ApplyProxyMaterialTone(materialInstance, accentTint);
                 SetEmission(materialInstance, accentEmission);
                 themedMaterials[index] = materialInstance;
                 _runtimeMaterials.Add(materialInstance);
@@ -427,11 +481,45 @@ public class AnchorThemeApplier : MonoBehaviour
         }
     }
 
+    private static void ApplyProxyMaterialTone(Material materialInstance, Color accentTint)
+    {
+        if (!TryGetMaterialColor(materialInstance, out var baseColor))
+        {
+            baseColor = Color.white;
+        }
+
+        var tintedColor = Color.Lerp(baseColor, accentTint, 0.28f);
+        tintedColor.a = baseColor.a > 0.001f ? baseColor.a : 1f;
+        SetMaterialColor(materialInstance, tintedColor);
+    }
+
     private void SuppressAnchorRenderers(MRUKAnchor anchor)
     {
         if (anchor == null)
         {
             return;
+        }
+
+        var visuals = anchor.GetComponentsInChildren<Transform>(true);
+        foreach (var current in visuals)
+        {
+            if (current == null || current == anchor.transform)
+            {
+                continue;
+            }
+
+            if (!ShouldSuppressVisualRoot(current))
+            {
+                continue;
+            }
+
+            var visualObject = current.gameObject;
+            if (!_originalVisualObjectStates.ContainsKey(visualObject))
+            {
+                _originalVisualObjectStates[visualObject] = visualObject.activeSelf;
+            }
+
+            visualObject.SetActive(false);
         }
 
         var renderers = anchor.GetComponentsInChildren<Renderer>(true);
@@ -530,7 +618,7 @@ public class AnchorThemeApplier : MonoBehaviour
         for (var index = 0; index < renderers.Length; index++)
         {
             var renderer = renderers[index];
-            if (renderer == null || renderer is ParticleSystemRenderer)
+            if (!ShouldUseRendererForBounds(renderer))
             {
                 continue;
             }
@@ -564,6 +652,24 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         return hasBounds;
+    }
+
+    private static bool ShouldUseRendererForBounds(Renderer renderer)
+    {
+        if (renderer == null || renderer is ParticleSystemRenderer)
+        {
+            return false;
+        }
+
+        // Ignore baked shadow helper meshes so they do not distort proxy fitting.
+        return !renderer.name.Contains("shadow", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldSuppressVisualRoot(Transform current)
+    {
+        return current.name.Contains("(PrefabSpawner Clone)", StringComparison.Ordinal) ||
+               current.name.StartsWith("Volume(", StringComparison.Ordinal) ||
+               current.name.StartsWith("PlaneMesh(", StringComparison.Ordinal);
     }
 
     private void ApplySurfaceTheme(Renderer renderer, ThemeProfile theme, ThemeSurfaceKind surfaceKind)
@@ -653,6 +759,18 @@ public class AnchorThemeApplier : MonoBehaviour
 
     private void ResetSuppressedRenderers()
     {
+        foreach (var pair in _originalVisualObjectStates)
+        {
+            if (pair.Key == null)
+            {
+                continue;
+            }
+
+            pair.Key.SetActive(pair.Value);
+        }
+
+        _originalVisualObjectStates.Clear();
+
         foreach (var pair in _originalRendererStates)
         {
             if (pair.Key == null)
@@ -678,6 +796,7 @@ public class AnchorThemeApplier : MonoBehaviour
 
         _spawnedProxyRoots.Clear();
         _lastAppliedTableProxyCount = 0;
+        _lastTableProxyStatus = "reset";
     }
 
     private bool TryGetSurfaceContext(Transform current, out ThemeSurfaceKind surfaceKind, out Transform surfaceRoot)
@@ -749,6 +868,24 @@ public class AnchorThemeApplier : MonoBehaviour
         {
             materialInstance.SetColor("_Color", tintColor);
         }
+    }
+
+    private static bool TryGetMaterialColor(Material materialInstance, out Color color)
+    {
+        if (materialInstance.HasProperty("_BaseColor"))
+        {
+            color = materialInstance.GetColor("_BaseColor");
+            return true;
+        }
+
+        if (materialInstance.HasProperty("_Color"))
+        {
+            color = materialInstance.GetColor("_Color");
+            return true;
+        }
+
+        color = Color.white;
+        return false;
     }
 
     private static void SetMaterialTexture(Material materialInstance)

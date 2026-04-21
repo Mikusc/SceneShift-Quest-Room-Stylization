@@ -51,7 +51,10 @@ NPC 互动放到 **Phase 2**。
 ### 8. `docs/07_CODEX_WORKFLOW_PROMPTS_CN.md`
 可以直接复制到 Codex 里的中文提示词模板。
 
-### 9. `.codex/config.toml.example`
+### 9. `docs/08_PROGRESS_STATUS.md`
+项目当前完成进度、正在做的事情、主要风险、下一步最小任务。
+
+### 10. `.codex/config.toml.example`
 一个项目级 Codex 配置示例。你已经连上 Unity MCP 了，这个文件主要是给你之后整理项目级配置用。
 
 ---

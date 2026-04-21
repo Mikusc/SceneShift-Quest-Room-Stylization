@@ -38,6 +38,8 @@ Current prototype status:
 
 This means the project is already beyond a blank setup, but it is still in active vertical-slice prototyping rather than demo-final polish.
 
+For the rolling implementation tracker, see [docs/08_PROGRESS_STATUS.md](docs/08_PROGRESS_STATUS.md).
+
 ## Tech Stack
 
 - Unity 6
@@ -83,6 +85,8 @@ Development-stage validation may use `MetaXRSimulator`, but final validation is 
   Proposed higher-level Unity MCP tooling.
 - `docs/07_CODEX_WORKFLOW_PROMPTS_CN.md`
   Reusable Chinese prompts for working with Codex.
+- `docs/08_PROGRESS_STATUS.md`
+  Manual rolling tracker for completed work, current risks, and the next smallest task.
 
 ## Key Runtime Modules
 
