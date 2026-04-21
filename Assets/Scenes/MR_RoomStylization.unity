@@ -1096,6 +1096,7 @@ MonoBehaviour:
   themeIntentController: {fileID: 1272341564}
   stylizationPlanner: {fileID: 1272341567}
   anchorThemeApplier: {fileID: 1272341566}
+  bestViewCaptureService: {fileID: 1336658400}
   summaryText: {fileID: 518978864}
 --- !u!114 &1077613720
 MonoBehaviour:
@@ -1356,6 +1357,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1336658399}
+  - component: {fileID: 1336658400}
   m_Layer: 0
   m_Name: Perception
   m_TagString: Untagged
@@ -1378,6 +1380,29 @@ Transform:
   m_Children: []
   m_Father: {fileID: 441697604}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1336658400
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f42aa3cfee3774563b5bc6838bb85b54, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BestViewCaptureService
+  roomSemanticBootstrap: {fileID: 2144530025}
+  themeIntentController: {fileID: 1272341564}
+  referenceCamera: {fileID: 0}
+  referenceCameraTransform: {fileID: 0}
+  targetCategory: 0
+  maxCaptureDistance: 5
+  viewportMargin: 0.08
+  trackBestCandidateDuringPlay: 1
+  captureFolderName: BestViewCaptures
+  enableKeyboardCapture: 1
+  captureKey: 99
 --- !u!1 &1631145970
 GameObject:
   m_ObjectHideFlags: 0

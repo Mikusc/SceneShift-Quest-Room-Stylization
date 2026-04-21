@@ -54,7 +54,10 @@ NPC 互动放到 **Phase 2**。
 ### 9. `docs/08_PROGRESS_STATUS.md`
 项目当前完成进度、正在做的事情、主要风险、下一步最小任务。
 
-### 10. `.codex/config.toml.example`
+### 10. `docs/09_GENERATIVE_OBJECT_PIPELINE.md`
+如果你后面想让家具更接近 Roomify 论文里的“先生成风格图，再生成 3D 模型”的路线，这份文档就是接入方案。
+
+### 11. `.codex/config.toml.example`
 一个项目级 Codex 配置示例。你已经连上 Unity MCP 了，这个文件主要是给你之后整理项目级配置用。
 
 ---

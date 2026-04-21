@@ -34,6 +34,7 @@ Current prototype status:
 - theme selection and debug HUD are in place
 - wall / floor / ceiling surface stylization is visible
 - stylization planning is implemented for wall, floor, ceiling, table, screen, storage, and seating
+- a thin `BestViewCaptureService` is in place for `TABLE`-targeted reference capture requests and writes screenshot + metadata files to `Library/BestViewCaptures/`
 - first table proxy path has been wired into the planner/applier, but proxy alignment and replacement visibility are still being refined
 
 This means the project is already beyond a blank setup, but it is still in active vertical-slice prototyping rather than demo-final polish.
@@ -62,6 +63,7 @@ For the rolling implementation tracker, see [docs/08_PROGRESS_STATUS.md](docs/08
    - active theme
    - stylization plan state
    - applier state
+   - best-view candidate / last capture state
 
 Development-stage validation may use `MetaXRSimulator`, but final validation is still defined against the known real discussion room.
 
@@ -87,6 +89,8 @@ Development-stage validation may use `MetaXRSimulator`, but final validation is 
   Reusable Chinese prompts for working with Codex.
 - `docs/08_PROGRESS_STATUS.md`
   Manual rolling tracker for completed work, current risks, and the next smallest task.
+- `docs/09_GENERATIVE_OBJECT_PIPELINE.md`
+  Optional advanced plan for Roomify-like best-view image to stylized image to 3D object generation.
 
 ## Key Runtime Modules
 
@@ -97,6 +101,7 @@ Current runtime architecture centers around these components:
 - `StylizationPlanner`
 - `AnchorThemeApplier`
 - `RoomMoodController`
+- `BestViewCaptureService`
 - `StylizationDebugPanel`
 
 Planned next-layer components include:

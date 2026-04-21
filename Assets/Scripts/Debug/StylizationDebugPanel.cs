@@ -10,6 +10,7 @@ public class StylizationDebugPanel : MonoBehaviour
     [SerializeField] private ThemeIntentController themeIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
     [SerializeField] private AnchorThemeApplier anchorThemeApplier;
+    [SerializeField] private BestViewCaptureService bestViewCaptureService;
     [SerializeField] private TMP_Text summaryText;
 
     private void Reset()
@@ -18,6 +19,7 @@ public class StylizationDebugPanel : MonoBehaviour
         themeIntentController = FindAnyObjectByType<ThemeIntentController>();
         stylizationPlanner = FindAnyObjectByType<StylizationPlanner>();
         anchorThemeApplier = FindAnyObjectByType<AnchorThemeApplier>();
+        bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
         summaryText = GetComponentInChildren<TMP_Text>(true);
     }
 
@@ -41,6 +43,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (anchorThemeApplier == null)
         {
             anchorThemeApplier = FindAnyObjectByType<AnchorThemeApplier>();
+        }
+
+        if (bestViewCaptureService == null)
+        {
+            bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
         }
 
         if (summaryText == null)
@@ -95,6 +102,12 @@ public class StylizationDebugPanel : MonoBehaviour
             builder.Append(anchorThemeApplier.LatestSummary);
         }
 
+        if (bestViewCaptureService != null)
+        {
+            builder.AppendLine();
+            builder.Append(bestViewCaptureService.LatestSummary);
+        }
+
         summaryText.text = builder.ToString().TrimEnd();
     }
 
@@ -129,6 +142,14 @@ public class StylizationDebugPanel : MonoBehaviour
 
         anchorThemeApplier.SummaryChanged -= Refresh;
         anchorThemeApplier.SummaryChanged += Refresh;
+
+        if (bestViewCaptureService == null)
+        {
+            return;
+        }
+
+        bestViewCaptureService.SummaryChanged -= Refresh;
+        bestViewCaptureService.SummaryChanged += Refresh;
     }
 
     private void Unsubscribe()
@@ -151,6 +172,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (anchorThemeApplier != null)
         {
             anchorThemeApplier.SummaryChanged -= Refresh;
+        }
+
+        if (bestViewCaptureService != null)
+        {
+            bestViewCaptureService.SummaryChanged -= Refresh;
         }
     }
 
