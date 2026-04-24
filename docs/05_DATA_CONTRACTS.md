@@ -334,6 +334,12 @@ int SourceAnchorIndex;
 SerializablePose WorldPose;
 SerializableBounds WorldBounds;
 Vector3 Dimensions;
+float TargetLengthMeters;
+float TargetWidthMeters;
+float TargetHeightMeters;
+float TargetAspectRatio;
+float SafetyFootprintScale;
+GeneratedObjectVerticalFitMode VerticalFitMode;
 bool CollisionSensitive;
 ReplacementMode PlannedReplacementMode;
 string PlannedReplacementId;
@@ -396,30 +402,64 @@ string PromptArtifactPath;
 string BackendResultPath;
 string BackendResultTemplatePath;
 string BackendTransformId;
+string ModelGenerationTaskId;
+string ModelGenerationRequestPath;
+string ModelGenerationResultPath;
 string StylizedImagePath;
+string StylizedImageUrl;
 string GeneratedModelPath;
 string ImportedPrefabPath;
 string PreviewImagePath;
 SerializableBounds ImportedBounds;
 float SourceYawDegrees;
+float TargetLengthMeters;
+float TargetWidthMeters;
+float TargetHeightMeters;
+float TargetAspectRatio;
+float SafetyFootprintScale;
+GeneratedObjectVerticalFitMode VerticalFitMode;
 Vector3 RegisteredScale;
 Vector3 RegisteredEulerDegrees;
 float RegistrationIoUScore;
+bool QualityReviewPassed;
+float QualityScore;
+string QualityReviewStatus;
+string QualityReviewWarnings;
 string FailureReason;
 string UpdatedAtIsoUtc;
 ```
 
 ## Notes
+- The target size fields are physical scaffold constraints for generated furniture. For the current MRUK table path, `BestViewCaptureService` derives length/width/height from the anchor `Dimensions`, using the larger horizontal axis as length and the smaller horizontal axis as width.
+- `TargetAspectRatio` is `length / width`.
+- `SafetyFootprintScale` tells image/model workers how tightly to preserve the collision-sensitive footprint.
+- `VerticalFitMode` tells later workers/importers whether to preserve scaffold height, fit inside height, or only bottom-align the generated asset.
+
+## `GeneratedObjectVerticalFitMode`
+```csharp
+public enum GeneratedObjectVerticalFitMode
+{
+    PreserveScaffoldHeight,
+    FitInsideHeight,
+    BottomAlignOnly,
+}
+```
+
+## Notes
 - `State` is the main orchestration flag.
-- `StylizedImagePath` is enough for the current thin backend boundary.
+- `StylizedImagePath` is the local generated PNG path when the image worker writes a file.
+- `StylizedImageUrl` is an optional hosted `http(s)` URL for the same stylized image. `Seed3DBackendAdapter` needs this field, or an `http(s)` `StylizedImagePath`, because the Ark task API consumes `image_url`.
 - `GeneratedModelPath`, `ImportedPrefabPath`, and `ImportedBounds` are now actively used by the manual Seed3D/import path.
 - `RegisteredScale`, `RegisteredEulerDegrees`, and `RegistrationIoUScore` remain reserved for a later fuller registration/refinement step.
+- `QualityReviewPassed`, `QualityScore`, `QualityReviewStatus`, and `QualityReviewWarnings` are written by `GeneratedObjectModelImporter` to keep suspicious generated models out of automatic placement.
 - A current successful manual path is:
   - `StylizedImageReady`
+  - `ModelGenerationSubmitted` when using the automated Seed3D adapter
   - `ModelReady`
   - `Imported`
 - `ModelReady` means a Unity-importable model file exists at `GeneratedModelPath`.
 - `Imported` means `GeneratedObjectModelImporter` saved a generated prefab and wrote `ImportedPrefabPath`.
+- `NeedsReview` means a prefab was saved, but the automatic quality gate found suspicious proportions or bounds, so runtime systems should keep using deterministic fallback or a previously accepted generated asset.
 - The first validated imported generated table job is `table_18_20260424071758`.
 
 ---
@@ -472,6 +512,7 @@ string PromptArtifactPath;
 string SourceInputImagePath;
 string SourceRequestPath;
 string OutputImagePath;
+string OutputImageUrl;
 string BackendAdapterName;
 string AppliedTransformId;
 bool PromptArtifactConsumed;
@@ -482,7 +523,8 @@ string CreatedAtIsoUtc;
 
 ## Notes
 - For the current image-only step, `OutputState` should normally be `StylizedImageReady`.
-- `OutputImagePath` must match the generated image that exists on disk.
+- `OutputImagePath` should match the generated image that exists on disk when a local file is available.
+- `OutputImageUrl` may be set by an external worker when the generated image is also hosted at a public `http(s)` URL for Seed3D.
 - The adapter can then advance the `.job.json` without a real cloud service.
 
 ---
@@ -500,6 +542,8 @@ public enum GeneratedObjectJobState
     Imported,
     Failed,
     BackendSubmitted,
+    ModelGenerationSubmitted,
+    NeedsReview,
 }
 ```
 

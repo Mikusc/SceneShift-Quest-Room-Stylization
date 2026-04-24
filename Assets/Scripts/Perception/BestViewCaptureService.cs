@@ -25,6 +25,10 @@ public class BestViewCaptureService : MonoBehaviour
     [SerializeField, Range(0f, 0.45f)] private float viewportMargin = 0.08f;
     [SerializeField] private bool trackBestCandidateDuringPlay = true;
 
+    [Header("Generated Asset Fit Constraints")]
+    [SerializeField, Range(0.75f, 1.15f)] private float safetyFootprintScale = 1f;
+    [SerializeField] private GeneratedObjectVerticalFitMode verticalFitMode = GeneratedObjectVerticalFitMode.PreserveScaffoldHeight;
+
     [Header("Crop Settings")]
     [SerializeField, Range(0f, 0.25f)] private float cropPaddingNormalized = 0.04f;
     [SerializeField, Range(0.05f, 0.5f)] private float minCropSizeNormalized = 0.16f;
@@ -568,6 +572,7 @@ public class BestViewCaptureService : MonoBehaviour
         var theme = themeIntentController != null ? themeIntentController.ActiveTheme : null;
         var plannedEntry = FindMatchingPlanEntry(_bestCandidate.Anchor, _bestCandidate.AnchorIndex);
         var worldRotation = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.transform.rotation : Quaternion.identity;
+        var targetSize = CalculateTargetPhysicalSize(_bestCandidate.Dimensions);
 
         var request = new GeneratedObjectRequest
         {
@@ -588,6 +593,12 @@ public class BestViewCaptureService : MonoBehaviour
             WorldPose = SerializablePose.From(_bestCandidate.WorldCenter, worldRotation),
             WorldBounds = SerializableBounds.From(_bestCandidate.WorldCenter, _bestCandidate.Dimensions),
             Dimensions = _bestCandidate.Dimensions,
+            TargetLengthMeters = targetSize.LengthMeters,
+            TargetWidthMeters = targetSize.WidthMeters,
+            TargetHeightMeters = targetSize.HeightMeters,
+            TargetAspectRatio = targetSize.AspectRatio,
+            SafetyFootprintScale = safetyFootprintScale,
+            VerticalFitMode = verticalFitMode,
             CollisionSensitive = IsCollisionSensitive(functionTag),
             PlannedReplacementMode = plannedEntry != null ? plannedEntry.ReplacementMode : ReplacementMode.ProxyPrefab,
             PlannedReplacementId = plannedEntry != null ? plannedEntry.ReplacementId : string.Empty,
@@ -695,6 +706,23 @@ public class BestViewCaptureService : MonoBehaviour
         }
 
         return Vector3.forward * dimensions.z;
+    }
+
+    private static TargetPhysicalSize CalculateTargetPhysicalSize(Vector3 dimensions)
+    {
+        var x = Mathf.Max(0.01f, Mathf.Abs(dimensions.x));
+        var y = Mathf.Max(0.01f, Mathf.Abs(dimensions.y));
+        var z = Mathf.Max(0.01f, Mathf.Abs(dimensions.z));
+        var length = Mathf.Max(x, z);
+        var width = Mathf.Min(x, z);
+
+        return new TargetPhysicalSize
+        {
+            LengthMeters = length,
+            WidthMeters = width,
+            HeightMeters = y,
+            AspectRatio = width > 0.0001f ? length / width : 1f,
+        };
     }
 
     private static string BuildAppearancePrompt(
@@ -1132,6 +1160,14 @@ public class BestViewCaptureService : MonoBehaviour
             Target = target;
             WasActive = wasActive;
         }
+    }
+
+    private struct TargetPhysicalSize
+    {
+        public float LengthMeters;
+        public float WidthMeters;
+        public float HeightMeters;
+        public float AspectRatio;
     }
 }
 

@@ -26,6 +26,7 @@ If testing generated-object handoff:
 - `LocalGeneratedObjectBackendAdapter.processingMode` is the expected mode
 - if testing generated table placement, the expected `.job.json` is `Imported` and has a valid `ImportedPrefabPath`
 - if testing the current validated generated table, confirm `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab` exists
+- if testing generated or deterministic table placement, explicitly enable `AnchorThemeApplier.applyTableProxies`; the canonical scene may keep it disabled so the default Play view shows the MRUK shell
 
 ---
 
@@ -51,8 +52,9 @@ In Play mode, verify:
 - current theme is resolved
 - `StylizationPlanner` produces entries for major semantics
 - wall/floor/ceiling stylization is visible
-- table proxy appears once, not duplicated repeatedly
-- table proxy footprint remains near the real/MRUK table scaffold
+- if table proxy placement is enabled, table proxy appears once and is not duplicated repeatedly
+- if table proxy placement is enabled, table proxy footprint remains near the real/MRUK table scaffold
+- if table proxy placement is disabled, the MRUK/original table shell remains visible and no virtual table replacement is expected
 - room remains readable; user can still understand real furniture positions
 
 Fail if:
@@ -111,6 +113,8 @@ Expected after a manual Seed3D worker run:
 - `ImportedPrefabPath` points to `Assets/Generated/ThemeAssets/<requestId>/<requestId>.generated_table_proxy.prefab`
 
 ## Runtime generated table placement
+The canonical scene can keep table proxy placement disabled while generation work is in progress. Before running this section, enable `AnchorThemeApplier.applyTableProxies` for the validation run.
+
 Expected in Play mode when the generated prefab is selected:
 - `AnchorThemeApplier` `Table Status` includes `source=generated_import`
 - `prefab` names the generated table prefab
@@ -134,6 +138,7 @@ Before recording:
 - run the scene once without changing inspector values mid-demo
 - verify table proxy alignment from the intended camera angle
 - if using the generated table, verify the current table is not floating and that its footprint is acceptable from the intended Simulator/user camera angle
+- if staying on the MRUK shell, confirm table proxy placement is disabled and do not treat the missing virtual table as a failure
 - decide whether MRUK debug overlay should be visible for explanation or hidden for clean visuals
 - keep generated-object branch as an optional artifact demo unless generated-proxy import/registration plus review/reset behavior is complete
 

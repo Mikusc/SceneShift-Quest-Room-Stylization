@@ -8,6 +8,10 @@ public static class GeneratedObjectModelImporter
 {
     private const string JobFolderName = "GeneratedObjectJobs";
     private const string ThemeAssetFolder = "Assets/Generated/ThemeAssets";
+    private const float MinimumBoundsExtent = 0.01f;
+    private const float MaximumAspectRatioError = 0.45f;
+    private const float MaximumHeightRatioError = 0.65f;
+    private const float MinimumHeightToFootprintRatio = 0.12f;
 
     static GeneratedObjectModelImporter()
     {
@@ -114,19 +118,27 @@ public static class GeneratedObjectModelImporter
                 return false;
             }
 
+            var quality = EvaluateQuality(record, normalizedBounds);
+
             var prefab = PrefabUtility.SaveAsPrefabAsset(wrapper, prefabAssetPath);
             if (prefab == null)
             {
                 return false;
             }
 
-            record.State = GeneratedObjectJobState.Imported;
+            record.State = quality.Passed ? GeneratedObjectJobState.Imported : GeneratedObjectJobState.NeedsReview;
             record.ImportedPrefabPath = Path.GetFullPath(Path.Combine(GetProjectRoot(), prefabAssetPath));
             record.ImportedBounds = SerializableBounds.From(normalizedBounds.center, normalizedBounds.size);
-            record.StatusNote = "Generated GLB imported as a normalized prefab. Runtime applier may use it in Editor/Simulator and fall back to deterministic proxy when unavailable.";
+            record.QualityReviewPassed = quality.Passed;
+            record.QualityScore = quality.Score;
+            record.QualityReviewStatus = quality.Status;
+            record.QualityReviewWarnings = quality.Warnings;
+            record.StatusNote = quality.Passed
+                ? "Generated model imported as a normalized prefab and passed the automatic quality gate. Runtime applier may use it in Editor/Simulator and fall back to deterministic proxy when unavailable."
+                : "Generated model imported as a normalized prefab but needs review before runtime use. Runtime applier should continue using deterministic fallback or a previously approved generated asset.";
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
-            Debug.Log($"[GeneratedObjectModelImporter] Imported generated model prefab -> {prefabAssetPath}");
+            Debug.Log($"[GeneratedObjectModelImporter] Imported generated model prefab -> {prefabAssetPath} ({record.State}, quality={quality.Score:0.##})");
             return true;
         }
         finally
@@ -215,6 +227,73 @@ public static class GeneratedObjectModelImporter
         return hasBounds;
     }
 
+    private static GeneratedModelQualityResult EvaluateQuality(GeneratedAssetRecord record, Bounds bounds)
+    {
+        var result = new GeneratedModelQualityResult
+        {
+            Passed = true,
+            Score = 1f,
+            Status = "Passed",
+            Warnings = string.Empty,
+        };
+
+        var size = bounds.size;
+        if (size.x < MinimumBoundsExtent || size.y < MinimumBoundsExtent || size.z < MinimumBoundsExtent)
+        {
+            result.AddWarning("Renderable bounds are too small on one or more axes.");
+            result.Score -= 0.5f;
+        }
+
+        var horizontalLong = Mathf.Max(size.x, size.z);
+        var horizontalShort = Mathf.Min(size.x, size.z);
+        if (horizontalShort < MinimumBoundsExtent || horizontalLong < MinimumBoundsExtent)
+        {
+            result.AddWarning("Horizontal footprint bounds are too small for reliable table registration.");
+            result.Score -= 0.35f;
+        }
+        else
+        {
+            var sourceAspect = horizontalLong / horizontalShort;
+            var targetAspect = record != null && record.TargetAspectRatio > 0.01f ? record.TargetAspectRatio : 0f;
+            if (targetAspect > 0f)
+            {
+                var aspectError = Mathf.Abs(sourceAspect - targetAspect) / Mathf.Max(targetAspect, 0.01f);
+                if (aspectError > MaximumAspectRatioError)
+                {
+                    result.AddWarning($"Footprint aspect ratio differs from target by {aspectError:P0}.");
+                    result.Score -= Mathf.Clamp01(aspectError) * 0.35f;
+                }
+            }
+
+            var sourceHeightRatio = size.y / horizontalLong;
+            if (sourceHeightRatio < MinimumHeightToFootprintRatio)
+            {
+                result.AddWarning("Generated model is very flat and may be tabletop-only.");
+                result.Score -= 0.35f;
+            }
+
+            if (record != null && record.TargetLengthMeters > 0.01f && record.TargetHeightMeters > 0.01f)
+            {
+                var targetHeightRatio = record.TargetHeightMeters / record.TargetLengthMeters;
+                var heightRatioError = Mathf.Abs(sourceHeightRatio - targetHeightRatio) / Mathf.Max(targetHeightRatio, 0.01f);
+                if (heightRatioError > MaximumHeightRatioError)
+                {
+                    result.AddWarning($"Height-to-length ratio differs from target by {heightRatioError:P0}.");
+                    result.Score -= Mathf.Clamp01(heightRatioError) * 0.25f;
+                }
+            }
+        }
+
+        result.Score = Mathf.Clamp01(result.Score);
+        if (!string.IsNullOrWhiteSpace(result.Warnings) || result.Score < 0.72f)
+        {
+            result.Passed = false;
+            result.Status = "NeedsReview";
+        }
+
+        return result;
+    }
+
     private static bool TryGetProjectRelativePath(string absoluteOrRelativePath, out string assetPath)
     {
         assetPath = string.Empty;
@@ -243,5 +322,25 @@ public static class GeneratedObjectModelImporter
     private static string GetProjectRoot()
     {
         return Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+    }
+
+    private struct GeneratedModelQualityResult
+    {
+        public bool Passed;
+        public float Score;
+        public string Status;
+        public string Warnings;
+
+        public void AddWarning(string warning)
+        {
+            if (string.IsNullOrWhiteSpace(warning))
+            {
+                return;
+            }
+
+            Warnings = string.IsNullOrWhiteSpace(Warnings)
+                ? warning
+                : $"{Warnings} {warning}";
+        }
     }
 }

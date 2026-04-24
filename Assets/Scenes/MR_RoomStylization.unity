@@ -1294,8 +1294,8 @@ MonoBehaviour:
   includeInnerWallFaces: 0
   logApplications: 1
   autoRefreshInterval: 0.75
-  applyTableProxies: 1
-  hideOriginalVolumeVisuals: 1
+  applyTableProxies: 0
+  hideOriginalVolumeVisuals: 0
   proxyFootprintPadding: 1
   proxyHeightPadding: 1
   tableProxyYawOffsetDegrees: 90
@@ -1416,6 +1416,8 @@ GameObject:
   - component: {fileID: 1336658400}
   - component: {fileID: 1336658401}
   - component: {fileID: 1336658402}
+  - component: {fileID: 1336658403}
+  - component: {fileID: 1336658404}
   m_Layer: 0
   m_Name: Perception
   m_TagString: Untagged
@@ -1466,7 +1468,7 @@ MonoBehaviour:
   suppressInteractionVisualsForCapture: 1
   captureFolderName: BestViewCaptures
   captureSourceMode: 0
-  externalScreenshotPath: 
+  externalScreenshotPath: /Users/mikusc/Documents/UnityProjects/SceneShift Discussion Room/Library/BestViewCaptures/ExternalInputs/table_bestview_20260424_145924.png
   copyExternalScreenshotIntoCaptureFolder: 1
   enableVisibilityToggleInPlay: 1
   toggleVisibilityKey: 118
@@ -1505,6 +1507,51 @@ MonoBehaviour:
   jobFolderName: GeneratedObjectJobs
   outputFolderName: GeneratedObjectOutputs
   backendInboxFolderName: GeneratedObjectBackendInbox
+--- !u!114 &1336658403
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cea5ada0d2df942deb5b423f41a1d799, type: 3}
+  m_Name: ''
+  m_EditorClassIdentifier: Assembly-CSharp::HostedImageUploadBridge
+  uploadEndpoint: ''
+  authHeaderName: Authorization
+  authTokenEnvironmentVariable: ''
+  authHeaderPrefix: 'Bearer '
+  formFileFieldName: file
+  autoProcessJobsInPlay: 1
+  pollIntervalSeconds: 3
+  jobFolderName: GeneratedObjectJobs
+--- !u!114 &1336658404
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0626bb9a4d4548e28145660c1ea117a3, type: 3}
+  m_Name: ''
+  m_EditorClassIdentifier: Assembly-CSharp::Seed3DBackendAdapter
+  apiKeyEnvironmentVariable: ARK_API_KEY
+  taskEndpoint: https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
+  model: doubao-seed3d-2-0-260328
+  subdivisionLevel: medium
+  fileFormat: glb
+  extraTextInstruction: Generate one clean 3D model from the isolated stylized object
+    image. Preserve proportions, footprint, and support/contact surfaces.
+  autoProcessJobsInPlay: 1
+  pollIntervalSeconds: 5
+  timeoutSeconds: 900
+  jobFolderName: GeneratedObjectJobs
+  generatedAssetFolder: Assets/Generated/ThemeAssets
+  backendModelFolderName: GeneratedObjectModels
 --- !u!1 &1631145970
 GameObject:
   m_ObjectHideFlags: 0

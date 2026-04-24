@@ -177,6 +177,7 @@ public class LocalGeneratedObjectBackendAdapter : MonoBehaviour
 
         record.State = GeneratedObjectJobState.StylizedImageReady;
         record.StylizedImagePath = outputPath;
+        record.StylizedImageUrl = string.Empty;
         record.PreviewImagePath = outputPath;
         record.StatusNote = $"Local backend adapter simulated stylized-image output by applying mock transform '{transformId}', consuming the queued prompt artifact, and writing a backend result artifact.";
         record.BackendAdapterName = nameof(LocalGeneratedObjectBackendAdapter);
@@ -264,17 +265,18 @@ public class LocalGeneratedObjectBackendAdapter : MonoBehaviour
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
         record.StatusNote = result.StatusNote;
 
-        if (result.OutputState == GeneratedObjectJobState.StylizedImageReady &&
-            !string.IsNullOrWhiteSpace(result.OutputImagePath) &&
-            File.Exists(result.OutputImagePath))
+        var hasLocalOutput = !string.IsNullOrWhiteSpace(result.OutputImagePath) && File.Exists(result.OutputImagePath);
+        var hasHostedOutput = IsHttpUrl(result.OutputImageUrl);
+        if (result.OutputState == GeneratedObjectJobState.StylizedImageReady && (hasLocalOutput || hasHostedOutput))
         {
             record.State = GeneratedObjectJobState.StylizedImageReady;
-            record.StylizedImagePath = result.OutputImagePath;
-            record.PreviewImagePath = result.OutputImagePath;
+            record.StylizedImagePath = hasLocalOutput ? result.OutputImagePath : string.Empty;
+            record.StylizedImageUrl = hasHostedOutput ? result.OutputImageUrl : string.Empty;
+            record.PreviewImagePath = hasLocalOutput ? result.OutputImagePath : result.OutputImageUrl;
             record.FailureReason = string.Empty;
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
             _lastProcessedRecord = record;
-            Debug.Log($"[LocalGeneratedObjectBackendAdapter] Consumed external backend result -> {result.OutputImagePath}", this);
+            Debug.Log($"[LocalGeneratedObjectBackendAdapter] Consumed external backend result -> {record.PreviewImagePath}", this);
             return true;
         }
 
@@ -305,6 +307,7 @@ public class LocalGeneratedObjectBackendAdapter : MonoBehaviour
             SourceInputImagePath = submission.SourceInputImagePath,
             SourceRequestPath = submission.SourceRequestPath,
             OutputImagePath = submission.RequestedOutputImagePath,
+            OutputImageUrl = string.Empty,
             BackendAdapterName = "ManualGPTImageWorker",
             AppliedTransformId = "manual_gpt_image_v1",
             PromptArtifactConsumed = true,
@@ -335,6 +338,7 @@ public class LocalGeneratedObjectBackendAdapter : MonoBehaviour
             SourceInputImagePath = record.SourceInputImagePath,
             SourceRequestPath = record.SourceRequestPath,
             OutputImagePath = outputImagePath,
+            OutputImageUrl = string.Empty,
             BackendAdapterName = nameof(LocalGeneratedObjectBackendAdapter),
             AppliedTransformId = appliedTransformId,
             PromptArtifactConsumed = promptArtifactConsumed,
@@ -491,6 +495,12 @@ public class LocalGeneratedObjectBackendAdapter : MonoBehaviour
         return Path.Combine(libraryRoot, backendInboxFolderName);
     }
 
+    private static bool IsHttpUrl(string value)
+    {
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+               (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+    }
+
     private void PublishSummary(string state)
     {
         var builder = new StringBuilder(384);
@@ -510,6 +520,7 @@ public class LocalGeneratedObjectBackendAdapter : MonoBehaviour
             builder.AppendLine($"Template Path: {_lastProcessedRecord.BackendResultTemplatePath}");
             builder.AppendLine($"Transform Id: {_lastProcessedRecord.BackendTransformId}");
             builder.AppendLine($"Stylized Image: {_lastProcessedRecord.StylizedImagePath}");
+            builder.AppendLine($"Stylized Image URL: {_lastProcessedRecord.StylizedImageUrl}");
             builder.AppendLine($"Status Note: {_lastProcessedRecord.StatusNote}");
         }
         else

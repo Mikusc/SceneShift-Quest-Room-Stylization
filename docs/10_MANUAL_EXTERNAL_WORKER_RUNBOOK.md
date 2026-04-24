@@ -27,6 +27,7 @@ Before testing, confirm:
 - `BestViewCaptureService.captureSourceMode` is `ExternalScreenshot`
 - `BestViewCaptureService.externalScreenshotPath` points to a manually captured simulator/room screenshot
 - `LocalGeneratedObjectBackendAdapter.processingMode` is `ExternalFileProtocol`
+- generated table runtime placement is opt-in: the canonical scene may keep `AnchorThemeApplier.applyTableProxies` disabled so the default Play view shows the MRUK shell
 - Unity is not compiling
 - Console has no new blocking errors
 
@@ -112,6 +113,7 @@ Expected job state:
 Expected updated job fields:
 - `BackendResultPath`
 - `StylizedImagePath`
+- `StylizedImageUrl` when the external worker also hosts the image for Seed3D `image_url`
 - `BackendAdapterName`
 - `StatusNote`
 - `UpdatedAtIsoUtc`
@@ -173,6 +175,20 @@ Current tested backend:
 - query task endpoint: `GET https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{id}`
 - tested text command: `--subdivisionlevel medium --fileformat glb`
 
+Automated adapter option:
+- `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
+  - optional helper for uploading local stylized PNG files to an operator-configured hosting endpoint
+  - writes `StylizedImageUrl` back to the job without changing the job state
+  - reads optional upload auth token from a configured environment variable and does not write it to job JSON
+- `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
+- reads the API key from environment variable `ARK_API_KEY`
+- default endpoint/model/subdivision/fileformat match the tested Seed3D 2.0 values above
+- processes only jobs in `StylizedImageReady`
+- requires `StylizedImageUrl`, or `StylizedImagePath`, to be a public `http(s)` `image_url`
+- does not upload local files; local `Library/.../*.png` paths remain waiting for a hosted URL unless a separate upload bridge writes `StylizedImageUrl`
+- writes request/result metadata under `Library/GeneratedObjectModels/<requestId>/`
+- downloads the returned model to `Assets/Generated/ThemeAssets/<requestId>/<requestId>.seed3d.generated.glb` when `fileformat=glb`, then sets the job to `ModelReady`
+
 Hard rule:
 - do not write API keys, bearer tokens, or signed `file_url` values into repository files or docs
 - if a backend response JSON contains a signed URL, keep it under `Library/GeneratedObjectModels/` only and do not commit it
@@ -185,6 +201,8 @@ Expected worker steps:
 5. set the matching `.job.json` to `ModelReady`
 6. set `GeneratedModelPath` to the copied GLB path
 7. set `BackendTransformId` to a descriptive value such as `manual_gpt_image_v1+seed3d_2_0_260328_medium_glb`
+
+If using `Seed3DBackendAdapter`, the adapter first records `ModelGenerationSubmitted` with the Ark task id, can resume polling after interruption, and then advances the job to `ModelReady` after the model download completes. The adapter keeps `ARK_API_KEY` out of logs and job JSON.
 
 For the current validated table, the copied GLB path is:
 - `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`
@@ -216,6 +234,7 @@ For the current validated table, the imported prefab path is:
 # 9. Runtime placement check
 
 In Editor/Simulator, `AnchorThemeApplier` can prefer imported generated table prefabs.
+If the canonical scene is currently set to the MRUK shell, enable `AnchorThemeApplier.applyTableProxies` for this check and decide separately whether to hide original MRUK volume visuals.
 
 Expected `Table Status` indicators:
 - `source=generated_import`

@@ -35,6 +35,12 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine();
         builder.AppendLine("GEOMETRY = {");
         builder.AppendLine($"  dimensions_m: [{FormatFloat(request.Dimensions.x)}, {FormatFloat(request.Dimensions.y)}, {FormatFloat(request.Dimensions.z)}],");
+        builder.AppendLine($"  target_length_m: {FormatFloat(request.TargetLengthMeters)},");
+        builder.AppendLine($"  target_width_m: {FormatFloat(request.TargetWidthMeters)},");
+        builder.AppendLine($"  target_height_m: {FormatFloat(request.TargetHeightMeters)},");
+        builder.AppendLine($"  target_aspect_ratio_length_over_width: {FormatFloat(request.TargetAspectRatio)},");
+        builder.AppendLine($"  safety_footprint_scale: {FormatFloat(request.SafetyFootprintScale)},");
+        builder.AppendLine($"  vertical_fit_mode: \"{request.VerticalFitMode}\",");
         builder.AppendLine($"  scaffold_longest_axis_m: [{FormatFloat(request.ScaffoldLongestAxis.x)}, {FormatFloat(request.ScaffoldLongestAxis.y)}, {FormatFloat(request.ScaffoldLongestAxis.z)}],");
         builder.AppendLine($"  best_view_yaw_degrees: {FormatFloat(request.BestViewYawDegrees)},");
         builder.AppendLine($"  normalized_crop_rect: [{FormatFloat(request.NormalizedCropRect.X)}, {FormatFloat(request.NormalizedCropRect.Y)}, {FormatFloat(request.NormalizedCropRect.Width)}, {FormatFloat(request.NormalizedCropRect.Height)}]");
@@ -58,6 +64,9 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine("IMAGE_INSTRUCTIONS = [");
         builder.AppendLine("  \"Generate exactly one stylized target object, not a complete room scene.\",");
         builder.AppendLine("  \"Preserve the overall silhouette, proportions, and dominant viewing angle of the real object.\",");
+        builder.AppendLine("  \"Preserve the explicit target length, width, height, and length/width aspect ratio from GEOMETRY as hard spatial constraints for the later 3D fit.\",");
+        builder.AppendLine("  \"Keep the visible footprint within the safety_footprint_scale; do not widen the base or supports beyond the real scaffold footprint.\",");
+        builder.AppendLine("  \"Respect vertical_fit_mode so tabletop/contact height stays compatible with the real MRUK scaffold.\",");
         builder.AppendLine("  \"Keep the object readable as its original high-level function.\",");
         builder.AppendLine("  \"Preserve collision-relevant footprint cues, support/contact surfaces, and major leg/base placement.\",");
         builder.AppendLine("  \"Maintain walk-around clearance implied by the current footprint.\",");

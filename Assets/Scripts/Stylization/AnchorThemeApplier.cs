@@ -27,6 +27,18 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField] private bool hideOriginalVolumeVisuals = true;
     [SerializeField, Min(0.1f)] private float proxyFootprintPadding = 1f;
     [SerializeField, Min(0.1f)] private float proxyHeightPadding = 1f;
+    [SerializeField, Tooltip("FloorToAnchorTop fits generated tables from the MRUK floor plane up to the MRUK table top, which is better for full-height generated assets.")]
+    private TableProxyVerticalFitMode tableVerticalFitMode = TableProxyVerticalFitMode.FloorToAnchorTop;
+    [SerializeField, Range(1f, 1.25f), Tooltip("Horizontal safety expansion applied after the MRUK table footprint so the virtual table slightly covers the real one.")]
+    private float tableFootprintSafetyScale = 1.08f;
+    [SerializeField, Range(0.75f, 1.35f), Tooltip("Optional local X correction for room-specific table width mismatch.")]
+    private float tableLocalXScale = 1f;
+    [SerializeField, Range(0.75f, 1.35f), Tooltip("Optional local Z correction for room-specific table depth mismatch.")]
+    private float tableLocalZScale = 1f;
+    [SerializeField, Min(0f), Tooltip("Small clearance above the MRUK floor plane used when fitting full-height generated tables.")]
+    private float tableFloorClearanceMeters = 0.005f;
+    [SerializeField, Tooltip("Final world-space Y offset for manual room calibration after automatic fitting.")]
+    private float tableProxyVerticalOffsetMeters;
     [SerializeField, Range(-180f, 180f)] private float tableProxyYawOffsetDegrees = 90f;
     [SerializeField] private bool augmentFlatTableProxies = true;
     [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
@@ -343,7 +355,7 @@ public class AnchorThemeApplier : MonoBehaviour
             resolvedPrefabCount++;
             lastPrefabName = proxyPrefab.name;
             lastPrefabSource = prefabSource;
-            if (TrySpawnTableProxy(anchor, proxyPrefab, planEntry, theme, out var augmentationStatus, out var fitStatus))
+            if (TrySpawnTableProxy(anchor, room, proxyPrefab, planEntry, theme, out var augmentationStatus, out var fitStatus))
             {
                 proxyCount++;
                 lastFailure = "none";
@@ -364,6 +376,7 @@ public class AnchorThemeApplier : MonoBehaviour
 
     private bool TrySpawnTableProxy(
         MRUKAnchor anchor,
+        MRUKRoom room,
         GameObject proxyPrefab,
         StylizationPlanEntry planEntry,
         ThemeProfile theme,
@@ -392,15 +405,21 @@ public class AnchorThemeApplier : MonoBehaviour
         proxyInstance.transform.localRotation = Quaternion.identity;
         proxyInstance.transform.localScale = Vector3.one;
 
-        if (!TryCalculateAnchorTargetBounds(proxyRoot.transform, anchor.transform, volumeBounds, out var targetBounds) ||
+        if (!TryCalculateAnchorTargetBounds(proxyRoot.transform, anchor.transform, volumeBounds, out var rawTargetBounds) ||
+            !TryAdjustTableTargetBoundsForVerticalFit(proxyRoot.transform, room, rawTargetBounds, out var targetBounds, out var verticalFitStatus) ||
             !FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, targetBounds, out var fittedBounds, out var targetSize, out var sourceSize, out var appliedScale))
         {
             SafeDestroy(proxyRoot);
             return false;
         }
 
+        if (Mathf.Abs(tableProxyVerticalOffsetMeters) > 0.0001f)
+        {
+            proxyRoot.transform.position += Vector3.up * tableProxyVerticalOffsetMeters;
+        }
+
         var bottomDelta = fittedBounds.min.y - targetBounds.min.y;
-        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}";
+        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}, vertical={verticalFitStatus}, safety={tableFootprintSafetyScale:0.###}, offsetY={FormatMeters(tableProxyVerticalOffsetMeters)}";
 
         ApplyProxyAccent(proxyInstance, theme);
         augmentationStatus = AugmentFlatTableProxy(proxyRoot.transform, proxyInstance.transform, fittedBounds, targetSize, theme);
@@ -434,10 +453,11 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         sourceSize = initialBounds.size;
+        var footprintScale = Mathf.Max(0.01f, proxyFootprintPadding * tableFootprintSafetyScale);
         targetSize = new Vector3(
-            Mathf.Max(targetBounds.size.x * proxyFootprintPadding, 0.05f),
+            Mathf.Max(targetBounds.size.x * footprintScale * tableLocalXScale, 0.05f),
             Mathf.Max(targetBounds.size.y * proxyHeightPadding, 0.05f),
-            Mathf.Max(targetBounds.size.z * proxyFootprintPadding, 0.05f));
+            Mathf.Max(targetBounds.size.z * footprintScale * tableLocalZScale, 0.05f));
 
         var xScale = sourceSize.x > 0.001f ? targetSize.x / sourceSize.x : 1f;
         var zScale = sourceSize.z > 0.001f ? targetSize.z / sourceSize.z : 1f;
@@ -451,11 +471,11 @@ public class AnchorThemeApplier : MonoBehaviour
             zScale = 1f;
         }
 
-        var footprintScale = Mathf.Min(xScale, zScale);
-        var yScale = sourceSize.y > 0.001f ? targetSize.y / sourceSize.y : footprintScale;
+        var fallbackFootprintScale = Mathf.Min(xScale, zScale);
+        var yScale = sourceSize.y > 0.001f ? targetSize.y / sourceSize.y : fallbackFootprintScale;
         if (!IsUsableScale(yScale))
         {
-            yScale = footprintScale;
+            yScale = fallbackFootprintScale;
         }
 
         var scale = new Vector3(xScale, yScale, zScale);
@@ -523,6 +543,110 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         return hasBounds;
+    }
+
+    private bool TryAdjustTableTargetBoundsForVerticalFit(
+        Transform proxyRoot,
+        MRUKRoom room,
+        Bounds sourceTargetBounds,
+        out Bounds adjustedTargetBounds,
+        out string fitStatus)
+    {
+        adjustedTargetBounds = sourceTargetBounds;
+        fitStatus = tableVerticalFitMode.ToString();
+
+        if (proxyRoot == null)
+        {
+            fitStatus = "missing_proxy_root";
+            return false;
+        }
+
+        if (tableVerticalFitMode == TableProxyVerticalFitMode.AnchorBoundsBottom)
+        {
+            return true;
+        }
+
+        if (tableVerticalFitMode == TableProxyVerticalFitMode.ManualOffsetOnly)
+        {
+            fitStatus = "ManualOffsetOnly";
+            return true;
+        }
+
+        if (!TryGetFloorWorldY(room, out var floorWorldY))
+        {
+            fitStatus = "floor_missing_fallback_anchor_bounds";
+            return true;
+        }
+
+        var targetTopWorldY = proxyRoot.TransformPoint(new Vector3(
+            sourceTargetBounds.center.x,
+            sourceTargetBounds.max.y,
+            sourceTargetBounds.center.z)).y;
+        var targetBottomWorldY = floorWorldY + tableFloorClearanceMeters;
+        if (targetTopWorldY <= targetBottomWorldY + 0.05f)
+        {
+            fitStatus = "floor_to_top_invalid_fallback_anchor_bounds";
+            return true;
+        }
+
+        var localBottomY = proxyRoot.InverseTransformPoint(new Vector3(
+            proxyRoot.position.x,
+            targetBottomWorldY,
+            proxyRoot.position.z)).y;
+        var localTopY = proxyRoot.InverseTransformPoint(new Vector3(
+            proxyRoot.position.x,
+            targetTopWorldY,
+            proxyRoot.position.z)).y;
+
+        var min = adjustedTargetBounds.min;
+        var max = adjustedTargetBounds.max;
+        min.y = Mathf.Min(localBottomY, localTopY);
+        max.y = Mathf.Max(localBottomY, localTopY);
+        adjustedTargetBounds.SetMinMax(min, max);
+        fitStatus = $"FloorToAnchorTop(floor={FormatMeters(floorWorldY)}, clear={FormatMeters(tableFloorClearanceMeters)})";
+        return true;
+    }
+
+    private static bool TryGetFloorWorldY(MRUKRoom room, out float floorWorldY)
+    {
+        floorWorldY = default;
+        if (room == null || room.Anchors == null)
+        {
+            return false;
+        }
+
+        var sampleCount = 0;
+        var yTotal = 0f;
+        for (var index = 0; index < room.Anchors.Count; index++)
+        {
+            var anchor = room.Anchors[index];
+            if (anchor == null || !anchor.HasAnyLabel(MRUKAnchor.SceneLabels.FLOOR))
+            {
+                continue;
+            }
+
+            if (anchor.PlaneRect.HasValue)
+            {
+                var rect = anchor.PlaneRect.Value;
+                yTotal += anchor.transform.TransformPoint(new Vector3(rect.xMin, rect.yMin, 0f)).y;
+                yTotal += anchor.transform.TransformPoint(new Vector3(rect.xMax, rect.yMin, 0f)).y;
+                yTotal += anchor.transform.TransformPoint(new Vector3(rect.xMax, rect.yMax, 0f)).y;
+                yTotal += anchor.transform.TransformPoint(new Vector3(rect.xMin, rect.yMax, 0f)).y;
+                sampleCount += 4;
+                continue;
+            }
+
+            yTotal += anchor.transform.position.y;
+            sampleCount++;
+        }
+
+        if (sampleCount == 0)
+        {
+            return false;
+        }
+
+        floorWorldY = yTotal / sampleCount;
+        return true;
     }
 
     private static bool IsUsableScale(float value)
@@ -1550,4 +1674,11 @@ public class AnchorThemeApplier : MonoBehaviour
             DestroyImmediate(target);
         }
     }
+}
+
+public enum TableProxyVerticalFitMode
+{
+    AnchorBoundsBottom,
+    FloorToAnchorTop,
+    ManualOffsetOnly,
 }

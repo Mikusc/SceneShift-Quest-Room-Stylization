@@ -17,6 +17,12 @@ public class GeneratedObjectRequest
     public SerializablePose WorldPose;
     public SerializableBounds WorldBounds;
     public Vector3 Dimensions;
+    public float TargetLengthMeters;
+    public float TargetWidthMeters;
+    public float TargetHeightMeters;
+    public float TargetAspectRatio;
+    public float SafetyFootprintScale = 1f;
+    public GeneratedObjectVerticalFitMode VerticalFitMode = GeneratedObjectVerticalFitMode.PreserveScaffoldHeight;
     public bool CollisionSensitive;
     public ReplacementMode PlannedReplacementMode = ReplacementMode.ProxyPrefab;
     public string PlannedReplacementId;
@@ -60,15 +66,29 @@ public class GeneratedAssetRecord
     public string BackendResultPath;
     public string BackendResultTemplatePath;
     public string BackendTransformId;
+    public string ModelGenerationTaskId;
+    public string ModelGenerationRequestPath;
+    public string ModelGenerationResultPath;
     public string StylizedImagePath;
+    public string StylizedImageUrl;
     public string GeneratedModelPath;
     public string ImportedPrefabPath;
     public string PreviewImagePath;
     public SerializableBounds ImportedBounds;
     public float SourceYawDegrees;
+    public float TargetLengthMeters;
+    public float TargetWidthMeters;
+    public float TargetHeightMeters;
+    public float TargetAspectRatio;
+    public float SafetyFootprintScale = 1f;
+    public GeneratedObjectVerticalFitMode VerticalFitMode = GeneratedObjectVerticalFitMode.PreserveScaffoldHeight;
     public Vector3 RegisteredScale = Vector3.one;
     public Vector3 RegisteredEulerDegrees;
     public float RegistrationIoUScore;
+    public bool QualityReviewPassed;
+    public float QualityScore;
+    public string QualityReviewStatus;
+    public string QualityReviewWarnings;
     public string FailureReason;
     public string UpdatedAtIsoUtc;
 }
@@ -84,6 +104,7 @@ public class GeneratedImageBackendResult
     public string SourceInputImagePath;
     public string SourceRequestPath;
     public string OutputImagePath;
+    public string OutputImageUrl;
     public string BackendAdapterName;
     public string AppliedTransformId;
     public bool PromptArtifactConsumed;
@@ -119,6 +140,8 @@ public enum GeneratedObjectJobState
     Imported,
     Failed,
     BackendSubmitted,
+    ModelGenerationSubmitted,
+    NeedsReview,
 }
 
 public enum BestViewCaptureSourceMode
@@ -126,6 +149,13 @@ public enum BestViewCaptureSourceMode
     ExternalScreenshot,
     UnityFramebufferDebug,
     DevicePassthroughReserved,
+}
+
+public enum GeneratedObjectVerticalFitMode
+{
+    PreserveScaffoldHeight,
+    FitInsideHeight,
+    BottomAlignOnly,
 }
 
 [Serializable]

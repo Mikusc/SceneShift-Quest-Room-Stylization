@@ -202,12 +202,17 @@ In this repository, that chain should map onto runtime modules like this:
   - `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`
   - `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab`
 - `AnchorThemeApplier` can now prefer that imported generated table prefab in Editor/Simulator and fall back to deterministic theme proxies when no imported generated job is usable.
+- The canonical scene currently keeps table proxy placement disabled so Play defaults to the MRUK shell. Generated table placement should be explicitly enabled only when validating the generated-object branch.
+- `GeneratedObjectRequest` and `GeneratedAssetRecord` now carry physical target constraints for generated furniture: target length, width, height, length/width aspect ratio, safety footprint scale, and vertical fit mode.
+- `GeneratedObjectPromptBuilder` includes those constraints in the image prompt so the isolated stylized reference keeps the same MRUK table proportions before image-to-3D.
+- `Seed3DBackendAdapter` is a first automated model backend option. It reads `ARK_API_KEY` from the environment, submits `StylizedImageReady` jobs to Ark Seed3D 2.0, records `ModelGenerationSubmitted` with the task id, resumes polling submitted jobs after interruption, downloads the returned model to `Assets/Generated/ThemeAssets/<requestId>/`, and advances the job to `ModelReady`.
+- `HostedImageUploadBridge` is an optional upload bridge for workstation setups that can host local `Library/GeneratedObjectOutputs/*.stylized.png` files. It writes `StylizedImageUrl` on the job without changing the job state, so `Seed3DBackendAdapter` can consume the hosted URL.
 
 ### What is still missing
 - no normalized `RoomObjectRecord` path yet
 - no generalized multi-category capture path yet; the current raw/cropped image export only targets `TABLE`
 - no automated image stylization API integration; the current image was produced by manual worker flow
-- no automated Seed3D worker integration; the current model was produced by a manual API run
+- no built-in cloud storage provider is bundled; `HostedImageUploadBridge` can call a configured upload endpoint, but the project still needs an operator-provided hosting service
 - no durable generated asset registry beyond scanning imported `.job.json` records
 - no full Roomify-style OBB/IoU generated-proxy registration path yet
 - no manual approval/reject/correction UI specifically for generated furniture
@@ -317,10 +322,12 @@ Do not assume the raw output is scene-ready.
 The next import/registration stages are mandatory.
 
 Current repository interpretation:
-- Seed3D 2.0 is currently a manual/offline backend step, not a committed runtime worker
+- Seed3D 2.0 can be run either through the manual/offline backend step or through `Seed3DBackendAdapter`
 - the tested model command requested medium subdivision and GLB output
 - the downloaded backend package is unpacked outside `Assets/`, then only the Unity-ready GLB is copied into `Assets/Generated/ThemeAssets/<requestId>/`
 - generated backend metadata may be kept under `Library/GeneratedObjectModels/`, but API keys and signed URLs must stay out of tracked files and docs
+- `Seed3DBackendAdapter` automates this step only when `StylizedImageUrl`, or `StylizedImagePath`, is already a public `http(s)` image URL. It does not upload local files; local `Library/.../*.png` images remain waiting for a hosted URL instead of being submitted.
+- The adapter writes request/result metadata under `Library/GeneratedObjectModels/<requestId>/` and does not log or serialize `ARK_API_KEY`.
 
 Roomify-specific note:
 - the paper uses this stage because image models currently preserve style and coarse geometry better than direct text-to-3D
@@ -442,6 +449,8 @@ public enum GeneratedObjectJobState
     Imported,
     Failed,
     BackendSubmitted,
+    ModelGenerationSubmitted,
+    NeedsReview,
 }
 ```
 
@@ -510,7 +519,8 @@ Only after the file protocol and generated-proxy registration are stable, connec
 
 Status:
 - manual GPT-image and manual Seed3D steps have been validated for one table candidate
-- automated workers and persistent registry are not implemented
+- `Seed3DBackendAdapter` is implemented as the first automated model-generation worker for public `http(s)` stylized image URLs
+- automated image stylization, local image upload/hosting, and persistent registry are not implemented
 
 This preserves the repository’s core principle:
 - deterministic, editable stylization first

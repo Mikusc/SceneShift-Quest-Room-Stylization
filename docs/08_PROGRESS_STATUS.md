@@ -5,7 +5,7 @@ This file is the manual progress tracker for the current vertical slice.
 Update it after each meaningful implementation step.
 
 ## Snapshot
-- Last updated: `2026-04-24`
+- Last updated: `2026-04-25`
 - Current priority: `Phase 1 — room stylization`
 - Canonical scene: `Assets/Scenes/MR_RoomStylization.unity`
 - Primary development validation path: `MetaXRSimulator`
@@ -18,7 +18,7 @@ Update it after each meaningful implementation step.
 | M2 — Visible object perception fusion | Not started | No `ObservedObjectCollector` or `SemanticFusionService` yet. |
 | M3 — Theme system and stylization planning | Mostly done | `ThemeProfile`, `StylizationPlan`, `StylizationPlanner`, and debug HUD are in place. |
 | M4 — Stylization application | In progress | Surface stylization and room mood are working. Table proxy replacement is wired but still being refined. |
-| M5 — Manual correction mode | Not started | No inspect / nudge / reset correction flow yet. |
+| M5 — Manual correction mode | Started | A standalone `CorrectionModeController` code skeleton now exists, but it is not yet scene-integrated. |
 | M6 — Demo readiness | Not started | No dedicated demo UI, smoke-test panel, or capture toggles yet. |
 | M7 — NPC preparation | Not started | Intentionally deferred until Phase 1 is stable. |
 | M8 — Generated object enrichment | In progress | One `TABLE` side-branch job reached transparent image, Seed3D GLB, imported prefab, and runtime generated-prefab placement in Simulator. |
@@ -36,19 +36,24 @@ Update it after each meaningful implementation step.
 - `SurfaceOverrideApplier` now exposes `Off`, `Background`, and `DemoStrong` surface visibility modes. The canonical scene defaults to `Background` so wall / floor / ceiling stay as low-opacity style atmosphere while furniture replacement is still being brought up.
 - `RoomMoodController` provides theme-linked mood changes.
 - Initial table proxy spawning is connected from planner to applier.
-- `BestViewCaptureService` tracks the best visible `TABLE` anchor in Play mode and writes a full-frame reference image + metadata + `GeneratedObjectRequest` JSON export to `Library/BestViewCaptures/`; in `ExternalScreenshot` mode the original screenshot is currently used directly as the backend input while the estimated crop rect remains in metadata.
+- `BestViewCaptureService` tracks the best visible `TABLE` anchor in Play mode and writes a full-frame reference image + metadata + `GeneratedObjectRequest` JSON export to `Library/BestViewCaptures/`; in `ExternalScreenshot` mode the original screenshot is currently used directly as the backend input while the estimated crop rect remains in metadata. Requests now carry target physical length / width / height, target aspect ratio, safety footprint scale, and vertical fit mode for generated asset workers.
 - `BestViewCaptureService` now distinguishes between `ExternalScreenshot`, `UnityFramebufferDebug`, and `DevicePassthroughReserved` source modes; `ExternalScreenshot` is the preferred simulation path.
 - `GenerativeObjectCoordinator` is now attached under `Perception` and writes a local `.job.json` shell to `Library/GeneratedObjectJobs/` when a new captured request appears.
 - `GeneratedObjectPromptBuilder` now converts each request into a Roomify-inspired prompt artifact and `GenerativeObjectCoordinator` writes it as `Library/GeneratedObjectJobs/*.prompt.txt`.
 - `LocalGeneratedObjectBackendAdapter` is now attached under `Perception` and can locally consume `CaptureReady` jobs into simulated `StylizedImageReady` outputs by applying a theme-aware mock stylization transform, writing `Library/GeneratedObjectOutputs/*.stylized.png`, and writing a matching `*.result.json` backend artifact.
 - `LocalGeneratedObjectBackendAdapter` now also exposes an `ExternalFileProtocol` mode that writes `Library/GeneratedObjectBackendInbox/*.submission.json` plus a prefilled `*.result.template.json`, and can later consume a dropped external `*.result.json` without changing the Unity-side job/prompt contract.
+- `LocalGeneratedObjectBackendAdapter` can now consume either a local stylized PNG path or an external hosted stylized image URL from `GeneratedImageBackendResult`, enabling the Seed3D API path without adding an upload worker.
+- `HostedImageUploadBridge` can optionally upload local stylized PNG outputs to an operator-configured hosting endpoint and write `StylizedImageUrl` back to the job for Seed3D `image_url` input.
+- `Seed3DBackendAdapter` can process `StylizedImageReady` jobs when a public `http(s)` stylized image URL is available, read `ARK_API_KEY` from the Unity process environment, create Ark Seed3D 2.0 tasks, record `ModelGenerationSubmitted`, resume polling by task id after interruption, download the generated model under `Assets/Generated/ThemeAssets/<requestId>/`, and advance the job to `ModelReady`.
 - One manual GPT-image worker output now exists for `TABLE_18`: `Library/GeneratedObjectOutputs/table_18_20260424071758.stylized.png`. The file is RGBA PNG data and is intended to be an isolated transparent table reference, not a room-photo edit.
 - One manual Seed3D 2.0 image-to-3D run produced `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`; backend metadata remains under `Library/GeneratedObjectModels/`.
 - `GeneratedObjectModelImporter` imports `ModelReady` jobs, normalizes generated model bounds to a centered bottom pivot, removes imported colliders, saves a prefab, and advances the job to `Imported`.
 - The current imported generated table prefab is `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab`.
 - `AnchorThemeApplier` can prefer the latest imported generated table prefab in Editor/Simulator and fall back to the theme/default deterministic proxy when no usable generated prefab exists.
+- The canonical scene currently keeps table replacement disabled (`applyTableProxies=false`) and original MRUK volume visuals visible (`hideOriginalVolumeVisuals=false`) so the default Play view returns to the MRUK shell. Generated/deterministic table proxy placement is an opt-in validation step, not the default scene state.
 - Table generated-prefab fitting now transforms the MRUK `VolumeBounds` corners through the anchor transform into proxy-root local space before sizing, so rotated MRUK bounds do not treat a local axis as world-up by mistake.
-- Table proxy footprint and height padding are now saved as `1.0` in the canonical scene for size consistency, and runtime status logs target/source/scale/bottomDelta fit diagnostics.
+- Table proxy footprint and height padding are now saved as `1.0` in the canonical scene for size consistency, and runtime status logs target/source/scale/bottomDelta fit diagnostics. The latest local code adds full-height generated-table fitting from MRUK floor to MRUK table top, horizontal safety footprint scaling, per-axis local footprint correction, and a final vertical offset field for one-room calibration.
+- `CorrectionModeController` now exists as a standalone component code skeleton for selecting one applied object, inspecting metadata, nudging position, rotating yaw, resetting, and confirming correction deltas; it is not yet wired into the canonical scene or applier registry.
 - Project documentation now includes a manual external-worker runbook, smoke-test/demo checklist, and true-device validation plan so the generated-object side branch can be tested without relying on ad hoc chat instructions.
 
 ## In Progress
@@ -67,11 +72,13 @@ Update it after each meaningful implementation step.
 - The current object-level crop path is `TABLE`-only and still MRUK-anchor-driven; it is not yet generalized to fused `RoomObjectRecord` inputs.
 - The current `ExternalScreenshot` path assumes the manual screenshot roughly matches the active gameplay view and excludes window chrome.
 - The estimated crop rect can still drift from the screenshot composition because the image source and runtime camera are not the same frame.
-- Image stylization and Seed3D model generation are still manual/offline operations; no automated cloud worker is committed.
+- Image stylization is still manual/offline unless using the local mock adapter. Seed3D model generation now has an automated Ark adapter and optional upload bridge, but both need operator-provided endpoint/key configuration and have not been exercised against real services in this repo session.
 - Generated asset lookup currently scans imported `.job.json` records; there is no dedicated generated asset registry database yet.
 - Generated furniture still lacks explicit user approval/reject/correction UI.
 - No true-device passthrough/camera-frame capture path is implemented yet; it is only reserved in the contract.
 - No complete demo-ready UI path outside inspector/debug HUD usage.
+- The Ark API key is read only from `ARK_API_KEY` in the Unity process environment; Unity must be launched with that environment variable for `Seed3DBackendAdapter` to see it.
+- MetaXRSimulator / Editor Play still resets the user start pose between Play sessions. A first editor-only pose-bookmark experiment was reverted because it did not reliably override the simulator start pose; use simulator controls or a future official-rig-compatible solution instead.
 
 ## Latest Stable Verification
 Last stable manual/runtime checks before this document update confirmed:
@@ -103,9 +110,14 @@ Last stable manual/runtime checks before this document update confirmed:
 - `GeneratedObjectModelImporter` imported that GLB into `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab` and updated the matching job to `Imported`.
 - A later Simulator Play run selected the generated prefab rather than the deterministic fallback. `AnchorThemeApplier` logged `source=generated_import`, `fit=target=2.02x0.782x0.937, source=2.159x0.761x1.33, scale=0.935x1.027x0.704, bottomDelta=0m`, and `failure=none`.
 - After the latest table fitting change, no `error CS`, `Compiler errors`, or `Compilation failed` entries were found in the inspected Unity Editor log tail.
+- After adding generated physical-size request fields, hosted stylized image URL propagation, `Seed3DBackendAdapter`, floor-to-tabletop table fitting, and the standalone correction controller skeleton, `Assets/Refresh` completed and Unity Console reported `0` Error entries and `0` Warning entries.
+- After adding resumable Seed3D `ModelGenerationSubmitted` state, generated model quality review fields, and importer quality gating to `NeedsReview`, static diff checks passed before the final Unity refresh.
+- After the editor play-pose bookmark experiment was reverted, the canonical scene no longer contains `PlayModeViewPoseBookmark`; the current scene state intentionally remains on the MRUK shell until table proxy placement is explicitly re-enabled for validation.
 
 ## Current Local Workspace State
 The workspace currently contains uncommitted local state that should be treated as in-progress rather than final:
+- `Assets/Scenes/MR_RoomStylization.unity`
+  Current local scene state includes `ExternalScreenshot` capture input, `HostedImageUploadBridge`, `Seed3DBackendAdapter`, and table proxy placement disabled so the default view shows the MRUK shell.
 - `Assets/Scripts/Stylization/AnchorThemeApplier.cs`
   Generated table prefab selection, MRUK-volume-corner target bounds, 1:1 proxy padding defaults, bottom-face alignment, and fit diagnostics are present locally.
 - `Assets/Scripts/Editor/GeneratedObjectModelImporter.cs`
@@ -114,6 +126,12 @@ The workspace currently contains uncommitted local state that should be treated 
   Contains the current Seed3D GLB and generated table prefab.
 - `Assets/Scripts/Perception/GeneratedObjectPromptBuilder.cs`
   Future generated-object prompts now require an isolated transparent object asset; old jobs may still carry older prompt text.
+- `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
+  Ark Seed3D 2.0 task creation/poll/download adapter is present locally and requires hosted image URLs plus `ARK_API_KEY` in the Unity process environment.
+- `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
+  Optional local-PNG-to-hosted-URL bridge is present locally and requires a configured upload endpoint.
+- `Assets/Scripts/Stylization/CorrectionModeController.cs`
+  Standalone correction-mode code skeleton exists locally but is not yet integrated into the scene.
 - `ProjectSettings/URPProjectSettings.asset`
   Unity touched this file during prior graphics/rendering setting recovery.
 - `Assets/_Recovery/0 (11).unity` and `.meta`
@@ -121,14 +139,17 @@ The workspace currently contains uncommitted local state that should be treated 
 
 ## Biggest Technical Risks
 - Unity editor instability when inspecting runtime objects during Play in this project/runtime combination.
-- The current table proxy source asset reads more like a tabletop slab than a clear furniture replacement.
+- The current table proxy source asset reads more like a tabletop slab than a clear furniture replacement, though new prompts/contracts now carry target physical proportions to reduce this risk in future generations.
+- The upload bridge is endpoint-agnostic and untested against a real hosting provider; a concrete hosting endpoint must be configured before it can complete the local PNG -> Ark `image_url` handoff.
 - Remaining simulator/runtime warnings can obscure newly introduced regressions if Console hygiene is not maintained carefully.
 
 ## Next Smallest Task
 For the generated-table branch:
-1. visually inspect the placed generated table from the intended Simulator/user camera angle,
-2. decide whether the current exact scaffold fit is acceptable or whether yaw/aspect correction is still needed,
-3. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready.
+1. provide a hosted `StylizedImageUrl` for a `StylizedImageReady` job and run one real `Seed3DBackendAdapter` request with `ARK_API_KEY` available to the Unity process,
+2. import the resulting `ModelReady` GLB,
+3. explicitly re-enable `AnchorThemeApplier.applyTableProxies` only for generated-table placement validation and inspect from the intended Simulator/user camera angle,
+4. decide whether the new floor-to-tabletop fit plus safety footprint scale is acceptable or whether yaw/aspect correction is still needed,
+5. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready.
 
 For the core Phase 1 room-stylization branch:
 1. keep `SurfaceOverrideApplier` in `Background` mode while furniture replacement is incomplete,
