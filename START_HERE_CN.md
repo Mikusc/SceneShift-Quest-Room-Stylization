@@ -57,7 +57,16 @@ NPC 互动放到 **Phase 2**。
 ### 10. `docs/09_GENERATIVE_OBJECT_PIPELINE.md`
 如果你后面想让家具更接近 Roomify 论文里的“先生成风格图，再生成 3D 模型”的路线，这份文档就是接入方案。
 
-### 11. `.codex/config.toml.example`
+### 11. `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
+手工外部 worker 操作手册。用于 `ExternalFileProtocol`：Unity 写出 submission/prompt/template，你手动把图片和 prompt 交给 GPT 生图，再把结果写回项目。
+
+### 12. `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
+每次演示或回归验证前使用的检查清单。它说明 Play 前、Play 中、按键、Console、输出文件应该如何确认。
+
+### 13. `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md`
+从 `MetaXRSimulator` 切到 Quest 真机验证时使用。它区分 simulator 能验证什么、MQDH 能帮什么、哪些功能必须真机确认。
+
+### 14. `.codex/config.toml.example`
 一个项目级 Codex 配置示例。你已经连上 Unity MCP 了，这个文件主要是给你之后整理项目级配置用。
 
 ---
@@ -87,7 +96,12 @@ YourUnityProject/
 │  ├─ 04_BACKLOG_AND_MILESTONES.md
 │  ├─ 05_DATA_CONTRACTS.md
 │  ├─ 06_CUSTOM_MCP_TOOLS.md
-│  └─ 07_CODEX_WORKFLOW_PROMPTS_CN.md
+│  ├─ 07_CODEX_WORKFLOW_PROMPTS_CN.md
+│  ├─ 08_PROGRESS_STATUS.md
+│  ├─ 09_GENERATIVE_OBJECT_PIPELINE.md
+│  ├─ 10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md
+│  ├─ 11_SMOKE_TEST_AND_DEMO_CHECKLIST.md
+│  └─ 12_TRUE_DEVICE_VALIDATION_PLAN.md
 └─ Assets/
 ```
 
@@ -115,20 +129,26 @@ YourUnityProject/
 
 ---
 
-## 你现在最应该先做的任务
+## 当前项目状态怎么读
 
-按这套文档，最推荐你**马上开始**的第一个开发目标是：
+这个项目现在已经不是空白起点。它已经有：
+- `MR_RoomStylization.unity` canonical scene
+- MRUK room semantic bootstrap
+- theme / planner / surface stylization
+- table proxy path
+- `BestViewCaptureService`
+- `GenerativeObjectCoordinator`
+- `LocalGeneratedObjectBackendAdapter`
+- `ExternalFileProtocol` 手工外部 worker 边界
+- 一次已跑通的 `TABLE` 生成物支线：透明底 stylized image -> 手工 Seed3D 2.0 GLB -> Unity imported generated table prefab -> Simulator 中 `source=generated_import` 放置
 
-**Milestone 1：MRUK 房间语义调试视图**
+但生成家具还不是 demo-ready 主路径：
+- 自动图像/Seed3D worker 没有提交进工程
+- 生成家具的 accept / reject / reset 控制还没做
+- 当前还需要从目标视角做一次视觉审查，确认桌子尺度、贴地、遮挡和可读性
 
-也就是先让系统能：
-- 读取当前房间
-- 显示 floor / wall / ceiling / table / screen 等语义
-- 用 debug overlay 展示 anchors / labels / bounds
-- 在一个固定场景里稳定运行
-
-先不要急着做风格化。
-因为如果房间语义层不稳定，后面所有 stylization 都会漂。
+所以以后不要再把 “Milestone 1：MRUK 房间语义调试视图” 当作当前第一任务。
+当前真实进度以 `docs/08_PROGRESS_STATUS.md` 为准。
 
 ---
 
@@ -200,9 +220,9 @@ YourUnityProject/
 1. 把这些文件复制进 Unity 项目根目录
 2. 启动 Unity，确认 Unity Bridge 还在 Running
 3. 用 Codex 打开这个项目目录
-4. 先跑“项目盘点 prompt”
-5. 然后用 `docs/07_CODEX_WORKFLOW_PROMPTS_CN.md` 里的第一个 milestone prompt 开始干活
+4. 先看 `docs/08_PROGRESS_STATUS.md` 判断当前最小任务
+5. 如果要继续手工 GPT 生图流程，看 `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
+6. 如果要录 demo 或确认功能没坏，看 `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
+7. 如果要上 Quest 真机，看 `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md`
 
-如果你要最稳地开始，我建议你下一轮直接做：
-
-**“把这套文档放进项目后，先让 Codex 只完成 MRUK 房间语义调试层。”**
+最稳的协作方式仍然是：一次只让 Codex 做一个小任务，做完后同步 `docs/08_PROGRESS_STATUS.md`。

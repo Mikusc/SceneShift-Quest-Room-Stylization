@@ -227,8 +227,57 @@ Reply in Chinese.
 
 ---
 
+## Prompt 13：验证手工 ExternalFileProtocol 生成链路
+
+```text
+Read AGENTS.md and docs/09, docs/10 first.
+Do not change code unless a blocking bug is found.
+Verify the current generated-object file protocol:
+- confirm LocalGeneratedObjectBackendAdapter is in ExternalFileProtocol mode,
+- enter Play only if needed,
+- press C once or ask me to press C,
+- inspect Library/GeneratedObjectJobs and Library/GeneratedObjectBackendInbox,
+- explain which .submission.json fields I should use for the manual image worker,
+- do not take screenshots after Play; only read Console if needed.
+Reply in Chinese with the exact paths I should open and the expected next state.
+```
+
+---
+
+## Prompt 14：跑 demo / smoke test 检查
+
+```text
+Read AGENTS.md and docs/08, docs/11 first.
+Do not add features.
+Run the smallest safe smoke-test inspection for the canonical scene:
+- check current git/workspace state,
+- check relevant scene objects and component wiring,
+- read Unity Console without taking screenshots after Play,
+- verify the expected demo path and generated-object artifacts if present.
+Summarize pass/fail items, blocking issues, accepted simulator warnings, and the next smallest fix in Chinese.
+```
+
+---
+
+## Prompt 15：准备 Quest 真机验证
+
+```text
+Read AGENTS.md and docs/12 first.
+Do not implement new features yet.
+Inspect current XR/Meta project setup and explain what is ready or missing for Quest true-device validation.
+Focus on:
+- deterministic room stylization,
+- MRUK room semantics,
+- file artifacts/log collection,
+- future passthrough/camera capture constraints.
+Do not assume simulator behavior proves true-device camera access.
+Reply in Chinese with a staged validation plan and the smallest next device test.
+```
+
+---
+
 ## 最稳的推荐顺序
-建议你按这个顺序用：
+如果是从零开始，建议你按这个顺序用：
 
 1. Prompt 1
 2. Prompt 3
@@ -241,3 +290,14 @@ Reply in Chinese.
 9. Prompt 10
 
 这样最不容易失控。
+
+如果是在当前项目进度继续开发，先读：
+- `docs/08_PROGRESS_STATUS.md`
+- `docs/09_GENERATIVE_OBJECT_PIPELINE.md`
+- `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
+- `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
+
+然后优先使用：
+- Prompt 13 验证手工生成链路
+- Prompt 14 做 demo 前检查
+- Prompt 15 做真机验证准备

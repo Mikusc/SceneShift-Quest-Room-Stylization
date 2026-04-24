@@ -51,11 +51,19 @@ public class ThemeSurfaceMaterials
     public Material WallMaterial;
     public Material FloorMaterial;
     public Material CeilingMaterial;
+    public ThemeSurfacePatternFamily PatternFamily = ThemeSurfacePatternFamily.FutureLab;
     public Color WallColor = new(0.32f, 0.72f, 0.92f, 0.78f);
     public Color FloorColor = new(0.18f, 0.52f, 0.66f, 0.7f);
     public Color CeilingColor = new(0.78f, 0.9f, 0.98f, 0.6f);
     [Range(0f, 1f)] public float SurfaceOpacity = 0.78f;
     [Range(0f, 4f)] public float EmissionIntensity = 0.18f;
+    [Range(1f, 12f)] public float TextureTiling = 4f;
+    [Range(0f, 1f)] public float PatternStrength = 0.72f;
+
+    [Header("Roomify Prompt Hints")]
+    [TextArea(2, 4)] public string WallTexturePromptHint = "Subtle seamless wall material that supports the theme without overpowering room readability.";
+    [TextArea(2, 4)] public string FloorTexturePromptHint = "Durable seamless floor material that keeps walkable space legible.";
+    [TextArea(2, 4)] public string CeilingTreatmentPromptHint = "Lightweight ceiling or ambient overhead treatment that supports the room mood without hiding real boundaries.";
 
     public Material GetMaterialOverride(ThemeSurfaceKind surfaceKind)
     {
@@ -142,4 +150,11 @@ public enum ThemeSurfaceKind
     Wall,
     Floor,
     Ceiling,
+}
+
+public enum ThemeSurfacePatternFamily
+{
+    FutureLab,
+    ArcaneChamber,
+    CleanPanels,
 }

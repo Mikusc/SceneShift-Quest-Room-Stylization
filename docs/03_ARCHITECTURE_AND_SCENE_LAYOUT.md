@@ -20,6 +20,18 @@ Image Segmentation / Object Detection proposals
     -> Stylized MR room
 ```
 
+Optional generated-object side branch:
+
+```text
+TABLE MRUK anchor
+    -> BestViewCaptureService
+    -> GeneratedObjectRequest
+    -> GenerativeObjectCoordinator
+    -> LocalGeneratedObjectBackendAdapter
+    -> stylized image / external worker result
+    -> future generated proxy registration
+```
+
 ## 3. Core modules
 
 ### 3.1 `RoomSemanticBootstrap`
@@ -87,7 +99,28 @@ Responsibility:
 Outputs:
 - live stylized scene objects
 
-### 3.7 `RoomMoodController`
+### 3.7 `SurfaceTexturePromptBuilder`
+Responsibility:
+- create Roomify-style wall / floor / ceiling prompt artifacts from the active `ThemeProfile`
+- write offline prompt and JSON handoff files under `Library/SurfaceTextureJobs/`
+- keep deterministic fallback textures available when generated PBR textures are absent
+
+Outputs:
+- `SurfaceTexturePromptSet`
+- wall / floor / ceiling `.prompt.txt` files
+- optional persistent material assets under `Assets/Materials/SurfaceOverrides/`
+
+### 3.8 `SurfaceOverrideApplier`
+Responsibility:
+- spawn MRUK-scaffold-aligned surface override planes under `StylizedContentRoot/SurfaceOverrides`
+- apply ThemeProfile wall/floor/ceiling materials without changing room geometry
+- offset wall planes outward by 5cm to avoid occlusion conflicts, matching the Roomify scene-composition rule
+- expose `Off`, `Background`, and `DemoStrong` visibility modes so wall/floor/ceiling can remain low-opacity while furniture replacement is still incomplete
+
+Outputs:
+- live surface override planes
+
+### 3.9 `RoomMoodController`
 Responsibility:
 - lighting changes
 - ambient audio
@@ -97,7 +130,7 @@ Responsibility:
 Outputs:
 - environmental mood state
 
-### 3.8 `CorrectionModeController`
+### 3.10 `CorrectionModeController`
 Responsibility:
 - let the user inspect a mapped object
 - show original semantic and replacement info
@@ -106,12 +139,30 @@ Responsibility:
 Outputs:
 - corrected mapping state
 
-### 3.9 `StylizationDebugPanel`
+### 3.11 `StylizationDebugPanel`
 Responsibility:
 - show active room ID / anchor count / observed object count
 - show current theme
 - show stylization plan entries
 - show warnings / unmapped semantics / fallback status
+
+### 3.12 `BestViewCaptureService`
+Responsibility:
+- select a best visible target anchor, currently `TABLE`
+- write reference image metadata and `GeneratedObjectRequest` files
+- support `ExternalScreenshot`, `UnityFramebufferDebug`, and future device capture modes
+
+### 3.13 `GenerativeObjectCoordinator`
+Responsibility:
+- turn generated-object requests into local job records
+- write prompt artifacts for external image stylization
+- expose job state to the debug panel
+
+### 3.14 `LocalGeneratedObjectBackendAdapter`
+Responsibility:
+- locally simulate a stylized-image backend for development
+- support `ExternalFileProtocol` for manual or out-of-process image workers
+- consume returned result artifacts and update job state
 
 ## 4. Recommended C# data flow objects
 Use these serializable types or ScriptableObjects:
@@ -136,10 +187,15 @@ MR_RoomStylization
 │  │  └─ ThemeIntentController
 │  ├─ Perception
 │  │  ├─ ObservedObjectCollector
-│  │  └─ SegmentationDebugBridge
+│  │  ├─ SegmentationDebugBridge
+│  │  ├─ BestViewCaptureService
+│  │  ├─ GenerativeObjectCoordinator
+│  │  └─ LocalGeneratedObjectBackendAdapter
 │  ├─ Stylization
 │  │  ├─ StylizationPlanner
 │  │  ├─ AnchorThemeApplier
+│  │  ├─ SurfaceTexturePromptBuilder
+│  │  ├─ SurfaceOverrideApplier
 │  │  └─ RoomMoodController
 │  ├─ Interaction
 │  │  ├─ CorrectionModeController
@@ -199,6 +255,8 @@ This avoids making camera-visible noise override stable room geometry.
 ### 8.1 Surfaces: wall / floor / ceiling
 Use:
 - material overrides
+- Roomify-style seamless wall/floor texture prompts
+- scaffold-aligned surface override planes
 - decals
 - lighting
 - ambient effects
@@ -206,6 +264,8 @@ Use:
 Avoid:
 - large geometry changes
 - blocking navigation
+
+Wall overrides should be offset outward by about 5cm when using MRUK wall planes so they do not fight with door/window semantics or the underlying debug mesh.
 
 ### 8.2 Table / desk
 Use:

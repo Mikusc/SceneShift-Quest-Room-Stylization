@@ -34,8 +34,16 @@ Current prototype status:
 - theme selection and debug HUD are in place
 - wall / floor / ceiling surface stylization is visible
 - stylization planning is implemented for wall, floor, ceiling, table, screen, storage, and seating
-- a thin `BestViewCaptureService` is in place for `TABLE`-targeted reference capture requests and writes screenshot + metadata files to `Library/BestViewCaptures/`
-- first table proxy path has been wired into the planner/applier, but proxy alignment and replacement visibility are still being refined
+- a thin `BestViewCaptureService` is in place for `TABLE`-targeted reference capture requests and now supports:
+  - `ExternalScreenshot` as the preferred simulator-stage input path,
+  - `UnityFramebufferDebug` as a debug-only fallback,
+  - `DevicePassthroughReserved` as the future true-device capture path
+- the current export path writes a full-frame reference image, metadata, and generated-object request JSON to `Library/BestViewCaptures/`; in `ExternalScreenshot` mode the original screenshot is currently used directly as the backend input while the estimated crop rect is retained as metadata
+- a thin `GenerativeObjectCoordinator` shell is now attached to the scene and writes local queued-job records to `Library/GeneratedObjectJobs/` when a new capture request appears
+- a Roomify-inspired image prompt is now generated from each `GeneratedObjectRequest` and written as a local `.prompt.txt` artifact alongside queued jobs
+- a thin `LocalGeneratedObjectBackendAdapter` is now attached to the scene and can either run local mock stylization or write `ExternalFileProtocol` handoff artifacts for a manual/external image worker
+- one manual generated-object path has been completed for `table_18_20260424071758`: isolated RGBA stylized table image, manual Seed3D 2.0 GLB, Unity-imported generated table prefab, and runtime generated-prefab selection in Editor/Simulator
+- table replacement now has both deterministic fallback and imported generated-prefab path; the next gap is visual review plus accept/reject/reset controls before treating generated furniture as demo-ready
 
 This means the project is already beyond a blank setup, but it is still in active vertical-slice prototyping rather than demo-final polish.
 
@@ -65,13 +73,28 @@ For the rolling implementation tracker, see [docs/08_PROGRESS_STATUS.md](docs/08
    - stylization plan state
    - applier state
    - best-view candidate / last capture state
-6. When moving from simulator checks to headset validation, use `MQDH` to:
+6. For Roomify-style capture simulation, keep `BestViewCaptureService.captureSourceMode = ExternalScreenshot`, point `externalScreenshotPath` to a manual screenshot, then enter Play and press `C` after the `TABLE` candidate stabilizes.
+7. If `LocalGeneratedObjectBackendAdapter.processingMode = LocalMockStylization`, inspect `Library/GeneratedObjectJobs/` and `Library/GeneratedObjectOutputs/` for `.job.json`, `.prompt.txt`, `.stylized.png`, and `.result.json` artifacts.
+8. If `LocalGeneratedObjectBackendAdapter.processingMode = ExternalFileProtocol`, inspect `Library/GeneratedObjectJobs/` and `Library/GeneratedObjectBackendInbox/` for `.job.json`, `.prompt.txt`, `.submission.json`, and prefilled `.result.template.json` artifacts, then follow `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`.
+9. For a completed manual Seed3D result, use `SceneShift/Generated Objects/Import Ready Model Jobs` to import `ModelReady` jobs into generated prefabs before checking runtime placement.
+10. When moving from simulator checks to headset validation, use `MQDH` to:
    - install the current APK build on-device
    - cast, screenshot, or record the MR result
    - inspect device logs / metrics / traces
    - pull generated capture files from the headset if needed
 
 Development-stage validation may use `MetaXRSimulator`, but final validation is still defined against the known real discussion room.
+
+## Best-View Capture Modes
+
+`BestViewCaptureService` currently supports three capture-source modes:
+
+- `ExternalScreenshot`
+  Preferred during simulator-stage development. Use a manual screenshot as the image source; the runtime-computed `TABLE` crop rect is retained as metadata because the manual screenshot and Unity camera are not guaranteed to be the same frame.
+- `UnityFramebufferDebug`
+  Debug-only fallback. It captures Unity's own framebuffer, which is useful for plumbing checks but not for true Roomify-style reference images.
+- `DevicePassthroughReserved`
+  Placeholder for the future true-device path. This mode is intentionally reserved so the simulator-stage workflow does not block later integration with real camera/passthrough capture.
 
 ## MQDH Role
 
@@ -110,6 +133,12 @@ For passthrough-camera, real-room capture, and performance verification, `MQDH` 
   Manual rolling tracker for completed work, current risks, and the next smallest task.
 - `docs/09_GENERATIVE_OBJECT_PIPELINE.md`
   Optional advanced plan for Roomify-like best-view image to stylized image to 3D object generation.
+- `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
+  Step-by-step workflow for using `ExternalFileProtocol` with a manual GPT/image generation worker.
+- `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
+  Compact validation checklist for simulator runs, generated-object artifacts, and demo recording prep.
+- `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md`
+  Plan for moving from `MetaXRSimulator` to Quest headset validation with MQDH and future camera/passthrough capture.
 
 ## Key Runtime Modules
 
@@ -121,6 +150,8 @@ Current runtime architecture centers around these components:
 - `AnchorThemeApplier`
 - `RoomMoodController`
 - `BestViewCaptureService`
+- `GenerativeObjectCoordinator`
+- `LocalGeneratedObjectBackendAdapter`
 - `StylizationDebugPanel`
 
 Planned next-layer components include:
@@ -128,6 +159,8 @@ Planned next-layer components include:
 - `ObservedObjectCollector`
 - `SemanticFusionService`
 - `CorrectionModeController`
+- `GeneratedAssetRegistry`
+- `GeneratedProxyImporter`
 
 ## Design Constraints
 

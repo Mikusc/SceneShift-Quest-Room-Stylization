@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using Meta.XR.MRUtilityKit;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -21,11 +25,15 @@ public class AnchorThemeApplier : MonoBehaviour
     [Header("Proxy Targets")]
     [SerializeField] private bool applyTableProxies = true;
     [SerializeField] private bool hideOriginalVolumeVisuals = true;
-    [SerializeField, Min(0.1f)] private float proxyFootprintPadding = 0.92f;
-    [SerializeField, Min(0.1f)] private float proxyHeightPadding = 0.96f;
+    [SerializeField, Min(0.1f)] private float proxyFootprintPadding = 1f;
+    [SerializeField, Min(0.1f)] private float proxyHeightPadding = 1f;
     [SerializeField, Range(-180f, 180f)] private float tableProxyYawOffsetDegrees = 90f;
     [SerializeField] private bool augmentFlatTableProxies = true;
     [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
+#if UNITY_EDITOR
+    [SerializeField] private bool preferImportedGeneratedTablePrefabs = true;
+    [SerializeField] private string generatedObjectJobFolderName = "GeneratedObjectJobs";
+#endif
 
     public event Action SummaryChanged;
 
@@ -39,6 +47,7 @@ public class AnchorThemeApplier : MonoBehaviour
     private readonly Dictionary<Renderer, bool> _originalRendererStates = new();
     private readonly Dictionary<GameObject, bool> _originalVisualObjectStates = new();
     private readonly List<Material> _runtimeMaterials = new();
+    private readonly List<Texture2D> _runtimeTextures = new();
     private readonly List<GameObject> _spawnedProxyRoots = new();
 
     private string _latestSummary = "[AnchorThemeApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
@@ -301,8 +310,10 @@ public class AnchorThemeApplier : MonoBehaviour
         var resolvedPrefabCount = 0;
         var lastEntryId = "none";
         var lastPrefabName = "none";
+        var lastPrefabSource = "none";
         var lastFailure = "none";
         var lastAugmentation = "none";
+        var lastFit = "none";
 
         for (var index = 0; index < room.Anchors.Count; index++)
         {
@@ -322,7 +333,7 @@ public class AnchorThemeApplier : MonoBehaviour
 
             matchedPlanCount++;
             lastEntryId = planEntry.EntryId;
-            var proxyPrefab = ResolveProxyPrefab(theme, planEntry);
+            var proxyPrefab = ResolveProxyPrefab(theme, planEntry, out var prefabSource);
             if (proxyPrefab == null)
             {
                 lastFailure = $"missing_prefab_{planEntry.EntryId}";
@@ -331,20 +342,23 @@ public class AnchorThemeApplier : MonoBehaviour
 
             resolvedPrefabCount++;
             lastPrefabName = proxyPrefab.name;
-            if (TrySpawnTableProxy(anchor, proxyPrefab, planEntry, theme, out var augmentationStatus))
+            lastPrefabSource = prefabSource;
+            if (TrySpawnTableProxy(anchor, proxyPrefab, planEntry, theme, out var augmentationStatus, out var fitStatus))
             {
                 proxyCount++;
                 lastFailure = "none";
                 lastAugmentation = augmentationStatus;
+                lastFit = fitStatus;
             }
             else
             {
                 lastFailure = $"spawn_failed_{planEntry.EntryId}";
+                lastFit = "spawn_failed";
             }
         }
 
         _lastTableProxyStatus =
-            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, entry={lastEntryId}, prefab={lastPrefabName}, augment={lastAugmentation}, failure={lastFailure}";
+            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, entry={lastEntryId}, prefab={lastPrefabName}, source={lastPrefabSource}, augment={lastAugmentation}, fit={lastFit}, failure={lastFailure}";
         return proxyCount;
     }
 
@@ -353,9 +367,11 @@ public class AnchorThemeApplier : MonoBehaviour
         GameObject proxyPrefab,
         StylizationPlanEntry planEntry,
         ThemeProfile theme,
-        out string augmentationStatus)
+        out string augmentationStatus,
+        out string fitStatus)
     {
         augmentationStatus = "none";
+        fitStatus = "none";
 
         if (proxyObjectsRoot == null || proxyPrefab == null || !anchor.VolumeBounds.HasValue)
         {
@@ -376,11 +392,15 @@ public class AnchorThemeApplier : MonoBehaviour
         proxyInstance.transform.localRotation = Quaternion.identity;
         proxyInstance.transform.localScale = Vector3.one;
 
-        if (!FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, volumeBounds.size, out var fittedBounds, out var targetSize))
+        if (!TryCalculateAnchorTargetBounds(proxyRoot.transform, anchor.transform, volumeBounds, out var targetBounds) ||
+            !FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, targetBounds, out var fittedBounds, out var targetSize, out var sourceSize, out var appliedScale))
         {
             SafeDestroy(proxyRoot);
             return false;
         }
+
+        var bottomDelta = fittedBounds.min.y - targetBounds.min.y;
+        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}";
 
         ApplyProxyAccent(proxyInstance, theme);
         augmentationStatus = AugmentFlatTableProxy(proxyRoot.transform, proxyInstance.transform, fittedBounds, targetSize, theme);
@@ -397,28 +417,49 @@ public class AnchorThemeApplier : MonoBehaviour
     private bool FitProxyToTableAnchor(
         Transform proxyRoot,
         Transform proxyInstance,
-        Vector3 anchorSize,
+        Bounds targetBounds,
         out Bounds fittedBounds,
-        out Vector3 targetSize)
+        out Vector3 targetSize,
+        out Vector3 sourceSize,
+        out Vector3 appliedScale)
     {
         fittedBounds = default;
         targetSize = default;
+        sourceSize = default;
+        appliedScale = Vector3.one;
 
         if (!TryCalculateLocalBounds(proxyRoot, out var initialBounds))
         {
             return false;
         }
 
-        var sourceSize = initialBounds.size;
+        sourceSize = initialBounds.size;
         targetSize = new Vector3(
-            Mathf.Max(anchorSize.x * proxyFootprintPadding, 0.05f),
-            Mathf.Max(anchorSize.y * proxyHeightPadding, 0.05f),
-            Mathf.Max(anchorSize.z * proxyFootprintPadding, 0.05f));
+            Mathf.Max(targetBounds.size.x * proxyFootprintPadding, 0.05f),
+            Mathf.Max(targetBounds.size.y * proxyHeightPadding, 0.05f),
+            Mathf.Max(targetBounds.size.z * proxyFootprintPadding, 0.05f));
 
-        var scale = new Vector3(
-            sourceSize.x > 0.001f ? targetSize.x / sourceSize.x : 1f,
-            sourceSize.y > 0.001f ? Mathf.Min(targetSize.y / sourceSize.y, 1f) : 1f,
-            sourceSize.z > 0.001f ? targetSize.z / sourceSize.z : 1f);
+        var xScale = sourceSize.x > 0.001f ? targetSize.x / sourceSize.x : 1f;
+        var zScale = sourceSize.z > 0.001f ? targetSize.z / sourceSize.z : 1f;
+        if (!IsUsableScale(xScale))
+        {
+            xScale = 1f;
+        }
+
+        if (!IsUsableScale(zScale))
+        {
+            zScale = 1f;
+        }
+
+        var footprintScale = Mathf.Min(xScale, zScale);
+        var yScale = sourceSize.y > 0.001f ? targetSize.y / sourceSize.y : footprintScale;
+        if (!IsUsableScale(yScale))
+        {
+            yScale = footprintScale;
+        }
+
+        var scale = new Vector3(xScale, yScale, zScale);
+        appliedScale = scale;
 
         proxyInstance.localScale = Vector3.Scale(proxyInstance.localScale, scale);
 
@@ -428,10 +469,75 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         proxyInstance.localPosition = new Vector3(
-            -fittedBounds.center.x,
-            targetSize.y * 0.5f - fittedBounds.max.y,
-            -fittedBounds.center.z);
+            targetBounds.center.x - fittedBounds.center.x,
+            targetBounds.min.y - fittedBounds.min.y,
+            targetBounds.center.z - fittedBounds.center.z);
+
+        if (!TryCalculateLocalBounds(proxyRoot, out fittedBounds))
+        {
+            return false;
+        }
+
         return true;
+    }
+
+    private static bool TryCalculateAnchorTargetBounds(
+        Transform proxyRoot,
+        Transform anchorTransform,
+        Bounds anchorLocalBounds,
+        out Bounds targetBounds)
+    {
+        targetBounds = default;
+        if (proxyRoot == null || anchorTransform == null)
+        {
+            return false;
+        }
+
+        var hasBounds = false;
+        var min = anchorLocalBounds.min;
+        var max = anchorLocalBounds.max;
+        for (var x = 0; x <= 1; x++)
+        {
+            for (var y = 0; y <= 1; y++)
+            {
+                for (var z = 0; z <= 1; z++)
+                {
+                    var anchorLocalPoint = new Vector3(
+                        x == 0 ? min.x : max.x,
+                        y == 0 ? min.y : max.y,
+                        z == 0 ? min.z : max.z);
+                    var worldPoint = anchorTransform.TransformPoint(anchorLocalPoint);
+                    var targetLocalPoint = proxyRoot.InverseTransformPoint(worldPoint);
+
+                    if (!hasBounds)
+                    {
+                        targetBounds = new Bounds(targetLocalPoint, Vector3.zero);
+                        hasBounds = true;
+                    }
+                    else
+                    {
+                        targetBounds.Encapsulate(targetLocalPoint);
+                    }
+                }
+            }
+        }
+
+        return hasBounds;
+    }
+
+    private static bool IsUsableScale(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value) && value > 0.001f;
+    }
+
+    private static string FormatSize(Vector3 value)
+    {
+        return FormattableString.Invariant($"{value.x:0.###}x{value.y:0.###}x{value.z:0.###}");
+    }
+
+    private static string FormatMeters(float value)
+    {
+        return FormattableString.Invariant($"{value:0.###}m");
     }
 
     private string AugmentFlatTableProxy(
@@ -751,7 +857,7 @@ public class AnchorThemeApplier : MonoBehaviour
             return;
         }
 
-        var transforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        var transforms = FindObjectsByType<Transform>(FindObjectsInactive.Include);
         Transform closestMatch = null;
         var closestDistance = float.MaxValue;
 
@@ -845,18 +951,162 @@ public class AnchorThemeApplier : MonoBehaviour
         return null;
     }
 
-    private static GameObject ResolveProxyPrefab(ThemeProfile theme, StylizationPlanEntry planEntry)
+    private GameObject ResolveProxyPrefab(ThemeProfile theme, StylizationPlanEntry planEntry, out string prefabSource)
     {
+        prefabSource = "none";
         if (theme == null || planEntry == null)
         {
             return null;
         }
 
+#if UNITY_EDITOR
+        if (preferImportedGeneratedTablePrefabs &&
+            IsTableEntry(planEntry) &&
+            TryLoadImportedGeneratedTablePrefab(theme, planEntry, out var importedGeneratedPrefab))
+        {
+            prefabSource = "generated_import";
+            return importedGeneratedPrefab;
+        }
+#endif
+
         var matchedRule = FindRule(theme, planEntry.OriginalSemanticLabel, planEntry.OriginalFunctionTag);
-        return matchedRule?.ProxyPrefab != null
-            ? matchedRule.ProxyPrefab
-            : theme.GetDefaultProxy(planEntry.OriginalSemanticLabel);
+        if (matchedRule?.ProxyPrefab != null)
+        {
+            prefabSource = "theme_rule";
+            return matchedRule.ProxyPrefab;
+        }
+
+        prefabSource = "theme_default";
+        return theme.GetDefaultProxy(planEntry.OriginalSemanticLabel);
     }
+
+    private static bool IsTableEntry(StylizationPlanEntry planEntry)
+    {
+        return planEntry != null &&
+               string.Equals(planEntry.OriginalSemanticLabel, "table", StringComparison.OrdinalIgnoreCase);
+    }
+
+#if UNITY_EDITOR
+    private bool TryLoadImportedGeneratedTablePrefab(
+        ThemeProfile theme,
+        StylizationPlanEntry planEntry,
+        out GameObject prefab)
+    {
+        prefab = null;
+        var jobDirectory = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", generatedObjectJobFolderName));
+        if (!Directory.Exists(jobDirectory))
+        {
+            return false;
+        }
+
+        GeneratedAssetRecord bestRecord = null;
+        DateTime bestUpdatedAt = DateTime.MinValue;
+        foreach (var jobPath in Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly))
+        {
+            var record = TryReadGeneratedAssetRecord(jobPath);
+            if (record == null || !IsUsableGeneratedTableRecord(record, theme, planEntry))
+            {
+                continue;
+            }
+
+            var updatedAt = DateTime.TryParse(record.UpdatedAtIsoUtc, out var parsed)
+                ? parsed.ToUniversalTime()
+                : DateTime.MinValue;
+            if (bestRecord != null && updatedAt <= bestUpdatedAt)
+            {
+                continue;
+            }
+
+            bestRecord = record;
+            bestUpdatedAt = updatedAt;
+        }
+
+        if (bestRecord == null || !TryGetProjectRelativePath(bestRecord.ImportedPrefabPath, out var prefabAssetPath))
+        {
+            return false;
+        }
+
+        prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabAssetPath);
+        return prefab != null;
+    }
+
+    private static GeneratedAssetRecord TryReadGeneratedAssetRecord(string jobPath)
+    {
+        if (string.IsNullOrWhiteSpace(jobPath) || !File.Exists(jobPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(jobPath);
+            return string.IsNullOrWhiteSpace(json)
+                ? null
+                : JsonUtility.FromJson<GeneratedAssetRecord>(json);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[AnchorThemeApplier] Failed to read generated-object job '{jobPath}': {exception.Message}");
+            return null;
+        }
+    }
+
+    private static bool IsUsableGeneratedTableRecord(
+        GeneratedAssetRecord record,
+        ThemeProfile theme,
+        StylizationPlanEntry planEntry)
+    {
+        if (record == null || theme == null || planEntry == null)
+        {
+            return false;
+        }
+
+        if (record.State != GeneratedObjectJobState.Imported)
+        {
+            return false;
+        }
+
+        if (!string.Equals(record.ThemeId, theme.ThemeId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(record.ImportedPrefabPath) || !File.Exists(record.ImportedPrefabPath))
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(record.ObjectId) ||
+               string.IsNullOrWhiteSpace(planEntry.ObjectId) ||
+               record.ObjectId.Contains("TABLE", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(record.ObjectId, planEntry.ObjectId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetProjectRelativePath(string absoluteOrRelativePath, out string assetPath)
+    {
+        assetPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(absoluteOrRelativePath))
+        {
+            return false;
+        }
+
+        if (absoluteOrRelativePath.StartsWith("Assets/", StringComparison.Ordinal))
+        {
+            assetPath = absoluteOrRelativePath;
+            return true;
+        }
+
+        var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+        var fullPath = Path.GetFullPath(absoluteOrRelativePath);
+        if (!fullPath.StartsWith(projectRoot, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        assetPath = fullPath[(projectRoot.Length + 1)..].Replace(Path.DirectorySeparatorChar, '/');
+        return assetPath.StartsWith("Assets/", StringComparison.Ordinal);
+    }
+#endif
 
     private static SemanticReplacementRule FindRule(ThemeProfile theme, string semanticLabel, string functionTag)
     {
@@ -988,11 +1238,17 @@ public class AnchorThemeApplier : MonoBehaviour
                                  Shader.Find("Standard");
             materialInstance = new Material(fallbackShader);
             ConfigureFallbackSurfaceMaterial(materialInstance);
-            SetMaterialTexture(materialInstance);
+            var proceduralTexture = ProceduralSurfaceTextureFactory.CreateTexture(theme, surfaceKind);
+            if (proceduralTexture != null)
+            {
+                _runtimeTextures.Add(proceduralTexture);
+            }
+
+            SetMaterialTexture(materialInstance, proceduralTexture, theme.SurfaceMaterials.TextureTiling);
         }
 
         var tintColor = theme.SurfaceMaterials.GetTintColor(surfaceKind);
-        SetMaterialColor(materialInstance, tintColor);
+        SetMaterialColor(materialInstance, baseMaterial != null ? tintColor : new Color(1f, 1f, 1f, tintColor.a));
         SetEmission(materialInstance, tintColor * theme.SurfaceMaterials.EmissionIntensity);
 
         _runtimeMaterials.Add(materialInstance);
@@ -1034,6 +1290,16 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         _runtimeMaterials.Clear();
+
+        foreach (var texture in _runtimeTextures)
+        {
+            if (texture != null)
+            {
+                SafeDestroy(texture);
+            }
+        }
+
+        _runtimeTextures.Clear();
         _originalSharedMaterials.Clear();
         _lastAppliedAnchorCount = 0;
         _lastAppliedRendererCount = 0;
@@ -1170,16 +1436,20 @@ public class AnchorThemeApplier : MonoBehaviour
         return false;
     }
 
-    private static void SetMaterialTexture(Material materialInstance)
+    private static void SetMaterialTexture(Material materialInstance, Texture texture = null, float tiling = 1f)
     {
+        var targetTexture = texture != null ? texture : Texture2D.whiteTexture;
+        var textureScale = Vector2.one * Mathf.Max(0.1f, tiling);
         if (materialInstance.HasProperty("_BaseMap"))
         {
-            materialInstance.SetTexture("_BaseMap", Texture2D.whiteTexture);
+            materialInstance.SetTexture("_BaseMap", targetTexture);
+            materialInstance.SetTextureScale("_BaseMap", textureScale);
         }
 
         if (materialInstance.HasProperty("_MainTex"))
         {
-            materialInstance.SetTexture("_MainTex", Texture2D.whiteTexture);
+            materialInstance.SetTexture("_MainTex", targetTexture);
+            materialInstance.SetTextureScale("_MainTex", textureScale);
         }
     }
 

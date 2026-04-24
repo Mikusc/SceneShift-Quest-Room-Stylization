@@ -109,6 +109,9 @@ Do not treat these as required:
 - multiplayer / colocation
 - full AI conversation system
 
+An optional generated-object side branch may exist for `TABLE` experiments, but it is not a Phase 1 success dependency.
+The room must still stylize correctly through deterministic materials/proxies if generated images or generated 3D assets are unavailable.
+
 ## 11. Theme strategy
 Use only 1–2 presets first.
 Recommended starter presets:

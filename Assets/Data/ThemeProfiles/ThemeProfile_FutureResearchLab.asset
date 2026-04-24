@@ -14,25 +14,38 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ThemeId: future_research_lab
   DisplayName: Future Research Lab
-  ShortDescription: Cool, precise, research-focused lighting and accents for the canonical room.
+  ShortDescription: Cool, precise, research-focused lighting and accents for the
+    canonical room.
   Category: 0
   AccentColor: {r: 0.22, g: 0.87, b: 0.96, a: 1}
   SurfaceMaterials:
-    WallMaterial: {fileID: 0}
-    FloorMaterial: {fileID: 0}
-    CeilingMaterial: {fileID: 0}
+    WallMaterial: {fileID: 2100000, guid: f7a17f46515704455b0700686de8030e, type: 2}
+    FloorMaterial: {fileID: 2100000, guid: 17e8d860006ed4f988a40c287d30d350, type: 2}
+    CeilingMaterial: {fileID: 2100000, guid: 58ed60b07ecec4f7aa99b26c5454f354, type: 2}
+    PatternFamily: 0
     WallColor: {r: 0.18, g: 0.74, b: 0.92, a: 0.92}
     FloorColor: {r: 0.12, g: 0.42, b: 0.56, a: 0.82}
     CeilingColor: {r: 0.68, g: 0.9, b: 0.98, a: 0.65}
-    SurfaceOpacity: 0.72
-    EmissionIntensity: 0.18
+    SurfaceOpacity: 0.88
+    EmissionIntensity: 0.32
+    TextureTiling: 4.5
+    PatternStrength: 0.82
+    WallTexturePromptHint: Seamless cool-white and cyan laboratory wall panel material
+      with subtle luminous seams, brushed composite panels, and restrained research-room
+      readability.
+    FloorTexturePromptHint: Seamless dark graphite laboratory floor material with
+      fine cyan grid traces, low-glare anti-slip panels, and clear walkable-space
+      readability.
+    CeilingTreatmentPromptHint: Soft overhead research-lab light panel treatment
+      with pale cyan glow, subtle modular ceiling panels, and no heavy geometry that
+      hides the real ceiling.
   Mood:
     MainLightColor: {r: 0.83, g: 0.95, b: 1, a: 1}
     MainLightIntensity: 1.18
     AmbientSkyColor: {r: 0.16, g: 0.26, b: 0.34, a: 1}
     AmbientEquatorColor: {r: 0.11, g: 0.16, b: 0.22, a: 1}
     AmbientGroundColor: {r: 0.05, g: 0.07, b: 0.1, a: 1}
-  DefaultTableProxy: {fileID: 7021829363036516598, guid: 8a86cba2ac6cb234584526890635e087, type: 3}
+  DefaultTableProxy: {fileID: 7609835186080491085, guid: 4d2a7023b7bad4dc1b89fb897ca08977, type: 3}
   DefaultSeatProxy: {fileID: 0}
   DefaultStorageProxy: {fileID: 0}
   DefaultScreenTreatmentPrefab: {fileID: 0}

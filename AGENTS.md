@@ -7,6 +7,10 @@ Before doing any work in this repository, read these files in order:
 3. `docs/04_BACKLOG_AND_MILESTONES.md`
 4. `docs/05_DATA_CONTRACTS.md` when editing data models
 5. `docs/06_CUSTOM_MCP_TOOLS.md` when implementing custom Unity MCP tools
+6. `docs/09_GENERATIVE_OBJECT_PIPELINE.md` when working on the optional Roomify-like generated-object branch
+7. `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md` when using the manual GPT/image worker flow
+8. `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md` before demo or regression validation
+9. `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md` before Quest headset validation
 
 ## Project identity
 This project builds a **scene-aware mixed-reality discussion room** for Meta Quest.
@@ -69,6 +73,8 @@ It means implementing a **Meta-first approximation**:
 - A stylization planner converts semantics + theme intent into a mapping table.
 - A scene applier performs proxy replacement/material swaps/effect changes.
 - A correction layer lets the user fix errors in MR.
+
+The optional generated-object branch may use best-view screenshots, prompt artifacts, and external image generation experiments. It must remain a side path behind deterministic stylization and must not block the Phase 1 room stylization demo.
 
 ## Canonical deliverable for the current slice
 One scene named:

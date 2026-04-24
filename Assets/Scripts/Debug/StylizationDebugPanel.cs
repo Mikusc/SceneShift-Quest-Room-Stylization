@@ -10,7 +10,11 @@ public class StylizationDebugPanel : MonoBehaviour
     [SerializeField] private ThemeIntentController themeIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
     [SerializeField] private AnchorThemeApplier anchorThemeApplier;
+    [SerializeField] private SurfaceTexturePromptBuilder surfaceTexturePromptBuilder;
+    [SerializeField] private SurfaceOverrideApplier surfaceOverrideApplier;
     [SerializeField] private BestViewCaptureService bestViewCaptureService;
+    [SerializeField] private GenerativeObjectCoordinator generativeObjectCoordinator;
+    [SerializeField] private LocalGeneratedObjectBackendAdapter localGeneratedObjectBackendAdapter;
     [SerializeField] private TMP_Text summaryText;
 
     private void Reset()
@@ -19,7 +23,11 @@ public class StylizationDebugPanel : MonoBehaviour
         themeIntentController = FindAnyObjectByType<ThemeIntentController>();
         stylizationPlanner = FindAnyObjectByType<StylizationPlanner>();
         anchorThemeApplier = FindAnyObjectByType<AnchorThemeApplier>();
+        surfaceTexturePromptBuilder = FindAnyObjectByType<SurfaceTexturePromptBuilder>();
+        surfaceOverrideApplier = FindAnyObjectByType<SurfaceOverrideApplier>();
         bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
+        generativeObjectCoordinator = FindAnyObjectByType<GenerativeObjectCoordinator>();
+        localGeneratedObjectBackendAdapter = FindAnyObjectByType<LocalGeneratedObjectBackendAdapter>();
         summaryText = GetComponentInChildren<TMP_Text>(true);
     }
 
@@ -45,9 +53,29 @@ public class StylizationDebugPanel : MonoBehaviour
             anchorThemeApplier = FindAnyObjectByType<AnchorThemeApplier>();
         }
 
+        if (surfaceTexturePromptBuilder == null)
+        {
+            surfaceTexturePromptBuilder = FindAnyObjectByType<SurfaceTexturePromptBuilder>();
+        }
+
+        if (surfaceOverrideApplier == null)
+        {
+            surfaceOverrideApplier = FindAnyObjectByType<SurfaceOverrideApplier>();
+        }
+
         if (bestViewCaptureService == null)
         {
             bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
+        }
+
+        if (generativeObjectCoordinator == null)
+        {
+            generativeObjectCoordinator = FindAnyObjectByType<GenerativeObjectCoordinator>();
+        }
+
+        if (localGeneratedObjectBackendAdapter == null)
+        {
+            localGeneratedObjectBackendAdapter = FindAnyObjectByType<LocalGeneratedObjectBackendAdapter>();
         }
 
         if (summaryText == null)
@@ -102,10 +130,34 @@ public class StylizationDebugPanel : MonoBehaviour
             builder.Append(anchorThemeApplier.LatestSummary);
         }
 
+        if (surfaceTexturePromptBuilder != null)
+        {
+            builder.AppendLine();
+            builder.Append(surfaceTexturePromptBuilder.LatestSummary);
+        }
+
+        if (surfaceOverrideApplier != null)
+        {
+            builder.AppendLine();
+            builder.Append(surfaceOverrideApplier.LatestSummary);
+        }
+
         if (bestViewCaptureService != null)
         {
             builder.AppendLine();
             builder.Append(bestViewCaptureService.LatestSummary);
+        }
+
+        if (generativeObjectCoordinator != null)
+        {
+            builder.AppendLine();
+            builder.Append(generativeObjectCoordinator.LatestSummary);
+        }
+
+        if (localGeneratedObjectBackendAdapter != null)
+        {
+            builder.AppendLine();
+            builder.Append(localGeneratedObjectBackendAdapter.LatestSummary);
         }
 
         summaryText.text = builder.ToString().TrimEnd();
@@ -143,6 +195,18 @@ public class StylizationDebugPanel : MonoBehaviour
         anchorThemeApplier.SummaryChanged -= Refresh;
         anchorThemeApplier.SummaryChanged += Refresh;
 
+        if (surfaceTexturePromptBuilder != null)
+        {
+            surfaceTexturePromptBuilder.SummaryChanged -= Refresh;
+            surfaceTexturePromptBuilder.SummaryChanged += Refresh;
+        }
+
+        if (surfaceOverrideApplier != null)
+        {
+            surfaceOverrideApplier.SummaryChanged -= Refresh;
+            surfaceOverrideApplier.SummaryChanged += Refresh;
+        }
+
         if (bestViewCaptureService == null)
         {
             return;
@@ -150,6 +214,22 @@ public class StylizationDebugPanel : MonoBehaviour
 
         bestViewCaptureService.SummaryChanged -= Refresh;
         bestViewCaptureService.SummaryChanged += Refresh;
+
+        if (generativeObjectCoordinator == null)
+        {
+            return;
+        }
+
+        generativeObjectCoordinator.SummaryChanged -= Refresh;
+        generativeObjectCoordinator.SummaryChanged += Refresh;
+
+        if (localGeneratedObjectBackendAdapter == null)
+        {
+            return;
+        }
+
+        localGeneratedObjectBackendAdapter.SummaryChanged -= Refresh;
+        localGeneratedObjectBackendAdapter.SummaryChanged += Refresh;
     }
 
     private void Unsubscribe()
@@ -174,9 +254,29 @@ public class StylizationDebugPanel : MonoBehaviour
             anchorThemeApplier.SummaryChanged -= Refresh;
         }
 
+        if (surfaceTexturePromptBuilder != null)
+        {
+            surfaceTexturePromptBuilder.SummaryChanged -= Refresh;
+        }
+
+        if (surfaceOverrideApplier != null)
+        {
+            surfaceOverrideApplier.SummaryChanged -= Refresh;
+        }
+
         if (bestViewCaptureService != null)
         {
             bestViewCaptureService.SummaryChanged -= Refresh;
+        }
+
+        if (generativeObjectCoordinator != null)
+        {
+            generativeObjectCoordinator.SummaryChanged -= Refresh;
+        }
+
+        if (localGeneratedObjectBackendAdapter != null)
+        {
+            localGeneratedObjectBackendAdapter.SummaryChanged -= Refresh;
         }
     }
 

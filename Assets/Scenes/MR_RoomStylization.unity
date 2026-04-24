@@ -1096,7 +1096,11 @@ MonoBehaviour:
   themeIntentController: {fileID: 1272341564}
   stylizationPlanner: {fileID: 1272341567}
   anchorThemeApplier: {fileID: 1272341566}
+  surfaceTexturePromptBuilder: {fileID: 1272341569}
+  surfaceOverrideApplier: {fileID: 1272341568}
   bestViewCaptureService: {fileID: 1336658400}
+  generativeObjectCoordinator: {fileID: 0}
+  localGeneratedObjectBackendAdapter: {fileID: 0}
   summaryText: {fileID: 518978864}
 --- !u!114 &1077613720
 MonoBehaviour:
@@ -1213,6 +1217,8 @@ GameObject:
   - component: {fileID: 1272341567}
   - component: {fileID: 1272341565}
   - component: {fileID: 1272341566}
+  - component: {fileID: 1272341569}
+  - component: {fileID: 1272341568}
   m_Layer: 0
   m_Name: Stylization
   m_TagString: Untagged
@@ -1286,12 +1292,15 @@ MonoBehaviour:
   stylizationPlanner: {fileID: 1272341567}
   proxyObjectsRoot: {fileID: 1918567166}
   includeInnerWallFaces: 0
-  logApplications: 0
+  logApplications: 1
   autoRefreshInterval: 0.75
   applyTableProxies: 1
   hideOriginalVolumeVisuals: 1
-  proxyFootprintPadding: 0.92
-  proxyHeightPadding: 0.96
+  proxyFootprintPadding: 1
+  proxyHeightPadding: 1
+  tableProxyYawOffsetDegrees: 90
+  augmentFlatTableProxies: 1
+  flatTableHeightThreshold: 0.35
 --- !u!114 &1272341567
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1317,6 +1326,53 @@ MonoBehaviour:
     CreatedAtIsoUtc: 
     Entries: []
     Warnings: []
+--- !u!114 &1272341568
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1272341562}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbc5d6f8a4ed04e358d24601f560a481, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SurfaceOverrideApplier
+  roomSemanticBootstrap: {fileID: 2144530025}
+  themeIntentController: {fileID: 1272341564}
+  surfaceOverridesRoot: {fileID: 1843268665}
+  applyWallOverrides: 1
+  applyFloorOverrides: 1
+  applyCeilingOverrides: 1
+  suppressOriginalSurfaceRenderers: 0
+  wallOutwardOffsetMeters: 0.05
+  floorSurfaceOffsetMeters: 0.012
+  ceilingSurfaceOffsetMeters: 0.012
+  autoRefreshInterval: 0.75
+  logApplications: 1
+  visibilityMode: 1
+  backgroundWallAlpha: 0.3
+  backgroundFloorAlpha: 0.24
+  backgroundCeilingAlpha: 0.2
+  demoOpacityBoost: 1.1
+  demoMinimumWallAlpha: 0.94
+  demoMinimumFloorAlpha: 0.92
+  demoMinimumCeilingAlpha: 0.86
+--- !u!114 &1272341569
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1272341562}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d201b551d680a43f887aff0f2ad23b18, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SurfaceTexturePromptBuilder
+  themeIntentController: {fileID: 1272341564}
+  writePromptsOnThemeChanged: 1
+  jobFolderName: SurfaceTextureJobs
 --- !u!1 &1313487380
 GameObject:
   m_ObjectHideFlags: 0
@@ -1358,6 +1414,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1336658399}
   - component: {fileID: 1336658400}
+  - component: {fileID: 1336658401}
+  - component: {fileID: 1336658402}
   m_Layer: 0
   m_Name: Perception
   m_TagString: Untagged
@@ -1394,15 +1452,59 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::BestViewCaptureService
   roomSemanticBootstrap: {fileID: 2144530025}
   themeIntentController: {fileID: 1272341564}
+  stylizationPlanner: {fileID: 0}
   referenceCamera: {fileID: 0}
   referenceCameraTransform: {fileID: 0}
   targetCategory: 0
   maxCaptureDistance: 5
   viewportMargin: 0.08
   trackBestCandidateDuringPlay: 1
+  cropPaddingNormalized: 0.04
+  minCropSizeNormalized: 0.16
+  suppressStylizedContentForCapture: 1
+  suppressDebugVisualsForCapture: 1
+  suppressInteractionVisualsForCapture: 1
   captureFolderName: BestViewCaptures
+  captureSourceMode: 0
+  externalScreenshotPath: 
+  copyExternalScreenshotIntoCaptureFolder: 1
+  enableVisibilityToggleInPlay: 1
+  toggleVisibilityKey: 118
   enableKeyboardCapture: 1
   captureKey: 99
+--- !u!114 &1336658401
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b5f09af5050fe43c5b468199d3b1e8b4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::GenerativeObjectCoordinator
+  bestViewCaptureService: {fileID: 1336658400}
+  autoQueueLatestCaptureInPlay: 1
+  jobFolderName: GeneratedObjectJobs
+--- !u!114 &1336658402
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c5507532f4c00496199213967ab65d9e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::LocalGeneratedObjectBackendAdapter
+  generativeObjectCoordinator: {fileID: 1336658401}
+  autoConsumeJobsInPlay: 1
+  processingMode: 1
+  jobFolderName: GeneratedObjectJobs
+  outputFolderName: GeneratedObjectOutputs
+  backendInboxFolderName: GeneratedObjectBackendInbox
 --- !u!1 &1631145970
 GameObject:
   m_ObjectHideFlags: 0

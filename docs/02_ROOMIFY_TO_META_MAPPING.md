@@ -136,6 +136,9 @@ This keeps the system:
 #### Hard rule
 Do not block the stylization slice on runtime 3D generation.
 
+Optional note:
+The repository now contains a thin generated-object side branch for `TABLE` experiments. That branch may use best-view screenshots, Roomify-inspired prompt artifacts, and a manual/external image worker, but it remains secondary to the deterministic material/proxy path.
+
 ## 7. Scene Composition
 ### Roomify version
 The paper registers generated assets to semantic scaffolds.
@@ -184,13 +187,13 @@ A Roomify-like milestone is acceptable if all of the following are true:
 
 ## 10. What not to imitate from the paper right now
 Do not spend current effort on:
-- reproducing the exact prompt pipeline from the paper,
-- cloud orchestration for multiple model calls,
+- making the paper-style prompt pipeline the required Phase 1 path,
+- cloud orchestration for multiple model calls as a blocking dependency,
 - best-view frame selection research code,
 - generated 3D asset registration algorithms,
 - dynamic skybox generation.
 
-These belong to future work, not the current course-ready vertical slice.
+These belong to optional extension work. The current repository may keep a thin file-based generated-object experiment as long as deterministic room stylization still runs first.
 
 ## 11. Repository-level interpretation of the four design requirements
 ### Style diversity and consistency

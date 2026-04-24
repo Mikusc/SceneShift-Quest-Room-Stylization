@@ -318,6 +318,79 @@ Acceptance:
 
 ---
 
+# Optional Milestone 8 — Generated object enrichment
+
+## Goal
+Keep the Roomify-like object-generation experiment as a side branch behind the deterministic stylization path.
+
+This milestone must not block the Phase 1 room-stylization demo.
+It exists to enrich one collision-sensitive object after the stable proxy/material flow already works.
+
+## Tasks
+### M8.1 Capture a `TABLE` reference request
+Deliverables:
+- `BestViewCaptureService`
+- `GeneratedObjectRequest`
+- source image path, request JSON, crop metadata, camera pose, object scaffold metadata
+
+Acceptance:
+- pressing `C` in Play mode can create a request for one `TABLE`
+- deterministic table proxy still works if capture fails
+
+Current status:
+- implemented for a `TABLE`-first path using `ExternalScreenshot` as the practical Simulator source mode
+
+### M8.2 Create a file-based backend boundary
+Deliverables:
+- `GenerativeObjectCoordinator`
+- Roomify-inspired `.prompt.txt`
+- `.job.json`
+- local mock backend mode
+- `ExternalFileProtocol` submission/result-template mode
+
+Acceptance:
+- a request can move from `CaptureReady` to either a local mock `StylizedImageReady` result or an external/manual-worker submission
+- no real cloud service is required for this step
+
+Current status:
+- implemented
+- one manual GPT-image worker output exists for `table_18_20260424071758`
+- future generated-image requests should use the stricter transparent-object prompt version
+
+### M8.3 Import and register a generated table proxy
+Deliverables:
+- generated-model import path
+- generated asset registry/cache
+- registration using scaffold size, best-view yaw, bottom-face alignment, and bounded scale
+
+Acceptance:
+- generated table candidate can be placed in the same scaffold as the deterministic proxy
+- failed registration falls back to deterministic proxy
+
+Current status:
+- partially implemented
+- one Seed3D 2.0 GLB has been copied into `Assets/Generated/ThemeAssets/`
+- `GeneratedObjectModelImporter` can import `ModelReady` jobs into generated table prefabs
+- `AnchorThemeApplier` can prefer imported generated table prefabs in Editor/Simulator
+- current fitting uses transformed MRUK `VolumeBounds` corners, exact scaffold scale, and bottom-face alignment
+- full Roomify-style OBB/IoU registration search is not implemented yet
+
+### M8.4 Add review and correction for generated furniture
+Deliverables:
+- preview generated object
+- accept/reject generated object
+- yaw/position nudge
+- reset to deterministic proxy
+
+Acceptance:
+- collision-sensitive generated furniture is never silently finalized without an easy revert path
+
+Current status:
+- not implemented
+- this is the next blocker before treating generated furniture as demo-ready rather than an optional artifact preview
+
+---
+
 # Fallback plan if AI perception is unstable
 
 If Image Segmentation or detection blocks progress:
@@ -331,9 +404,16 @@ That still produces a valid Phase 1 prototype.
 ---
 
 # Recommended immediate next task
-Start with:
+Do not restart from M1 unless the project has been reset.
 
-**M1.1 + M1.2 + M1.3**
+For the current repository state, use `docs/08_PROGRESS_STATUS.md` as the rolling source of truth.
 
-Reason:
-The project should first prove that room semantics are stable and inspectable. Without that, later stylization work will be blind.
+The smallest safe next task depends on the current demo goal:
+- for the generated-object branch, visually review the current imported Seed3D table from the intended Simulator/user camera and add a reset-to-deterministic control
+- for the core Phase 1 slice, continue table proxy alignment/readability and then move into M5 correction mode
+- before recording or committing a demo build, run the checklist in `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
+
+If starting from a fresh clone or a broken scene, then fall back to:
+- M1.1
+- M1.2
+- M1.3

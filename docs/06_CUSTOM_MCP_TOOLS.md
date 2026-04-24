@@ -239,6 +239,12 @@ Add only after the current stylization slice is stable:
 - `edr_save_correction_snapshot`
 - `edr_restore_correction_snapshot`
 
+For the generated-object side branch, consider these only after the file protocol is stable:
+- `edr_export_generated_object_request`
+- `edr_validate_generated_object_job`
+- `edr_import_generated_proxy_candidate`
+- `edr_run_generated_object_registration_test`
+
 ---
 
 # 4. Strong design rules for custom tools
@@ -341,10 +347,15 @@ Use custom project tools when:
 ---
 
 # 8. Immediate recommendation
-Do **not** implement these custom tools before the project has at least:
-- a canonical scene,
-- a room semantic bootstrap,
-- a draft planner,
-- a theme profile asset.
+The project now has the minimum scene/bootstrap/planner/theme foundation, so custom MCP tools are useful but still not blocking feature work.
 
-Otherwise the tools will be wrappers around systems that do not exist yet.
+The first useful custom tools are:
+- `edr_validate_setup`
+- `edr_run_smoke_test`
+
+After that, add tools only where they remove repeated manual risk:
+- semantic snapshot export,
+- generated-object job validation,
+- smoke-test/report generation.
+
+Do not add MCP tools as a substitute for stabilizing the Unity scene or documenting the manual workflow.

@@ -14,18 +14,29 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ThemeId: arcane_knowledge_chamber
   DisplayName: Arcane Knowledge Chamber
-  ShortDescription: Warm archival lighting and ceremonial accents for an ancient-study reinterpretation.
+  ShortDescription: Warm archival lighting and ceremonial accents for an ancient-study
+    reinterpretation.
   Category: 1
   AccentColor: {r: 0.86, g: 0.63, b: 0.24, a: 1}
   SurfaceMaterials:
-    WallMaterial: {fileID: 0}
-    FloorMaterial: {fileID: 0}
-    CeilingMaterial: {fileID: 0}
+    WallMaterial: {fileID: 2100000, guid: e1d9ac058b04e44ffa0a76403774d25f, type: 2}
+    FloorMaterial: {fileID: 2100000, guid: 06c079fc83b3d4a4eb6cf969e8cf31be, type: 2}
+    CeilingMaterial: {fileID: 2100000, guid: bf1a0e42a52f8454b8134dc17d0e77bd, type: 2}
+    PatternFamily: 1
     WallColor: {r: 0.63, g: 0.36, b: 0.16, a: 0.9}
     FloorColor: {r: 0.34, g: 0.2, b: 0.08, a: 0.78}
     CeilingColor: {r: 0.86, g: 0.67, b: 0.42, a: 0.58}
-    SurfaceOpacity: 0.78
-    EmissionIntensity: 0.1
+    SurfaceOpacity: 0.86
+    EmissionIntensity: 0.18
+    TextureTiling: 3.8
+    PatternStrength: 0.78
+    WallTexturePromptHint: Seamless warm archive wall material with carved stone
+      or aged plaster panels, faint gold linework, and quiet scholarly atmosphere.
+    FloorTexturePromptHint: Seamless worn stone or dark wood study-room floor material
+      with subtle inlaid arcane geometry, readable paths, and low visual noise.
+    CeilingTreatmentPromptHint: Warm candlelit overhead treatment with muted plaster,
+      soft ornament rings, and ambient library-chamber mood without obscuring real
+      boundaries.
   Mood:
     MainLightColor: {r: 1, g: 0.84, b: 0.65, a: 1}
     MainLightIntensity: 0.92
