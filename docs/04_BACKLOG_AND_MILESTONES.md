@@ -103,6 +103,17 @@ Acceptance:
 Supplement MRUK with visible-object understanding using official Meta tools.
 
 ## Tasks
+### M2.0 Add manual semantic override fallback
+Deliverables:
+- a small override table keyed by MRUK anchor index/name/id
+- override semantic label, function tag, and collision-sensitive flag
+- debug display that marks the semantic source as `manual_override`
+
+Acceptance:
+- an `OTHER` or mislabelled anchor can be treated as `table` for planning/capture/application
+- MRUK labels remain the default source of truth when no override is present
+- the override path is clearly presented as user correction, not automatic perception
+
 ### M2.1 Verify Image Segmentation path
 Deliverables:
 - confirm whether installed SDK supports the block in this project
@@ -354,8 +365,8 @@ Acceptance:
 
 Current status:
 - implemented
-- one manual GPT-image worker output exists for `table_18_20260424071758`
-- future generated-image requests should use the stricter transparent-object prompt version
+- manual/imagegen worker outputs exist for multiple `TABLE_18` candidates, with `table_18_20260425025836` preferred for current validation
+- future generated-image requests should use the stricter transparent-object prompt version and preserve the target table aspect ratio as strongly as possible
 
 ### M8.3 Import and register a generated table proxy
 Deliverables:
@@ -388,6 +399,18 @@ Acceptance:
 Current status:
 - not implemented
 - this is the next blocker before treating generated furniture as demo-ready rather than an optional artifact preview
+
+### M8.5 Spike true-device passthrough capture for generated requests
+Deliverables:
+- `DevicePassthroughCaptureService` or equivalent device-only capture component
+- headset RGB frame saved to `Application.persistentDataPath`
+- metadata JSON containing camera pose, intrinsics if available, selected MRUK anchor, bounds, and projected crop rect
+- Immersive Debugger button or debug UI trigger for capture
+
+Acceptance:
+- Quest build can produce a real device capture artifact without relying on Simulator screenshots
+- artifacts can be pulled through MQDH/ADB for offline image stylization and Seed3D testing
+- deterministic stylization remains usable when device capture fails or permissions are missing
 
 ---
 

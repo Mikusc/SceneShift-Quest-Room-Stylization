@@ -238,7 +238,7 @@ Verify the current generated-object file protocol:
 - press C once or ask me to press C,
 - inspect Library/GeneratedObjectJobs and Library/GeneratedObjectBackendInbox,
 - explain which .submission.json fields I should use for the manual image worker,
-- do not take screenshots after Play; only read Console if needed.
+- if an external screenshot is needed, ask the operator to take it from the same Play-session view and set BestViewCaptureService.externalScreenshotPath; Codex should only read Console/files unless explicitly asked to operate the UI.
 Reply in Chinese with the exact paths I should open and the expected next state.
 ```
 

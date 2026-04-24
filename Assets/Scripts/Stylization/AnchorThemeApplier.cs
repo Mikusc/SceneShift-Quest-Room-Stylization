@@ -40,12 +40,23 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField, Tooltip("Final world-space Y offset for manual room calibration after automatic fitting.")]
     private float tableProxyVerticalOffsetMeters;
     [SerializeField, Range(-180f, 180f)] private float tableProxyYawOffsetDegrees = 90f;
+    [SerializeField, Tooltip("For imported generated tables, rotate the visual model before fitting when its local long axis does not match the MRUK table long axis.")]
+    private bool autoAlignGeneratedTableLongAxis = true;
     [SerializeField] private bool augmentFlatTableProxies = true;
     [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
 #if UNITY_EDITOR
     [SerializeField] private bool preferImportedGeneratedTablePrefabs = true;
     [SerializeField] private string generatedObjectJobFolderName = "GeneratedObjectJobs";
 #endif
+
+    private const float LongAxisRatioThreshold = 1.1f;
+
+    private enum HorizontalLongAxis
+    {
+        Balanced,
+        X,
+        Z,
+    }
 
     public event Action SummaryChanged;
 
@@ -355,7 +366,7 @@ public class AnchorThemeApplier : MonoBehaviour
             resolvedPrefabCount++;
             lastPrefabName = proxyPrefab.name;
             lastPrefabSource = prefabSource;
-            if (TrySpawnTableProxy(anchor, room, proxyPrefab, planEntry, theme, out var augmentationStatus, out var fitStatus))
+            if (TrySpawnTableProxy(anchor, room, proxyPrefab, prefabSource, planEntry, theme, out var augmentationStatus, out var fitStatus))
             {
                 proxyCount++;
                 lastFailure = "none";
@@ -378,6 +389,7 @@ public class AnchorThemeApplier : MonoBehaviour
         MRUKAnchor anchor,
         MRUKRoom room,
         GameObject proxyPrefab,
+        string prefabSource,
         StylizationPlanEntry planEntry,
         ThemeProfile theme,
         out string augmentationStatus,
@@ -406,8 +418,15 @@ public class AnchorThemeApplier : MonoBehaviour
         proxyInstance.transform.localScale = Vector3.one;
 
         if (!TryCalculateAnchorTargetBounds(proxyRoot.transform, anchor.transform, volumeBounds, out var rawTargetBounds) ||
-            !TryAdjustTableTargetBoundsForVerticalFit(proxyRoot.transform, room, rawTargetBounds, out var targetBounds, out var verticalFitStatus) ||
-            !FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, targetBounds, out var fittedBounds, out var targetSize, out var sourceSize, out var appliedScale))
+            !TryAdjustTableTargetBoundsForVerticalFit(proxyRoot.transform, room, rawTargetBounds, out var targetBounds, out var verticalFitStatus))
+        {
+            SafeDestroy(proxyRoot);
+            return false;
+        }
+
+        var axisAlignmentStatus = AutoAlignGeneratedTableLongAxis(proxyRoot.transform, proxyInstance.transform, targetBounds, prefabSource);
+
+        if (!FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, targetBounds, out var fittedBounds, out var targetSize, out var sourceSize, out var appliedScale))
         {
             SafeDestroy(proxyRoot);
             return false;
@@ -419,7 +438,7 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         var bottomDelta = fittedBounds.min.y - targetBounds.min.y;
-        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}, vertical={verticalFitStatus}, safety={tableFootprintSafetyScale:0.###}, offsetY={FormatMeters(tableProxyVerticalOffsetMeters)}";
+        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}, vertical={verticalFitStatus}, axis={axisAlignmentStatus}, safety={tableFootprintSafetyScale:0.###}, offsetY={FormatMeters(tableProxyVerticalOffsetMeters)}";
 
         ApplyProxyAccent(proxyInstance, theme);
         augmentationStatus = AugmentFlatTableProxy(proxyRoot.transform, proxyInstance.transform, fittedBounds, targetSize, theme);
@@ -431,6 +450,63 @@ public class AnchorThemeApplier : MonoBehaviour
 
         _spawnedProxyRoots.Add(proxyRoot);
         return true;
+    }
+
+    private string AutoAlignGeneratedTableLongAxis(
+        Transform proxyRoot,
+        Transform proxyInstance,
+        Bounds targetBounds,
+        string prefabSource)
+    {
+        if (!autoAlignGeneratedTableLongAxis)
+        {
+            return "auto_disabled";
+        }
+
+        if (!string.Equals(prefabSource, "generated_import", StringComparison.Ordinal))
+        {
+            return "theme_prefab";
+        }
+
+        if (proxyRoot == null || proxyInstance == null)
+        {
+            return "missing_transform";
+        }
+
+        if (!TryCalculateLocalBounds(proxyRoot, out var sourceBounds))
+        {
+            return "missing_source_bounds";
+        }
+
+        var sourceAxis = GetHorizontalLongAxis(sourceBounds.size);
+        var targetAxis = GetHorizontalLongAxis(targetBounds.size);
+        if (sourceAxis == HorizontalLongAxis.Balanced || targetAxis == HorizontalLongAxis.Balanced)
+        {
+            return $"balanced(source={FormatSize(sourceBounds.size)}, target={FormatSize(targetBounds.size)})";
+        }
+
+        if (sourceAxis == targetAxis)
+        {
+            return $"aligned({sourceAxis})";
+        }
+
+        proxyInstance.localRotation = Quaternion.Euler(0f, 90f, 0f) * proxyInstance.localRotation;
+        return $"rotated90(source={sourceAxis}, target={targetAxis})";
+    }
+
+    private static HorizontalLongAxis GetHorizontalLongAxis(Vector3 size)
+    {
+        if (size.x > size.z * LongAxisRatioThreshold)
+        {
+            return HorizontalLongAxis.X;
+        }
+
+        if (size.z > size.x * LongAxisRatioThreshold)
+        {
+            return HorizontalLongAxis.Z;
+        }
+
+        return HorizontalLongAxis.Balanced;
     }
 
     private bool FitProxyToTableAnchor(

@@ -8,20 +8,20 @@ Update it after each meaningful implementation step.
 - Last updated: `2026-04-25`
 - Current priority: `Phase 1 — room stylization`
 - Canonical scene: `Assets/Scenes/MR_RoomStylization.unity`
-- Primary development validation path: `MetaXRSimulator`
+- Primary development validation path: `MetaXRSimulator` for MRUK/planner/applier logic; Quest build validation is required for passthrough camera capture and final spatial confidence.
 
 ## Milestone Status
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | M0 — Project foundation audit | Partial | Project audit and canonical scene exist; agreed folder structure is only partially normalized. |
 | M1 — MRUK semantic debug layer | Mostly done | Simulator path works, room bootstrap exists, semantic HUD exists, and a thin best-view capture plus generated-object request export path now exists with a `TABLE` object-level crop rect and external-screenshot simulation input. Further capture refinement remains open. |
-| M2 — Visible object perception fusion | Not started | No `ObservedObjectCollector` or `SemanticFusionService` yet. |
+| M2 — Visible object perception fusion | Not started | No `ObservedObjectCollector` or `SemanticFusionService` yet. A smaller manual semantic override fallback is now the recommended next step if true-room MRUK labels miss the table. |
 | M3 — Theme system and stylization planning | Mostly done | `ThemeProfile`, `StylizationPlan`, `StylizationPlanner`, and debug HUD are in place. |
 | M4 — Stylization application | In progress | Surface stylization and room mood are working. Table proxy replacement is wired but still being refined. |
 | M5 — Manual correction mode | Started | A standalone `CorrectionModeController` code skeleton now exists, but it is not yet scene-integrated. |
 | M6 — Demo readiness | Not started | No dedicated demo UI, smoke-test panel, or capture toggles yet. |
 | M7 — NPC preparation | Not started | Intentionally deferred until Phase 1 is stable. |
-| M8 — Generated object enrichment | In progress | One `TABLE` side-branch job reached transparent image, Seed3D GLB, imported prefab, and runtime generated-prefab placement in Simulator. |
+| M8 — Generated object enrichment | In progress | Multiple `TABLE` side-branch jobs reached transparent image, Seed3D GLB, imported prefab, and runtime generated-prefab placement in Simulator. Current preferred candidate is `table_18_20260425025836`. |
 
 ## Working Features
 - `RoomSemanticBootstrap` initializes MRUK room semantics for the canonical scene.
@@ -45,11 +45,19 @@ Update it after each meaningful implementation step.
 - `LocalGeneratedObjectBackendAdapter` can now consume either a local stylized PNG path or an external hosted stylized image URL from `GeneratedImageBackendResult`, enabling the Seed3D API path without adding an upload worker.
 - `HostedImageUploadBridge` can optionally upload local stylized PNG outputs to an operator-configured hosting endpoint and write `StylizedImageUrl` back to the job for Seed3D `image_url` input.
 - `Seed3DBackendAdapter` can process `StylizedImageReady` jobs when a public `http(s)` stylized image URL is available, read `ARK_API_KEY` from the Unity process environment, create Ark Seed3D 2.0 tasks, record `ModelGenerationSubmitted`, resume polling by task id after interruption, download the generated model under `Assets/Generated/ThemeAssets/<requestId>/`, and advance the job to `ModelReady`.
-- One manual GPT-image worker output now exists for `TABLE_18`: `Library/GeneratedObjectOutputs/table_18_20260424071758.stylized.png`. The file is RGBA PNG data and is intended to be an isolated transparent table reference, not a room-photo edit.
-- One manual Seed3D 2.0 image-to-3D run produced `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`; backend metadata remains under `Library/GeneratedObjectModels/`.
+- Current Seed3D downloads must be checked for zip packaging. The validated manual flow extracts backend zip packages under `Library/GeneratedObjectModels/<requestId>/downloaded_package/` and copies only the real `.glb` into `Assets/Generated/ThemeAssets/<requestId>/` before import.
+- Earlier manual GPT-image/Seed3D outputs exist for `TABLE_18`, including `table_18_20260424071758`, `table_18_20260424173938`, and `table_18_20260425025836`.
+- The current preferred generated table candidate is:
+  - stylized image: `Library/GeneratedObjectOutputs/table_18_20260425025836.stylized.png`
+  - hosted image: `https://www.mikusc.top/scene-shift/seed3d/table_18_20260425025836.stylized.png`
+  - Seed3D task: `cgt-20260425030546-n8b7x`
+  - GLB: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
+  - prefab: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
+  - imported bounds: `0.884 x 0.700 x 2.000`
 - `GeneratedObjectModelImporter` imports `ModelReady` jobs, normalizes generated model bounds to a centered bottom pivot, removes imported colliders, saves a prefab, and advances the job to `Imported`.
-- The current imported generated table prefab is `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab`.
+- The current imported generated table prefab is `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`.
 - `AnchorThemeApplier` can prefer the latest imported generated table prefab in Editor/Simulator and fall back to the theme/default deterministic proxy when no usable generated prefab exists.
+- `AnchorThemeApplier` now auto-aligns imported generated table long axes before bounds fitting. If the generated model's local long axis and MRUK target long axis differ, runtime status reports `axis=rotated90(...)` and the visual child is rotated before final per-axis fit.
 - The canonical scene currently keeps table replacement disabled (`applyTableProxies=false`) and original MRUK volume visuals visible (`hideOriginalVolumeVisuals=false`) so the default Play view returns to the MRUK shell. Generated/deterministic table proxy placement is an opt-in validation step, not the default scene state.
 - Table generated-prefab fitting now transforms the MRUK `VolumeBounds` corners through the anchor transform into proxy-root local space before sizing, so rotated MRUK bounds do not treat a local axis as world-up by mistake.
 - Table proxy footprint and height padding are now saved as `1.0` in the canonical scene for size consistency, and runtime status logs target/source/scale/bottomDelta fit diagnostics. The latest local code adds full-height generated-table fitting from MRUK floor to MRUK table top, horizontal safety footprint scaling, per-axis local footprint correction, and a final vertical offset field for one-room calibration.
@@ -59,6 +67,7 @@ Update it after each meaningful implementation step.
 ## In Progress
 - Table replacement readability and accept/reject UX after the generated Seed3D prefab is placed.
 - Verifying the generated table visually from the user's intended Simulator camera angle, not just from fit metrics.
+- Verifying that the newest generated table candidate is selected after re-entering Play or reapplying the active theme.
 - Deciding whether exact per-axis generated-prefab fitting is acceptable for the current demo or whether to add a later Roomify-style IoU/orientation refinement step.
 - Keeping old generated jobs compatible while new prompt artifacts use `roomify_image_asset_v2`; the already imported `table_18_20260424071758` job was produced by an earlier prompt artifact.
 - Keeping documentation synchronized with the current code/scene state after each generated-object workflow change.
@@ -66,16 +75,18 @@ Update it after each meaningful implementation step.
 
 ## Known Gaps
 - No perception fusion layer yet for `Image Segmentation` or object detection.
+- No manual semantic override table yet. If true-device MRUK labels the real table as `OTHER` instead of `TABLE`, this should be implemented before heavier perception work.
 - No manual correction workflow yet.
 - No reset / reapply / clean theme-switch flow documented as finished.
 - The committed surface texture assets are currently GPT-image-2 albedo maps only; matching normal / roughness / metallic maps are still a future refinement.
 - The current object-level crop path is `TABLE`-only and still MRUK-anchor-driven; it is not yet generalized to fused `RoomObjectRecord` inputs.
-- The current `ExternalScreenshot` path assumes the manual screenshot roughly matches the active gameplay view and excludes window chrome.
+- The current `ExternalScreenshot` path assumes the manual screenshot matches the active gameplay view and excludes window chrome. Because MetaXRSimulator resets the user pose on Play entry, new generated-table runs should take the screenshot after entering Play, paste that screenshot path into `BestViewCaptureService.externalScreenshotPath` in the same Play session, then press `C` without moving.
 - The estimated crop rect can still drift from the screenshot composition because the image source and runtime camera are not the same frame.
-- Image stylization is still manual/offline unless using the local mock adapter. Seed3D model generation now has an automated Ark adapter and optional upload bridge, but both need operator-provided endpoint/key configuration and have not been exercised against real services in this repo session.
+- Image stylization is still manual/offline unless using the local mock adapter. Seed3D model generation has been exercised through Ark for recent table candidates, but local image upload/hosting still depends on an operator-provided path and the Unity-side adapter should still be hardened for zip-package responses before unattended use.
 - Generated asset lookup currently scans imported `.job.json` records; there is no dedicated generated asset registry database yet.
 - Generated furniture still lacks explicit user approval/reject/correction UI.
 - No true-device passthrough/camera-frame capture path is implemented yet; it is only reserved in the contract.
+- MQDH screenshots/casts are useful for human review, but they are not an app-consumable capture source. The generated-object device capture path still needs a headset-side passthrough/camera API implementation that writes PNG + metadata under `Application.persistentDataPath`.
 - No complete demo-ready UI path outside inspector/debug HUD usage.
 - The Ark API key is read only from `ARK_API_KEY` in the Unity process environment; Unity must be launched with that environment variable for `Seed3DBackendAdapter` to see it.
 - MetaXRSimulator / Editor Play still resets the user start pose between Play sessions. A first editor-only pose-bookmark experiment was reverted because it did not reliably override the simulator start pose; use simulator controls or a future official-rig-compatible solution instead.
@@ -113,6 +124,8 @@ Last stable manual/runtime checks before this document update confirmed:
 - After adding generated physical-size request fields, hosted stylized image URL propagation, `Seed3DBackendAdapter`, floor-to-tabletop table fitting, and the standalone correction controller skeleton, `Assets/Refresh` completed and Unity Console reported `0` Error entries and `0` Warning entries.
 - After adding resumable Seed3D `ModelGenerationSubmitted` state, generated model quality review fields, and importer quality gating to `NeedsReview`, static diff checks passed before the final Unity refresh.
 - After the editor play-pose bookmark experiment was reverted, the canonical scene no longer contains `PlayModeViewPoseBookmark`; the current scene state intentionally remains on the MRUK shell until table proxy placement is explicitly re-enabled for validation.
+- After the generated-table long-axis correction, `AnchorThemeApplier` reported `axis=rotated90(source=Z, target=X)`, `bottomDelta=0m`, and `failure=none` for generated table placement using an imported generated prefab.
+- After regenerating the table with a stronger long-rectangle prompt, Seed3D task `cgt-20260425030546-n8b7x` succeeded, the returned zip package was extracted outside `Assets/`, `table_18_20260425025836.seed3d.pbr.glb` imported cleanly, `GeneratedObjectModelImporter` advanced the job to `Imported`, and Unity Console reported `0` Error entries after refresh/import.
 
 ## Current Local Workspace State
 The workspace currently contains uncommitted local state that should be treated as in-progress rather than final:
@@ -122,8 +135,8 @@ The workspace currently contains uncommitted local state that should be treated 
   Generated table prefab selection, MRUK-volume-corner target bounds, 1:1 proxy padding defaults, bottom-face alignment, and fit diagnostics are present locally.
 - `Assets/Scripts/Editor/GeneratedObjectModelImporter.cs`
   Generated GLB-to-prefab import is present locally.
-- `Assets/Generated/ThemeAssets/table_18_20260424071758/`
-  Contains the current Seed3D GLB and generated table prefab.
+- `Assets/Generated/ThemeAssets/table_18_20260425025836/`
+  Contains the current preferred Seed3D GLB and generated table prefab.
 - `Assets/Scripts/Perception/GeneratedObjectPromptBuilder.cs`
   Future generated-object prompts now require an isolated transparent object asset; old jobs may still carry older prompt text.
 - `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
@@ -145,11 +158,11 @@ The workspace currently contains uncommitted local state that should be treated 
 
 ## Next Smallest Task
 For the generated-table branch:
-1. provide a hosted `StylizedImageUrl` for a `StylizedImageReady` job and run one real `Seed3DBackendAdapter` request with `ARK_API_KEY` available to the Unity process,
-2. import the resulting `ModelReady` GLB,
-3. explicitly re-enable `AnchorThemeApplier.applyTableProxies` only for generated-table placement validation and inspect from the intended Simulator/user camera angle,
-4. decide whether the new floor-to-tabletop fit plus safety footprint scale is acceptable or whether yaw/aspect correction is still needed,
-5. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready.
+1. re-enter Play or run `Reapply Active Theme` and confirm the latest imported generated table candidate is selected,
+2. inspect the generated table from the intended Simulator/user camera angle with `AnchorThemeApplier.applyTableProxies` explicitly enabled,
+3. decide whether the current long-axis auto-alignment plus safety footprint scale is visually acceptable,
+4. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready,
+5. harden `Seed3DBackendAdapter` so zip package extraction is automatic rather than a manual post-processing step.
 
 For the core Phase 1 room-stylization branch:
 1. keep `SurfaceOverrideApplier` in `Background` mode while furniture replacement is incomplete,

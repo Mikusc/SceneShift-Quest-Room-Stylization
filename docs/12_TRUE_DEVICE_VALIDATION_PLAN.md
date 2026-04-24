@@ -34,13 +34,40 @@ The current project uses MetaXRSimulator heavily, but simulator success does not
 
 # 2. Tooling
 
+## Meta Quest Developer Hub / ADB
 Use Meta Quest Developer Hub or equivalent device tooling for:
 - installing builds,
 - launching the app,
-- viewing logs,
-- capturing device video,
+- viewing device logs / logcat output,
+- capturing device video or screenshots for human review,
 - checking basic performance,
-- exporting files when needed.
+- exporting files when needed,
+- verifying that saved capture artifacts exist under the app's persistent data area.
+
+MQDH screenshots and videos are debugging evidence. They are not the application-side image source for the generated-object pipeline, because the running Unity app cannot consume an MQDH desktop capture as its own input.
+
+## Immersive Debugger
+Use Meta XR Immersive Debugger for in-headset inspection when Link/Editor Play debugging is unavailable:
+- view Console messages while wearing the headset,
+- inspect selected runtime components,
+- expose watch values such as current room state, selected anchor id, latest capture path, latest upload URL, and last failure reason,
+- expose tweakable values such as generated table safety scale, selected anchor index, and correction deltas,
+- invoke no-argument debug actions such as capture frame, save last capture, upload last capture, reapply table proxy, or reset to deterministic proxy.
+
+Recommended debug members for the device capture/generated-table path:
+```text
+CapturePassthroughFrame()
+SaveLastCapture()
+UploadLastCapture()
+ReapplyTableProxy()
+ResetToDeterministicTable()
+selectedAnchorIndex
+lastCapturePath
+lastCaptureMetadataPath
+lastUploadUrl
+lastError
+tableFootprintSafetyScale
+```
 
 Use Unity editor tooling for:
 - asset/scene wiring,
@@ -48,7 +75,7 @@ Use Unity editor tooling for:
 - build settings,
 - package configuration.
 
-Do not infer true-device camera access from simulator screenshots.
+Do not infer true-device camera access from simulator screenshots or MQDH screenshots.
 Before implementing real passthrough/camera capture, verify the current Meta SDK, Quest OS, permission, and platform-policy requirements for the target device.
 
 ---
@@ -97,6 +124,15 @@ Artifacts to collect:
 Pass criteria:
 - the deterministic planner can produce a useful plan without manual scene edits.
 
+If MRUK does not label the real table as `TABLE`, use a manual semantic override before adding heavier perception:
+- override by anchor index/name/id,
+- set semantic label to `table`,
+- set function tag to `support_surface`,
+- mark the object collision-sensitive,
+- show `source=manual_override` in debug UI.
+
+This is acceptable for Phase 1 because it is a user-editability/correction mechanism, not a claim that automatic perception succeeded.
+
 ---
 
 # 5. Stage C — generated-object file artifacts and imported prefab on device
@@ -140,13 +176,41 @@ Validate before implementation:
 
 Implementation target:
 - keep the existing `BestViewCaptureSourceMode.DevicePassthroughReserved` contract,
+- implement a device-only capture component, tentatively `DevicePassthroughCaptureService`,
+- use a headset-supported passthrough/camera API path rather than Unity `ScreenCapture` or MQDH screenshots,
+- save capture artifacts under `Application.persistentDataPath`,
 - write to the same `GeneratedObjectRequest` shape,
 - preserve `BestViewCameraPose`, crop metadata, object bounds, and best-view yaw.
+
+Expected saved artifacts:
+- `capture.png`
+- `capture.metadata.json`
+
+Expected metadata:
+- timestamp,
+- camera pose,
+- camera intrinsics if available,
+- image resolution,
+- selected MRUK anchor id/name/index,
+- anchor semantic source (`mruk`, `manual_override`, or later `fusion`),
+- table/world bounds,
+- projected crop rect,
+- any permission or API availability status.
 
 Pass criteria:
 - captured image is a real headset-supported source,
 - request artifacts stay compatible with the existing backend protocol,
 - deterministic fallback still works.
+
+Debugging sequence for MacBook-only development without Link passthrough:
+1. build and install the APK with MQDH or ADB,
+2. launch the app on Quest,
+3. use Immersive Debugger or in-app debug UI to trigger `CapturePassthroughFrame`,
+4. use MQDH cast/screenshot only to document what the user saw,
+5. pull `capture.png` and `capture.metadata.json` from device storage,
+6. run the current workstation-side image stylization and Seed3D flow,
+7. import the resulting prefab in Unity,
+8. build again with the generated prefab or test runtime loading later.
 
 ---
 

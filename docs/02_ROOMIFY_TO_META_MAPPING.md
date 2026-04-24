@@ -69,6 +69,10 @@ Fallback order:
 2. manual tagging / debug-only semantic overrides
 3. theme application only on room surfaces and major MRUK anchors
 
+For the current one-room prototype, a manual semantic override is an acceptable Phase 1 correction mechanism.
+If MRUK labels the real discussion table as `OTHER` or misses the expected `TABLE` semantic, prefer a small user-visible override keyed by anchor index/name/id before adding heavier perception infrastructure.
+The debug UI should show the semantic source as `manual_override` so this is not mistaken for automatic recognition.
+
 ## 4. Why Image Segmentation matters here
 Image Segmentation is useful because it can help bridge the gap between:
 - room-scale semantics from MRUK,

@@ -21,11 +21,11 @@ Check:
 - theme assets exist under `Assets/Data/ThemeProfiles/`
 
 If testing generated-object handoff:
-- `BestViewCaptureService.externalScreenshotPath` is set
+- `BestViewCaptureService.externalScreenshotPath` is set, preferably after entering Play and taking a screenshot from the same camera pose that will be used before pressing `C`
 - `BestViewCaptureService.captureSourceMode` is `ExternalScreenshot`
 - `LocalGeneratedObjectBackendAdapter.processingMode` is the expected mode
 - if testing generated table placement, the expected `.job.json` is `Imported` and has a valid `ImportedPrefabPath`
-- if testing the current validated generated table, confirm `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab` exists
+- if testing the current preferred validated generated table, confirm `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab` exists
 - if testing generated or deterministic table placement, explicitly enable `AnchorThemeApplier.applyTableProxies`; the canonical scene may keep it disabled so the default Play view shows the MRUK shell
 
 ---
@@ -98,6 +98,8 @@ Expected after pressing `C`:
 - `Library/GeneratedObjectBackendInbox/*.result.template.json`
 - job state reaches `BackendSubmitted`
 
+Before pressing `C`, the external screenshot must match the current Play camera pose. If Play has reset the user position, retake the screenshot in that Play session, paste the new absolute path into `BestViewCaptureService.externalScreenshotPath`, and avoid moving before pressing `C`.
+
 After manual worker output is dropped:
 - requested output image exists
 - requested result JSON exists
@@ -111,6 +113,7 @@ Expected after a manual Seed3D worker run:
 - `GeneratedObjectModelImporter` imports the model
 - job state reaches `Imported`
 - `ImportedPrefabPath` points to `Assets/Generated/ThemeAssets/<requestId>/<requestId>.generated_table_proxy.prefab`
+- if Seed3D returns a zip package, the zip is kept under `Library/GeneratedObjectModels/<requestId>/downloaded_package/` and only the extracted `.glb` is copied into `Assets/Generated/ThemeAssets/<requestId>/`
 
 ## Runtime generated table placement
 The canonical scene can keep table proxy placement disabled while generation work is in progress. Before running this section, enable `AnchorThemeApplier.applyTableProxies` for the validation run.
@@ -120,6 +123,7 @@ Expected in Play mode when the generated prefab is selected:
 - `prefab` names the generated table prefab
 - `failure=none`
 - `fit` includes `target`, `source`, `scale`, and `bottomDelta`
+- if the generated table's local long axis differs from the MRUK target long axis, `fit` also includes `axis=rotated90(...)`
 - `bottomDelta` is `0m` or close enough to be visually grounded
 
 Fail if:

@@ -29,7 +29,10 @@ TABLE MRUK anchor
     -> GenerativeObjectCoordinator
     -> LocalGeneratedObjectBackendAdapter
     -> stylized image / external worker result
-    -> future generated proxy registration
+    -> HostedImageUploadBridge / public image URL
+    -> Seed3DBackendAdapter or manual Seed3D worker
+    -> GeneratedObjectModelImporter
+    -> AnchorThemeApplier generated proxy registration
 ```
 
 ## 3. Core modules
@@ -163,6 +166,34 @@ Responsibility:
 - locally simulate a stylized-image backend for development
 - support `ExternalFileProtocol` for manual or out-of-process image workers
 - consume returned result artifacts and update job state
+
+### 3.15 `HostedImageUploadBridge`
+Responsibility:
+- optionally turn local stylized PNG outputs into hosted `http(s)` URLs
+- write `StylizedImageUrl` back to generated-object jobs
+- keep upload credentials out of request/job/result JSON
+
+### 3.16 `Seed3DBackendAdapter`
+Responsibility:
+- submit hosted stylized images to Ark Seed3D 2.0
+- poll submitted tasks and resume interrupted `ModelGenerationSubmitted` jobs
+- download model packages for editor-side import
+- keep `ARK_API_KEY` in the process environment, not in scene files or job JSON
+
+### 3.17 `GeneratedObjectModelImporter`
+Responsibility:
+- editor-only import of `ModelReady` generated assets
+- normalize generated model wrappers to a centered bottom pivot
+- remove untrusted imported colliders
+- save generated table proxy prefabs under `Assets/Generated/ThemeAssets/<requestId>/`
+
+### 3.18 Future `DevicePassthroughCaptureService`
+Responsibility:
+- on Quest builds, capture a real headset-supported RGB frame for the generated-object request path
+- save PNG and metadata under `Application.persistentDataPath`
+- preserve camera pose, selected MRUK anchor, bounds, and crop metadata for offline/async generation
+
+This future service should feed the existing generated-object request contract rather than creating a second pipeline.
 
 ## 4. Recommended C# data flow objects
 Use these serializable types or ScriptableObjects:

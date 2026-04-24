@@ -89,6 +89,7 @@ Current repository note:
 - `ExternalScreenshot` is the preferred simulator-stage source mode
 - `UnityFramebufferDebug` is retained only for plumbing/debug checks
 - `DevicePassthroughReserved` is preserved for the future true-device capture path
+- true-device capture should be implemented as a separate device-only service that writes the same request shape, because simulator screenshots do not prove headset camera capture behavior
 
 #### `GenerativeObjectCoordinator`
 Purpose:
@@ -124,8 +125,11 @@ Purpose:
 - return `glb`, `fbx`, or another importable model package
 
 Current repository note:
-- the first real model candidate was produced manually through Seed3D 2.0 using the isolated stylized table PNG
-- the returned medium-subdivision GLB is stored at `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`
+- real model candidates have now been produced through Seed3D 2.0 using isolated stylized table PNG inputs
+- the current preferred candidate is `table_18_20260425025836`, stored as:
+  - `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
+  - `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
+- Seed3D may return a zip package even when GLB output is requested; do not put that zip directly under `Assets/` with a `.glb` extension. Extract the package under `Library/GeneratedObjectModels/<requestId>/` and copy only the real `.glb` into `Assets/Generated/ThemeAssets/<requestId>/`.
 - API keys and signed backend download URLs are operator secrets and must not be committed or copied into documentation
 
 #### `GeneratedAssetRegistry`
@@ -188,6 +192,7 @@ In this repository, that chain should map onto runtime modules like this:
   all for the `TABLE` path.
 - For simulator-stage work, the preferred image source is a manual external screenshot, because Unity's own framebuffer does not faithfully represent the simulator/compositor passthrough-like view.
 - In the current `ExternalScreenshot` implementation, the original screenshot is used directly as the backend input image while the estimated crop rect is preserved in metadata for later refinement.
+- Because the simulator resets the user pose between Play sessions, each new generated-object run should take the external screenshot after entering Play, update `BestViewCaptureService.externalScreenshotPath` on the live scene object, and press `C` before moving away from that view.
 - `GenerativeObjectCoordinator` now consumes captured requests and writes:
   - `Library/GeneratedObjectJobs/*.job.json`,
   - `Library/GeneratedObjectJobs/*.prompt.txt`.
@@ -195,13 +200,15 @@ In this repository, that chain should map onto runtime modules like this:
 - `LocalGeneratedObjectBackendAdapter` now provides two workstation-side modes:
   - `LocalMockStylization`, which writes a simulated `.stylized.png` and `.result.json`,
   - `ExternalFileProtocol`, which writes `.submission.json` plus `.result.template.json` for a manual or external worker.
-- One manual external-worker path has produced a real isolated table image:
-  - `Library/GeneratedObjectOutputs/table_18_20260424071758.stylized.png`
-  - the file is RGBA PNG data and is the image-to-3D source for the current generated table candidate.
-- One manual Seed3D 2.0 image-to-3D path has produced and imported:
-  - `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`
-  - `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab`
+- Multiple manual/external-worker paths have produced isolated table images and imported Seed3D assets.
+  - Earlier candidate: `table_18_20260424173938`
+  - Current preferred candidate: `table_18_20260425025836`
+  - current preferred stylized image: `Library/GeneratedObjectOutputs/table_18_20260425025836.stylized.png`
+  - current preferred hosted image: `https://www.mikusc.top/scene-shift/seed3d/table_18_20260425025836.stylized.png`
+  - current preferred GLB: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
+  - current preferred prefab: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
 - `AnchorThemeApplier` can now prefer that imported generated table prefab in Editor/Simulator and fall back to deterministic theme proxies when no imported generated job is usable.
+- When fitting an imported generated table prefab, `AnchorThemeApplier` checks whether the generated model's local horizontal long axis matches the MRUK table target's local long axis; if they differ, it rotates the generated visual 90 degrees before bounds fitting so length is not compressed onto the short side.
 - The canonical scene currently keeps table proxy placement disabled so Play defaults to the MRUK shell. Generated table placement should be explicitly enabled only when validating the generated-object branch.
 - `GeneratedObjectRequest` and `GeneratedAssetRecord` now carry physical target constraints for generated furniture: target length, width, height, length/width aspect ratio, safety footprint scale, and vertical fit mode.
 - `GeneratedObjectPromptBuilder` includes those constraints in the image prompt so the isolated stylized reference keeps the same MRUK table proportions before image-to-3D.
@@ -217,6 +224,7 @@ In this repository, that chain should map onto runtime modules like this:
 - no full Roomify-style OBB/IoU generated-proxy registration path yet
 - no manual approval/reject/correction UI specifically for generated furniture
 - no true-device passthrough/camera-frame capture path; `DevicePassthroughReserved` is only a reserved contract value
+- no runtime Quest-side GLB import path yet; the current import flow depends on Editor-only `AssetDatabase` / `PrefabUtility`
 
 ## Proposed runtime flow
 
@@ -328,6 +336,7 @@ Current repository interpretation:
 - generated backend metadata may be kept under `Library/GeneratedObjectModels/`, but API keys and signed URLs must stay out of tracked files and docs
 - `Seed3DBackendAdapter` automates this step only when `StylizedImageUrl`, or `StylizedImagePath`, is already a public `http(s)` image URL. It does not upload local files; local `Library/.../*.png` images remain waiting for a hosted URL instead of being submitted.
 - The adapter writes request/result metadata under `Library/GeneratedObjectModels/<requestId>/` and does not log or serialize `ARK_API_KEY`.
+- Current limitation: unattended Seed3D downloads should still be checked for zip packaging. If a zip is returned, extract it under `Library/GeneratedObjectModels/<requestId>/downloaded_package/` and point `GeneratedModelPath` at the extracted `.glb` before running `GeneratedObjectModelImporter`.
 
 Roomify-specific note:
 - the paper uses this stage because image models currently preserve style and coarse geometry better than direct text-to-3D
@@ -374,7 +383,8 @@ Current repository implementation:
 - the runtime status records `source=generated_import` when that path is selected
 - fitting now computes the target bounds by transforming all eight corners of MRUK `VolumeBounds` from anchor-local space into proxy-root local space
 - the current fitting uses exact per-axis scale against the scaffold bounds with default `1.0` footprint/height padding, then aligns generated model bottom to scaffold bottom
-- the runtime status logs `target`, `source`, `scale`, and `bottomDelta`; the latest inspected run reported `bottomDelta=0m`
+- for imported generated tables, the applier auto-aligns the generated model's local long axis to the MRUK target long axis before fitting
+- the runtime status logs `target`, `source`, `scale`, `bottomDelta`, and `axis`; the latest inspected run reported `axis=rotated90(source=Z, target=X)` and `bottomDelta=0m`
 - this fixes the immediate size/floating issue but is still simpler than the full Roomify OBB/IoU refinement stage
 
 ### Registration logic borrowed directly from Roomify
@@ -518,7 +528,7 @@ Only after the file protocol and generated-proxy registration are stable, connec
 - imported asset registry.
 
 Status:
-- manual GPT-image and manual Seed3D steps have been validated for one table candidate
+- manual GPT-image/imagegen and Seed3D steps have been validated for two recent table candidates, with `table_18_20260425025836` preferred for further placement checks
 - `Seed3DBackendAdapter` is implemented as the first automated model-generation worker for public `http(s)` stylized image URLs
 - automated image stylization, local image upload/hosting, and persistent registry are not implemented
 
@@ -619,8 +629,8 @@ Do not implement this path as:
 Keep the current `ExternalFileProtocol` flow as the repeatable manual image-worker boundary.
 
 Current status:
-- completed once for `table_18_20260424071758`
-- new requests should keep using this boundary until an automated image API worker is committed
+- completed for table candidates including `table_18_20260424173938` and `table_18_20260425025836`
+- new requests should keep using this boundary until an automated image API worker and upload path are committed
 
 ### Step 2
 Keep deterministic proxy as the fallback object while the generated image/model remains a candidate artifact under review.
@@ -629,7 +639,7 @@ Keep deterministic proxy as the fallback object while the generated image/model 
 Use offline/manual image-to-3D generation and Unity import for one `TABLE`.
 
 Current status:
-- completed once for `table_18_20260424071758`
+- completed for the current preferred table candidate `table_18_20260425025836`
 - importer produced a generated table prefab under `Assets/Generated/ThemeAssets/`
 
 ### Step 4

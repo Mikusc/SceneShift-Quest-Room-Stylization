@@ -460,7 +460,8 @@ public enum GeneratedObjectVerticalFitMode
 - `ModelReady` means a Unity-importable model file exists at `GeneratedModelPath`.
 - `Imported` means `GeneratedObjectModelImporter` saved a generated prefab and wrote `ImportedPrefabPath`.
 - `NeedsReview` means a prefab was saved, but the automatic quality gate found suspicious proportions or bounds, so runtime systems should keep using deterministic fallback or a previously accepted generated asset.
-- The first validated imported generated table job is `table_18_20260424071758`.
+- The current validated imported generated table candidate is `table_18_20260425025836`.
+- Earlier generated table candidates such as `table_18_20260424071758` and `table_18_20260424173938` remain useful for comparison, but new runtime validation should prefer the newest `Imported` job that passes quality review.
 
 ---
 

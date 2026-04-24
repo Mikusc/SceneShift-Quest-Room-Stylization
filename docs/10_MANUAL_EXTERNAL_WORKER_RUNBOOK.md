@@ -10,13 +10,16 @@ The goal is to manually simulate this generated-object branch:
 This is only for the optional generated-object side branch.
 The deterministic room stylization and table proxy path must remain the visible fallback.
 
-Current validated request:
-- `table_18_20260424071758`
+Current preferred validated request:
+- `table_18_20260425025836`
 - source category: `TABLE_18`
 - theme: `future_research_lab`
-- current stylized image: `Library/GeneratedObjectOutputs/table_18_20260424071758.stylized.png`
-- current generated GLB: `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`
-- current generated prefab: `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab`
+- current stylized image: `Library/GeneratedObjectOutputs/table_18_20260425025836.stylized.png`
+- current hosted image: `https://www.mikusc.top/scene-shift/seed3d/table_18_20260425025836.stylized.png`
+- current generated GLB: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
+- current generated prefab: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
+
+Earlier validated candidates such as `table_18_20260424071758` and `table_18_20260424173938` may remain in the workspace for comparison, but new placement checks should prefer the newest `Imported` job that passed quality review.
 
 ---
 
@@ -32,7 +35,7 @@ Before testing, confirm:
 - Console has no new blocking errors
 
 For Codex sessions:
-- do not take screenshots after Play starts
+- Codex should not rely on macOS screenshots it takes after Play starts; the headset/simulator operator should capture the intended view and provide or set the resulting path
 - only read Unity Console/logs if runtime validation is needed
 
 ---
@@ -41,9 +44,16 @@ For Codex sessions:
 
 In Play mode:
 1. wait until MRUK room state and HUD are stable
-2. make sure a `TABLE` candidate is visible/available
-3. press `C` once
-4. wait for the coordinator/backend adapter to process the request
+2. move to the intended table generation view
+3. optionally press `V` once to hide virtual/stylized/debug capture objects before taking the external screenshot
+4. take a screenshot of the Game view / simulator view and save it to a stable local path
+5. paste that absolute screenshot path into `BestViewCaptureService.externalScreenshotPath` on the live Play-mode `Perception` object
+6. do not move the camera after taking the screenshot
+7. make sure a `TABLE` candidate is visible/available
+8. press `C` once
+9. wait for the coordinator/backend adapter to process the request
+
+This same-Play-session order matters because MetaXRSimulator can reset the user pose every time Play starts. A screenshot from a previous Play session may not match the current camera pose used for crop and physical metadata.
 
 Expected files:
 - `Library/BestViewCaptures/*.request.json`
@@ -161,6 +171,7 @@ If native alpha is unavailable, generate on a flat `#00ff00` chroma-key backgrou
 ## Crop or screenshot framing is wrong
 For the current simulator-stage path, use the full external screenshot as the backend input.
 Treat `NormalizedCropRect` as metadata, not as a mandatory crop.
+If the screenshot viewpoint does not match the current Play camera, retake the screenshot, update `BestViewCaptureService.externalScreenshotPath`, and press `C` again before moving the camera.
 
 ---
 
@@ -189,6 +200,11 @@ Automated adapter option:
 - writes request/result metadata under `Library/GeneratedObjectModels/<requestId>/`
 - downloads the returned model to `Assets/Generated/ThemeAssets/<requestId>/<requestId>.seed3d.generated.glb` when `fileformat=glb`, then sets the job to `ModelReady`
 
+Current packaging caveat:
+- Seed3D can return a zip package even when GLB output was requested.
+- If the downloaded file is a zip, move it under `Library/GeneratedObjectModels/<requestId>/downloaded_package/`, extract it there, and copy only the real `.glb` file, usually `pbr/mesh_textured_pbr.glb`, into `Assets/Generated/ThemeAssets/<requestId>/`.
+- Do not leave a zip payload in `Assets/` with a `.glb` extension, because Unity/glTFast will try to import it as GLB and report JSON parsing/import errors.
+
 Hard rule:
 - do not write API keys, bearer tokens, or signed `file_url` values into repository files or docs
 - if a backend response JSON contains a signed URL, keep it under `Library/GeneratedObjectModels/` only and do not commit it
@@ -204,8 +220,8 @@ Expected worker steps:
 
 If using `Seed3DBackendAdapter`, the adapter first records `ModelGenerationSubmitted` with the Ark task id, can resume polling after interruption, and then advances the job to `ModelReady` after the model download completes. The adapter keeps `ARK_API_KEY` out of logs and job JSON.
 
-For the current validated table, the copied GLB path is:
-- `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`
+For the current preferred validated table, the copied GLB path is:
+- `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
 
 ---
 
@@ -226,8 +242,8 @@ Expected behavior for a `ModelReady` job:
 - update the job to `Imported`
 - write `ImportedPrefabPath` and `ImportedBounds`
 
-For the current validated table, the imported prefab path is:
-- `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab`
+For the current preferred validated table, the imported prefab path is:
+- `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
 
 ---
 
@@ -240,14 +256,16 @@ Expected `Table Status` indicators:
 - `source=generated_import`
 - `prefab=<requestId>.generated_table_proxy`
 - `failure=none`
-- `fit=target=..., source=..., scale=..., bottomDelta=...`
+- `fit=target=..., source=..., scale=..., bottomDelta=..., axis=...`
 
-The latest inspected run for the current table reported:
+The latest inspected run for the old `table_18_20260424173938` placement reported:
 - `source=generated_import`
-- `fit=target=2.02x0.782x0.937, source=2.159x0.761x1.33, scale=0.935x1.027x0.704, bottomDelta=0m`
+- `axis=rotated90(source=Z, target=X)`
+- `fit=target=2.371x0.803x1.099, source=2.157x0.698x1.316, scale=1.099x1.15x0.835, bottomDelta=0m`
 
 Interpretation:
 - `bottomDelta=0m` means the generated prefab bounds bottom is aligned to the MRUK table scaffold bottom in the applier's fitting space
+- `axis=rotated90(...)` means the imported generated model's local long axis was rotated to match the MRUK target long axis before final scale fitting
 - this does not replace visual review; the generated table still needs user-facing camera validation and later correction/approval UI
 
 ---
