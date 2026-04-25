@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Text;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
@@ -28,6 +29,11 @@ public class RoomSemanticBootstrap : MonoBehaviour
     [SerializeField] private bool logOnRoomUpdated;
     [SerializeField] private bool logAnchorDetails = true;
     [SerializeField] private bool includeBoundsSummary = true;
+    [SerializeField] private bool logWaitingDiagnostics = true;
+    [SerializeField] private float waitingDiagnosticDelaySeconds = 3f;
+    [SerializeField] private bool retryDeviceLoadOnStartup = true;
+    [SerializeField] private float deviceLoadRetryDelaySeconds = 4f;
+    [SerializeField] private bool retryRequestSceneCaptureIfNoDataFound;
 
     public event Action SummaryChanged;
 
@@ -42,6 +48,8 @@ public class RoomSemanticBootstrap : MonoBehaviour
 
     private bool _subscribed;
     private bool _hasLoggedReadyRoom;
+    private bool _deviceLoadRetryInProgress;
+    private Coroutine _startupDiagnosticsRoutine;
     private MRUKRoom _currentRoom;
     private string _latestReason = "waiting";
     private string _latestPanelSummary = "[RoomSemanticBootstrap]\nRoom status: waiting\nMRUK: unresolved";
@@ -66,10 +74,12 @@ public class RoomSemanticBootstrap : MonoBehaviour
         PublishWaitingState();
         Subscribe();
         TryLogCurrentRoom("already-initialized");
+        StartStartupDiagnostics();
     }
 
     private void OnDisable()
     {
+        StopStartupDiagnostics();
         Unsubscribe();
         _hasLoggedReadyRoom = false;
     }
@@ -162,6 +172,75 @@ public class RoomSemanticBootstrap : MonoBehaviour
         }
     }
 
+    private void StartStartupDiagnostics()
+    {
+        StopStartupDiagnostics();
+
+        if (!logWaitingDiagnostics && !retryDeviceLoadOnStartup)
+        {
+            return;
+        }
+
+        _startupDiagnosticsRoutine = StartCoroutine(StartupDiagnosticsRoutine());
+    }
+
+    private void StopStartupDiagnostics()
+    {
+        if (_startupDiagnosticsRoutine == null)
+        {
+            return;
+        }
+
+        StopCoroutine(_startupDiagnosticsRoutine);
+        _startupDiagnosticsRoutine = null;
+    }
+
+    private IEnumerator StartupDiagnosticsRoutine()
+    {
+        yield return new WaitForSeconds(Mathf.Max(0.1f, waitingDiagnosticDelaySeconds));
+
+        if (!_hasLoggedReadyRoom && logWaitingDiagnostics)
+        {
+            Debug.Log(BuildWaitingSummary("startup-delay"), this);
+        }
+
+        yield return new WaitForSeconds(Mathf.Max(0f, deviceLoadRetryDelaySeconds - waitingDiagnosticDelaySeconds));
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        if (!_hasLoggedReadyRoom && retryDeviceLoadOnStartup)
+        {
+            RetryLoadSceneFromDevice("startup-timeout");
+        }
+#endif
+    }
+
+    private async void RetryLoadSceneFromDevice(string reason)
+    {
+        if (mruk == null || _deviceLoadRetryInProgress)
+        {
+            return;
+        }
+
+        _deviceLoadRetryInProgress = true;
+
+        try
+        {
+            Debug.Log($"[RoomSemanticBootstrap] Retrying MRUK.LoadSceneFromDevice ({reason}); {BuildMrukStateLine()}");
+            var result = await mruk.LoadSceneFromDevice(retryRequestSceneCaptureIfNoDataFound);
+            Debug.Log($"[RoomSemanticBootstrap] MRUK.LoadSceneFromDevice result={result}; {BuildMrukStateLine()}");
+            TryLogCurrentRoom($"device-retry-{result}");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[RoomSemanticBootstrap] MRUK.LoadSceneFromDevice threw {ex.GetType().Name}: {ex.Message}\n{ex}");
+            PublishWaitingState("device-retry-exception");
+        }
+        finally
+        {
+            _deviceLoadRetryInProgress = false;
+        }
+    }
+
     private MRUKRoom ResolveRoom()
     {
         if (mruk == null)
@@ -169,19 +248,26 @@ public class RoomSemanticBootstrap : MonoBehaviour
             return null;
         }
 
+        try
+        {
+            var currentRoom = mruk.GetCurrentRoom();
+            if (currentRoom != null)
+            {
+                return currentRoom;
+            }
+        }
+        catch
+        {
+            // MRUK may throw before device room localization is ready. Fall back below
+            // so simulator/prefab iteration still has a debuggable room.
+        }
+
         if (mruk.Rooms.Count > 0)
         {
             return mruk.Rooms[0];
         }
 
-        try
-        {
-            return mruk.GetCurrentRoom();
-        }
-        catch
-        {
-            return null;
-        }
+        return null;
     }
 
     private void LogRoomSummaryOnce(string reason, MRUKRoom room)
@@ -288,8 +374,25 @@ public class RoomSemanticBootstrap : MonoBehaviour
         builder.AppendLine($"Room status: {reason}");
         builder.AppendLine($"MRUK reference: {(HasMrukReference ? "present" : "missing")}");
         builder.AppendLine($"MRUK initialized: {IsMrukInitialized}");
-        builder.Append("Hint: enter Play and wait for the simulator room to load.");
+        builder.AppendLine(BuildMrukStateLine());
+        builder.Append("Hint: on Quest, keep the app focused and confirm any Guardian or spatial data prompt.");
         return builder.ToString();
+    }
+
+    private string BuildMrukStateLine()
+    {
+        if (mruk == null)
+        {
+            return "MRUK state: missing";
+        }
+
+        var settings = mruk.SceneSettings;
+        if (settings == null)
+        {
+            return $"MRUK state: initialized={mruk.IsInitialized}, rooms={mruk.Rooms.Count}, settings=missing";
+        }
+
+        return $"MRUK state: initialized={mruk.IsInitialized}, rooms={mruk.Rooms.Count}, dataSource={settings.DataSource}, loadOnStartup={settings.LoadSceneOnStartup}, roomIndex={settings.RoomIndex}";
     }
 
     private static int CountAnchorsWithLabel(MRUKRoom room, MRUKAnchor.SceneLabels label)

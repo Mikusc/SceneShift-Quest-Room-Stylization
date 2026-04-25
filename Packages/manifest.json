@@ -1,6 +1,12 @@
 {
   "dependencies": {
-    "com.meta.xr.sdk.all": "201.0.0",
+    "com.meta.xr.mrutilitykit": "201.0.0",
+    "com.meta.xr.sdk.audio": "85.0.0",
+    "com.meta.xr.sdk.core": "201.0.0",
+    "com.meta.xr.sdk.haptics": "201.0.0",
+    "com.meta.xr.sdk.interaction": "201.0.0",
+    "com.meta.xr.sdk.interaction.ovr": "201.0.0",
+    "com.meta.xr.sdk.platform": "201.0.0",
     "com.meta.xr.unity-mcp.extension": "https://github.com/meta-quest/Unity-MCP-Extensions.git",
     "com.unity.ai.assistant": "2.6.0-pre.1",
     "com.unity.ai.navigation": "2.0.12",

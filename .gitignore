@@ -80,6 +80,10 @@ mono_crash.*
 *.unitypackage
 *.unitypackage.meta
 *.app
+*_BackUpThisFolder_ButDontShipItWithYourGame/
+*_BurstDebugInformation_DoNotShip/
+*.symbols.zip
+TempAssembly.dll
 
 # Crashlytics generated file
 crashlytics-build.properties

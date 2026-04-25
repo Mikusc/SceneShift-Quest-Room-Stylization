@@ -226,8 +226,12 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
 
     private string ResolveJobFolder()
     {
+#if UNITY_EDITOR
         var projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
         return Path.Combine(projectRoot, "Library", string.IsNullOrWhiteSpace(jobFolderName) ? "SurfaceTextureJobs" : jobFolderName);
+#else
+        return Path.Combine(Application.persistentDataPath, string.IsNullOrWhiteSpace(jobFolderName) ? "SurfaceTextureJobs" : jobFolderName);
+#endif
     }
 
     private void PublishWaitingState(string reason)

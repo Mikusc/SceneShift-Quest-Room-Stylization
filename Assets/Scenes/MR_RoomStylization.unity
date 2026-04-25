@@ -1298,9 +1298,18 @@ MonoBehaviour:
   hideOriginalVolumeVisuals: 0
   proxyFootprintPadding: 1
   proxyHeightPadding: 1
+  tableVerticalFitMode: 1
+  tableFootprintSafetyScale: 1.08
+  tableLocalXScale: 1
+  tableLocalZScale: 1
+  tableFloorClearanceMeters: 0.005
+  tableProxyVerticalOffsetMeters: 0
   tableProxyYawOffsetDegrees: 90
+  autoAlignGeneratedTableLongAxis: 1
   augmentFlatTableProxies: 1
   flatTableHeightThreshold: 0.35
+  preferImportedGeneratedTablePrefabs: 1
+  generatedObjectJobFolderName: GeneratedObjectJobs
 --- !u!114 &1272341567
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1461,6 +1470,8 @@ MonoBehaviour:
   maxCaptureDistance: 5
   viewportMargin: 0.08
   trackBestCandidateDuringPlay: 1
+  safetyFootprintScale: 1
+  verticalFitMode: 0
   cropPaddingNormalized: 0.04
   minCropSizeNormalized: 0.16
   suppressStylizedContentForCapture: 1
@@ -1468,7 +1479,8 @@ MonoBehaviour:
   suppressInteractionVisualsForCapture: 1
   captureFolderName: BestViewCaptures
   captureSourceMode: 0
-  externalScreenshotPath: /Users/mikusc/Documents/UnityProjects/SceneShift Discussion Room/Library/BestViewCaptures/ExternalInputs/table_bestview_20260424_145924.png
+  externalScreenshotPath: /Users/mikusc/Documents/UnityProjects/SceneShift Discussion
+    Room/Library/BestViewCaptures/ExternalInputs/table_bestview_20260424_145924.png
   copyExternalScreenshotIntoCaptureFolder: 1
   enableVisibilityToggleInPlay: 1
   toggleVisibilityKey: 118
@@ -1517,11 +1529,11 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cea5ada0d2df942deb5b423f41a1d799, type: 3}
-  m_Name: ''
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HostedImageUploadBridge
-  uploadEndpoint: ''
+  uploadEndpoint: 
   authHeaderName: Authorization
-  authTokenEnvironmentVariable: ''
+  authTokenEnvironmentVariable: 
   authHeaderPrefix: 'Bearer '
   formFileFieldName: file
   autoProcessJobsInPlay: 1
@@ -1537,7 +1549,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0626bb9a4d4548e28145660c1ea117a3, type: 3}
-  m_Name: ''
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seed3DBackendAdapter
   apiKeyEnvironmentVariable: ARK_API_KEY
   taskEndpoint: https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
@@ -2116,8 +2128,12 @@ PrefabInstance:
       value: Runtime
       objectReference: {fileID: 0}
     - target: {fileID: 3613868102660323786, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
+      propertyPath: SceneSettings.DataSource
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3613868102660323786, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
       propertyPath: SceneSettings.RoomIndex
-      value: 8
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 8047981335285221976, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
       propertyPath: m_LocalPosition.x
