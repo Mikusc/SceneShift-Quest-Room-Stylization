@@ -22,6 +22,8 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine($"  source_anchor_name: \"{Safe(request.SourceAnchorName)}\",");
         builder.AppendLine($"  source_anchor_index: {request.SourceAnchorIndex},");
         builder.AppendLine($"  planned_replacement: \"{Safe(request.PlannedReplacementDisplayName)}\",");
+        builder.AppendLine($"  replica_name: \"{Safe(Coalesce(request.PlannedReplicaName, request.PlannedReplacementDisplayName))}\",");
+        builder.AppendLine($"  replica_function: \"{Safe(Coalesce(request.PlannedReplicaFunction, request.FunctionTag))}\",");
         builder.AppendLine($"  collision_sensitive: {ToBoolLiteral(request.CollisionSensitive)},");
         builder.AppendLine($"  preserve_footprint: {ToBoolLiteral(request.PreserveFootprint)},");
         builder.AppendLine($"  preserve_yaw_orientation: {ToBoolLiteral(request.PreserveYawOrientation)}");
@@ -63,6 +65,8 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine();
         builder.AppendLine("IMAGE_INSTRUCTIONS = [");
         builder.AppendLine("  \"Generate exactly one stylized target object, not a complete room scene.\",");
+        builder.AppendLine("  \"Transform the original object into the named replica while preserving the original function tag.\",");
+        builder.AppendLine("  \"Use OUTPUT_STYLE_HINT as the Roomify appearance prompt: it controls shape language, materials, color palette, and texture details.\",");
         builder.AppendLine("  \"Preserve the overall silhouette, proportions, and dominant viewing angle of the real object.\",");
         builder.AppendLine("  \"Preserve the explicit target length, width, height, and length/width aspect ratio from GEOMETRY as hard spatial constraints for the later 3D fit.\",");
         builder.AppendLine("  \"Keep the visible footprint within the safety_footprint_scale; do not widen the base or supports beyond the real scaffold footprint.\",");
@@ -102,6 +106,11 @@ public static class GeneratedObjectPromptBuilder
         }
 
         return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
+    private static string Coalesce(string primary, string fallback)
+    {
+        return !string.IsNullOrWhiteSpace(primary) ? primary : fallback;
     }
 
     private static string FormatFloat(float value)

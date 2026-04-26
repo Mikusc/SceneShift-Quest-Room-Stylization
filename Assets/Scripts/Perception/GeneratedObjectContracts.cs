@@ -27,6 +27,8 @@ public class GeneratedObjectRequest
     public ReplacementMode PlannedReplacementMode = ReplacementMode.ProxyPrefab;
     public string PlannedReplacementId;
     public string PlannedReplacementDisplayName;
+    public string PlannedReplicaName;
+    public string PlannedReplicaFunction;
     public bool PreserveFootprint = true;
     public bool PreserveYawOrientation = true;
     public BestViewCaptureSourceMode CaptureSourceMode = BestViewCaptureSourceMode.ExternalScreenshot;

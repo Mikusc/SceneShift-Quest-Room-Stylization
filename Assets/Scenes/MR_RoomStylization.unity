@@ -653,6 +653,10 @@ PrefabInstance:
       propertyPath: requestScenePermissionOnStartup
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: requestPassthroughCameraAccessPermissionOnStartup
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects:
@@ -1099,6 +1103,7 @@ MonoBehaviour:
   surfaceTexturePromptBuilder: {fileID: 1272341569}
   surfaceOverrideApplier: {fileID: 1272341568}
   bestViewCaptureService: {fileID: 1336658400}
+  devicePassthroughCaptureService: {fileID: 1336658405}
   generativeObjectCoordinator: {fileID: 0}
   localGeneratedObjectBackendAdapter: {fileID: 0}
   summaryText: {fileID: 518978864}
@@ -1290,25 +1295,30 @@ MonoBehaviour:
   roomSemanticBootstrap: {fileID: 2144530025}
   themeIntentController: {fileID: 1272341564}
   stylizationPlanner: {fileID: 1272341567}
+  bestViewCaptureService: {fileID: 1336658400}
+  devicePassthroughCaptureService: {fileID: 1336658405}
   proxyObjectsRoot: {fileID: 1918567166}
   includeInnerWallFaces: 0
   logApplications: 1
   autoRefreshInterval: 0.75
-  applyTableProxies: 0
+  applyTableProxies: 1
   hideOriginalVolumeVisuals: 0
   proxyFootprintPadding: 1
   proxyHeightPadding: 1
   tableVerticalFitMode: 1
-  tableFootprintSafetyScale: 1.08
+  tableFootprintSafetyScale: 1
   tableLocalXScale: 1
   tableLocalZScale: 1
   tableFloorClearanceMeters: 0.005
   tableProxyVerticalOffsetMeters: 0
-  tableProxyYawOffsetDegrees: 90
+  tableProxyYawOffsetDegrees: 0
   autoAlignGeneratedTableLongAxis: 1
+  onlyReplaceGeneratedTableTarget: 1
   augmentFlatTableProxies: 1
   flatTableHeightThreshold: 0.35
   preferImportedGeneratedTablePrefabs: 1
+  lockGeneratedTablePrefabsToActiveCapture: 1
+  allowLatestGeneratedTableWhenNoActiveCapture: 1
   generatedObjectJobFolderName: GeneratedObjectJobs
 --- !u!114 &1272341567
 MonoBehaviour:
@@ -1427,6 +1437,9 @@ GameObject:
   - component: {fileID: 1336658402}
   - component: {fileID: 1336658403}
   - component: {fileID: 1336658404}
+  - component: {fileID: 1336658406}
+  - component: {fileID: 1336658405}
+  - component: {fileID: 1336658407}
   m_Layer: 0
   m_Name: Perception
   m_TagString: Untagged
@@ -1564,6 +1577,87 @@ MonoBehaviour:
   jobFolderName: GeneratedObjectJobs
   generatedAssetFolder: Assets/Generated/ThemeAssets
   backendModelFolderName: GeneratedObjectModels
+--- !u!114 &1336658405
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 367fbca115e97084fa03c9f2d4290c46, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DevicePassthroughCaptureService
+  passthroughCameraAccess: {fileID: 1336658406}
+  roomSemanticBootstrap: {fileID: 2144530025}
+  themeIntentController: {fileID: 1272341564}
+  stylizationPlanner: {fileID: 1272341567}
+  targetCategory: 0
+  maxCaptureDistance: 5
+  viewportMargin: 0.08
+  trackBestCandidateDuringPlay: 1
+  safetyFootprintScale: 1
+  verticalFitMode: 0
+  cropPaddingNormalized: 0.04
+  minCropSizeNormalized: 0.16
+  captureFolderName: BestViewCaptures/DevicePassthrough
+  jobFolderName: GeneratedObjectJobs
+  queueGeneratedObjectJob: 1
+  requestPermissionOnCapture: 1
+  enableKeyboardCapture: 1
+  captureKey: 112
+  enableXrControllerCapture: 1
+  xrCaptureController: 5
+  xrCaptureButton: 0
+  pcaStartGraceSeconds: 2
+  pcaFailureRetryCooldownSeconds: 20
+  disablePcaComponentAfterStartFailure: 1
+  pcaProviderRequirementHint: PCA provider failed. Check Meta Horizon Link v85+, Quest 3/3S Horizon OS v85+, headset focus, and privacy/camera access. Use external screenshot fallback if Link PCA remains unavailable.
+--- !u!114 &1336658406
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ef9a7893e57c04c0db4114c70954b915, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: meta.xr.mrutilitykit::Meta.XR.PassthroughCameraAccess
+  CameraPosition: 0
+  RequestedResolution: {x: 1280, y: 960}
+  _maxFramerate: 60
+  TargetMaterial: {fileID: 0}
+  _texturePropertyName: 
+--- !u!114 &1336658407
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1336658398}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 21c4beb0035162440bffe28395c13261, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DevicePassthroughCaptureHud
+  captureService: {fileID: 1336658405}
+  headTransform: {fileID: 662963978}
+  canvas: {fileID: 0}
+  backgroundImage: {fileID: 0}
+  statusText: {fileID: 0}
+  visibleInPlayMode: 1
+  createRuntimeHudIfMissing: 1
+  headLocked: 1
+  updateIntervalSeconds: 0.12
+  localOffset: {x: 0, y: -0.22, z: 1.15}
+  localEulerOffset: {x: 8, y: 0, z: 0}
+  panelSizePixels: {x: 760, y: 360}
+  worldScale: 0.00115
+  goodScoreThreshold: 0.72
+  goodMaxDistanceMeters: 3
 --- !u!1 &1631145970
 GameObject:
   m_ObjectHideFlags: 0
@@ -2128,12 +2222,12 @@ PrefabInstance:
       value: Runtime
       objectReference: {fileID: 0}
     - target: {fileID: 3613868102660323786, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
-      propertyPath: SceneSettings.DataSource
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3613868102660323786, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
       propertyPath: SceneSettings.RoomIndex
       value: -1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3613868102660323786, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
+      propertyPath: SceneSettings.DataSource
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8047981335285221976, guid: c2e00db6d2dfa42ac8d821db8d493a44, type: 3}
       propertyPath: m_LocalPosition.x
@@ -2245,6 +2339,11 @@ MonoBehaviour:
   logOnRoomUpdated: 0
   logAnchorDetails: 1
   includeBoundsSummary: 1
+  logWaitingDiagnostics: 1
+  waitingDiagnosticDelaySeconds: 3
+  retryDeviceLoadOnStartup: 1
+  deviceLoadRetryDelaySeconds: 4
+  retryRequestSceneCaptureIfNoDataFound: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

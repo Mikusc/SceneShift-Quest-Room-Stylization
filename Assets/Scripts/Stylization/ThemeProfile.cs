@@ -125,6 +125,10 @@ public class SemanticReplacementRule
     public bool PreserveFootprint = true;
     public bool PreserveYawOrientation = true;
     public bool CollisionSensitive = true;
+    [Header("Roomify Mapping")]
+    public string ReplicaName;
+    public string ReplicaFunction;
+    [TextArea(3, 6)] public string AppearancePrompt;
     [TextArea(1, 3)] public string Notes;
 }
 

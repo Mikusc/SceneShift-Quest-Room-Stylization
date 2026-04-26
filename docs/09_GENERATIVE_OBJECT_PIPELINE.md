@@ -88,8 +88,8 @@ Purpose:
 Current repository note:
 - `ExternalScreenshot` is the preferred simulator-stage source mode
 - `UnityFramebufferDebug` is retained only for plumbing/debug checks
-- `DevicePassthroughReserved` is preserved for the future true-device capture path
-- true-device capture should be implemented as a separate device-only service that writes the same request shape, because simulator screenshots do not prove headset camera capture behavior
+- `DevicePassthroughReserved` is now used by `DevicePassthroughCaptureService`, the first Quest Link / headset PCA probe
+- true-device capture is implemented as a separate service that writes the same request/job shape, but it remains unvalidated until a real Quest 3 / Quest 3S Link or device run produces artifacts
 
 #### `GenerativeObjectCoordinator`
 Purpose:
@@ -140,7 +140,7 @@ Purpose:
 
 Current repository note:
 - there is not yet a standalone registry database
-- the runtime applier currently scans imported `Library/GeneratedObjectJobs/*.job.json` records and chooses the newest usable imported generated table prefab
+- the runtime applier currently scans imported `Library/GeneratedObjectJobs/*.job.json` records, but generated-table selection is locked to the active capture request by default so unrelated older room/table jobs are not reused silently
 
 #### `GeneratedProxyImporter`
 Purpose:
@@ -193,6 +193,7 @@ In this repository, that chain should map onto runtime modules like this:
 - For simulator-stage work, the preferred image source is a manual external screenshot, because Unity's own framebuffer does not faithfully represent the simulator/compositor passthrough-like view.
 - In the current `ExternalScreenshot` implementation, the original screenshot is used directly as the backend input image while the estimated crop rect is preserved in metadata for later refinement.
 - Because the simulator resets the user pose between Play sessions, each new generated-object run should take the external screenshot after entering Play, update `BestViewCaptureService.externalScreenshotPath` on the live scene object, and press `C` before moving away from that view.
+- `DevicePassthroughCaptureService` is attached under `Perception` for Quest Link/headset runs. It uses `Meta.XR.PassthroughCameraAccess` to capture the native camera texture, camera pose, intrinsics, MRUK-anchor projection, crop rect, metadata, `GeneratedObjectRequest`, and an immediate `CaptureReady` job/prompt artifact for the same backend handoff.
 - `GenerativeObjectCoordinator` now consumes captured requests and writes:
   - `Library/GeneratedObjectJobs/*.job.json`,
   - `Library/GeneratedObjectJobs/*.prompt.txt`.
@@ -207,7 +208,7 @@ In this repository, that chain should map onto runtime modules like this:
   - current preferred hosted image: `https://www.mikusc.top/scene-shift/seed3d/table_18_20260425025836.stylized.png`
   - current preferred GLB: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
   - current preferred prefab: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
-- `AnchorThemeApplier` can now prefer that imported generated table prefab in Editor/Simulator and fall back to deterministic theme proxies when no imported generated job is usable.
+- `AnchorThemeApplier` can now use imported generated table prefabs and fall back to deterministic theme proxies when no usable generated job is available. By default, generated-table import lookup is locked to the active `DevicePassthroughCaptureService` request, or the active simulator `BestViewCaptureService` request, and requires a matching `RequestId`, `ObjectId`, or source request path.
 - When fitting an imported generated table prefab, `AnchorThemeApplier` checks whether the generated model's local horizontal long axis matches the MRUK table target's local long axis; if they differ, it rotates the generated visual 90 degrees before bounds fitting so length is not compressed onto the short side.
 - The canonical scene currently keeps table proxy placement disabled so Play defaults to the MRUK shell. Generated table placement should be explicitly enabled only when validating the generated-object branch.
 - `GeneratedObjectRequest` and `GeneratedAssetRecord` now carry physical target constraints for generated furniture: target length, width, height, length/width aspect ratio, safety footprint scale, and vertical fit mode.
@@ -223,7 +224,7 @@ In this repository, that chain should map onto runtime modules like this:
 - no durable generated asset registry beyond scanning imported `.job.json` records
 - no full Roomify-style OBB/IoU generated-proxy registration path yet
 - no manual approval/reject/correction UI specifically for generated furniture
-- no true-device passthrough/camera-frame capture path; `DevicePassthroughReserved` is only a reserved contract value
+- the true-device/Link passthrough-camera path is not yet validated on headset; `DevicePassthroughCaptureService` should be treated as a probe until real PCA artifacts are produced
 - no runtime Quest-side GLB import path yet; the current import flow depends on Editor-only `AssetDatabase` / `PrefabUtility`
 
 ## Proposed runtime flow
@@ -274,7 +275,7 @@ Repository interpretation:
   - visibility/centering score summary
 - In the current prototype, simulator-stage best-view input should come from `ExternalScreenshot`.
 - `UnityFramebufferDebug` should only be used to validate local export plumbing, not as a true Roomify-style source image.
-- `DevicePassthroughReserved` should remain in the contract so true-device passthrough/camera capture can later reuse the same request/export pipeline.
+- `DevicePassthroughReserved` is used by `DevicePassthroughCaptureService` for Quest Link/headset PCA capture. This path should be tested separately from simulator screenshots because it depends on headset camera permission, supported hardware, compatible Link/runtime versions, and real PCA frame availability.
 
 ### Stage 3: stylized image generation
 Send a prompt that preserves:
@@ -379,7 +380,7 @@ based on asset readiness.
 
 Current repository implementation:
 - `AnchorThemeApplier` keeps `ReplacementMode.ProxyPrefab` and only changes which prefab source is resolved
-- in Editor/Simulator, imported generated table jobs can win over the theme/default proxy
+- in Editor/Simulator and Quest Link validation, imported generated table jobs can win over the theme/default proxy only when they match the active capture request by default
 - the runtime status records `source=generated_import` when that path is selected
 - fitting now computes the target bounds by transforming all eight corners of MRUK `VolumeBounds` from anchor-local space into proxy-root local space
 - the current fitting uses exact per-axis scale against the scaffold bounds with default `1.0` footprint/height padding, then aligns generated model bottom to scaffold bottom
@@ -477,7 +478,7 @@ public enum BestViewCaptureSourceMode
 Notes:
 - `ExternalScreenshot` is the current simulator-stage practical path.
 - `UnityFramebufferDebug` is only for local export plumbing checks.
-- `DevicePassthroughReserved` keeps the future headset capture path visible without pretending it works in the simulator.
+- `DevicePassthroughReserved` identifies artifacts created by `DevicePassthroughCaptureService`; do not treat it as validated until a real Quest Link/headset run confirms camera frame, pose, intrinsics, crop, request, and job outputs.
 
 ## Thinnest Repository-First Implementation Order
 To keep this repository aligned with Phase 1 priorities, keep this chain small:
@@ -486,7 +487,7 @@ To keep this repository aligned with Phase 1 priorities, keep this chain small:
 Capture source image, crop metadata, scaffold dimensions, camera pose, and `GeneratedObjectRequest` for `TABLE`.
 
 Status:
-- first version exists
+- first version exists for simulator-stage screenshots; `DevicePassthroughCaptureService` now provides the separate PCA probe for Quest Link/headset validation
 
 2. `GenerativeObjectCoordinator`
 Convert captured requests into `.job.json` and `.prompt.txt` artifacts.
@@ -518,7 +519,7 @@ Add a generated-proxy registration path that can consume a locally imported pref
 - deterministic fallback.
 
 Status:
-- partially implemented through imported generated table prefab selection, MRUK-corner target bounds, exact scaffold fitting, and bottom-face alignment
+- partially implemented through active-request-locked generated table prefab selection, MRUK-corner target bounds, exact scaffold fitting, and bottom-face alignment
 - not yet implemented as a full Roomify OBB/IoU registration search
 
 6. Backend hookup

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
@@ -259,10 +260,22 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
         var extension = NormalizeFileFormat(fileFormat);
         var outputPath = Path.Combine(outputDirectory, $"{record.RequestId}.seed3d.generated.{extension}");
+        var metadataDirectory = string.IsNullOrWhiteSpace(resultPath)
+            ? Path.Combine(GetLibraryDirectory(backendModelFolderName), record.RequestId)
+            : Path.GetDirectoryName(resultPath);
+        if (string.IsNullOrWhiteSpace(metadataDirectory))
+        {
+            metadataDirectory = Path.Combine(GetLibraryDirectory(backendModelFolderName), record.RequestId);
+        }
+
+        Directory.CreateDirectory(metadataDirectory);
+
+        var downloadExtension = ResolveDownloadExtension(modelUrl, extension);
+        var downloadPath = Path.Combine(metadataDirectory, $"{record.RequestId}.seed3d.downloaded.{downloadExtension}");
 
         using (var downloadRequest = UnityWebRequest.Get(modelUrl))
         {
-            downloadRequest.downloadHandler = new DownloadHandlerFile(outputPath);
+            downloadRequest.downloadHandler = new DownloadHandlerFile(downloadPath);
             yield return downloadRequest.SendWebRequest();
 
             if (downloadRequest.result != UnityWebRequest.Result.Success)
@@ -272,22 +285,90 @@ public class Seed3DBackendAdapter : MonoBehaviour
             }
         }
 
+        if (!TryPrepareDownloadedModel(record.RequestId, downloadPath, outputDirectory, extension, outputPath, out var modelAssetPath, out var prepareError))
+        {
+            FailJob(jobPath, record, prepareError);
+            yield break;
+        }
+
         record.State = GeneratedObjectJobState.ModelReady;
         record.BackendAdapterName = nameof(Seed3DBackendAdapter);
         record.BackendTransformId = $"seed3d_2_0_260328_{subdivisionLevel}_{extension}";
         record.ModelGenerationResultPath = resultPath;
-        record.GeneratedModelPath = outputPath;
+        record.GeneratedModelPath = modelAssetPath;
         record.PreviewImagePath = !string.IsNullOrWhiteSpace(record.StylizedImagePath)
             ? record.StylizedImagePath
             : record.StylizedImageUrl;
-        record.StatusNote = "Seed3D model downloaded and job advanced to ModelReady.";
+        record.StatusNote = IsZipFile(downloadPath)
+            ? "Seed3D returned a zip package; extracted the real model asset and advanced the job to ModelReady."
+            : "Seed3D model downloaded and job advanced to ModelReady.";
         record.FailureReason = string.Empty;
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
         File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
 
         _lastProcessedRecord = record;
         PublishSummary("model-ready");
-        Debug.Log($"[Seed3DBackendAdapter] Seed3D model ready for request {record.RequestId} -> {outputPath}", this);
+        Debug.Log($"[Seed3DBackendAdapter] Seed3D model ready for request {record.RequestId} -> {modelAssetPath}", this);
+    }
+
+    private bool TryPrepareDownloadedModel(
+        string requestId,
+        string downloadPath,
+        string outputDirectory,
+        string extension,
+        string directOutputPath,
+        out string modelAssetPath,
+        out string error)
+    {
+        modelAssetPath = string.Empty;
+        error = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(downloadPath) || !File.Exists(downloadPath))
+        {
+            error = "Seed3D download completed but the downloaded file is missing.";
+            return false;
+        }
+
+        if (extension == "glb" && IsGlbFile(downloadPath))
+        {
+            File.Copy(downloadPath, directOutputPath, true);
+            modelAssetPath = directOutputPath;
+            return true;
+        }
+
+        if (!IsZipFile(downloadPath))
+        {
+            error = $"Seed3D downloaded file was neither a {extension} model nor a zip package: {downloadPath}";
+            return false;
+        }
+
+        var packageDirectory = Path.Combine(Path.GetDirectoryName(downloadPath), "downloaded_package");
+        if (Directory.Exists(packageDirectory))
+        {
+            Directory.Delete(packageDirectory, true);
+        }
+
+        Directory.CreateDirectory(packageDirectory);
+        ZipFile.ExtractToDirectory(downloadPath, packageDirectory);
+
+        var candidates = Directory.GetFiles(packageDirectory, $"*.{extension}", SearchOption.AllDirectories);
+        if (candidates == null || candidates.Length == 0)
+        {
+            error = $"Seed3D zip package did not contain a .{extension} model.";
+            return false;
+        }
+
+        var selectedModelPath = SelectLargestFile(candidates);
+        if (string.IsNullOrWhiteSpace(selectedModelPath))
+        {
+            error = $"Seed3D zip package contained .{extension} files, but no readable model file was selected.";
+            return false;
+        }
+
+        var extractedOutputPath = Path.Combine(outputDirectory, $"{requestId}.seed3d.pbr.{extension}");
+        File.Copy(selectedModelPath, extractedOutputPath, true);
+        modelAssetPath = extractedOutputPath;
+        return true;
     }
 
     private string BuildCreateTaskJson(GeneratedAssetRecord record, string imageUrl)
@@ -529,6 +610,87 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
         var trimmed = value.Trim().TrimStart('.').ToLowerInvariant();
         return Regex.Replace(trimmed, "[^a-z0-9]", string.Empty);
+    }
+
+    private static string ResolveDownloadExtension(string url, string fallbackExtension)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            var extension = Path.GetExtension(uri.AbsolutePath);
+            if (!string.IsNullOrWhiteSpace(extension))
+            {
+                return NormalizeFileFormat(extension);
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(fallbackExtension) ? "bin" : fallbackExtension;
+    }
+
+    private static bool IsGlbFile(string path)
+    {
+        return FileStartsWith(path, new byte[] { 0x67, 0x6c, 0x54, 0x46 });
+    }
+
+    private static bool IsZipFile(string path)
+    {
+        return FileStartsWith(path, new byte[] { 0x50, 0x4b, 0x03, 0x04 });
+    }
+
+    private static bool FileStartsWith(string path, byte[] expectedBytes)
+    {
+        if (string.IsNullOrWhiteSpace(path) || expectedBytes == null || expectedBytes.Length == 0 || !File.Exists(path))
+        {
+            return false;
+        }
+
+        var buffer = new byte[expectedBytes.Length];
+        using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            if (stream.Read(buffer, 0, buffer.Length) != buffer.Length)
+            {
+                return false;
+            }
+        }
+
+        for (var index = 0; index < expectedBytes.Length; index++)
+        {
+            if (buffer[index] != expectedBytes[index])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string SelectLargestFile(string[] paths)
+    {
+        if (paths == null || paths.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        string selectedPath = null;
+        var selectedLength = -1L;
+        for (var index = 0; index < paths.Length; index++)
+        {
+            var path = paths[index];
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                continue;
+            }
+
+            var length = new FileInfo(path).Length;
+            if (length <= selectedLength)
+            {
+                continue;
+            }
+
+            selectedPath = path;
+            selectedLength = length;
+        }
+
+        return selectedPath ?? string.Empty;
     }
 
     private static string SanitizeCommandToken(string value)

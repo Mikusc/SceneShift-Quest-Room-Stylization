@@ -328,7 +328,7 @@ public class StylizationPlanner : MonoBehaviour
         entry.Parameters.Add(new StylizationPlanParameter { Key = "function_tag", Value = functionTag });
 
         var matchedRule = FindRule(theme, semanticLabel, functionTag);
-        if (matchedRule != null && TryConfigureMatchedRule(theme, semanticLabel, matchedRule, entry, warnings))
+        if (matchedRule != null && TryConfigureMatchedRule(theme, semanticLabel, functionTag, matchedRule, entry, warnings))
         {
             return entry;
         }
@@ -340,6 +340,7 @@ public class StylizationPlanner : MonoBehaviour
     private bool TryConfigureMatchedRule(
         ThemeProfile theme,
         string semanticLabel,
+        string functionTag,
         SemanticReplacementRule matchedRule,
         StylizationPlanEntry entry,
         ICollection<string> warnings)
@@ -350,6 +351,7 @@ public class StylizationPlanner : MonoBehaviour
         entry.Rationale = string.IsNullOrWhiteSpace(matchedRule.Notes)
             ? $"Matched theme rule for {semanticLabel}."
             : matchedRule.Notes;
+        ApplyRoomifyMappingFields(entry, matchedRule, semanticLabel, functionTag);
 
         switch (matchedRule.Mode)
         {
@@ -367,7 +369,9 @@ public class StylizationPlanner : MonoBehaviour
 
                 entry.ReplacementMode = ReplacementMode.ProxyPrefab;
                 entry.ReplacementId = resolvedProxy.name;
-                entry.ReplacementDisplayName = resolvedProxy.name;
+                entry.ReplacementDisplayName = !string.IsNullOrWhiteSpace(entry.ReplicaName)
+                    ? entry.ReplicaName
+                    : resolvedProxy.name;
                 entry.Parameters.Add(new StylizationPlanParameter
                 {
                     Key = "proxy_source",
@@ -381,7 +385,9 @@ public class StylizationPlanner : MonoBehaviour
                 entry.ReplacementId = matchedRule.PrimaryMaterial != null
                     ? matchedRule.PrimaryMaterial.name
                     : $"{theme.ThemeId}_{semanticLabel}_material";
-                entry.ReplacementDisplayName = matchedRule.PrimaryMaterial != null
+                entry.ReplacementDisplayName = !string.IsNullOrWhiteSpace(entry.ReplicaName)
+                    ? entry.ReplicaName
+                    : matchedRule.PrimaryMaterial != null
                     ? matchedRule.PrimaryMaterial.name
                     : $"{theme.DisplayName} {semanticLabel} material override";
                 return true;
@@ -395,7 +401,9 @@ public class StylizationPlanner : MonoBehaviour
                 entry.ReplacementId = overlayPrefab != null
                     ? overlayPrefab.name
                     : $"{theme.ThemeId}_{semanticLabel}_overlay";
-                entry.ReplacementDisplayName = overlayPrefab != null
+                entry.ReplacementDisplayName = !string.IsNullOrWhiteSpace(entry.ReplicaName)
+                    ? entry.ReplicaName
+                    : overlayPrefab != null
                     ? overlayPrefab.name
                     : $"{theme.DisplayName} {semanticLabel} overlay";
                 return true;
@@ -404,7 +412,9 @@ public class StylizationPlanner : MonoBehaviour
             case ReplacementMode.FXOnly:
                 entry.ReplacementMode = ReplacementMode.FXOnly;
                 entry.ReplacementId = $"{theme.ThemeId}_{semanticLabel}_fx";
-                entry.ReplacementDisplayName = $"{theme.DisplayName} {semanticLabel} FX";
+                entry.ReplacementDisplayName = !string.IsNullOrWhiteSpace(entry.ReplicaName)
+                    ? entry.ReplicaName
+                    : $"{theme.DisplayName} {semanticLabel} FX";
                 return true;
 
             case ReplacementMode.Skip:
@@ -416,6 +426,27 @@ public class StylizationPlanner : MonoBehaviour
             default:
                 return false;
         }
+    }
+
+    private static void ApplyRoomifyMappingFields(
+        StylizationPlanEntry entry,
+        SemanticReplacementRule rule,
+        string semanticLabel,
+        string functionTag)
+    {
+        entry.ReplicaName = !string.IsNullOrWhiteSpace(rule.ReplicaName)
+            ? rule.ReplicaName.Trim()
+            : semanticLabel;
+        entry.ReplicaFunction = !string.IsNullOrWhiteSpace(rule.ReplicaFunction)
+            ? rule.ReplicaFunction.Trim()
+            : functionTag;
+        entry.AppearancePrompt = !string.IsNullOrWhiteSpace(rule.AppearancePrompt)
+            ? rule.AppearancePrompt.Trim()
+            : rule.Notes;
+
+        entry.Parameters.Add(new StylizationPlanParameter { Key = "replica_name", Value = entry.ReplicaName });
+        entry.Parameters.Add(new StylizationPlanParameter { Key = "replica_function", Value = entry.ReplicaFunction });
+        entry.Parameters.Add(new StylizationPlanParameter { Key = "appearance_prompt", Value = entry.AppearancePrompt });
     }
 
     private SemanticReplacementRule FindRule(ThemeProfile theme, string semanticLabel, string functionTag)

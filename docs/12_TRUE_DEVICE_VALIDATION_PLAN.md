@@ -28,7 +28,7 @@ The current project uses MetaXRSimulator heavily, but simulator success does not
 - headset input/controller behavior,
 - performance and thermal behavior,
 - build/install stability,
-- future true-device camera/passthrough capture.
+- true-device camera/passthrough capture.
 
 ---
 
@@ -147,6 +147,7 @@ Validate:
 - an imported generated table prefab can be present without blocking deterministic stylization,
 - generated table placement can be disabled, rejected, or ignored if visual fit is not acceptable,
 - generated-object failure does not block deterministic stylization.
+- old Simulator/generated-table jobs are not selected for a new device room unless they match the active capture request.
 
 Artifacts to collect:
 - request JSON,
@@ -160,31 +161,45 @@ Pass criteria:
 
 ---
 
-# 6. Stage D — future true passthrough/camera capture
+# 6. Stage D - Quest Link / true passthrough-camera capture probe
 
 Goal:
 - replace simulator-stage manual screenshots with a device-supported image source if project requirements and platform permissions allow it.
 
-Do not start here until Stages A-C pass.
+Current implementation status:
+- `DevicePassthroughCaptureService` is attached under `AppRoot/Perception` in the canonical scene.
+- The service uses `Meta.XR.PassthroughCameraAccess`, `horizonos.permission.HEADSET_CAMERA`, and the existing `BestViewCaptureSourceMode.DevicePassthroughReserved` contract.
+- It writes full-frame/cropped PNG, capture metadata, `GeneratedObjectRequest`, prompt text, and `.job.json` artifacts in the same generated-object pipeline shape.
+- `DevicePassthroughCaptureHud` creates a head-locked status panel in Play mode that shows PCA readiness, best anchor, best-view score, distance, viewport/crop, input hint, and last capture/job status.
+- Capture can be triggered with keyboard `P` or the right-controller primary button.
+- This is compile/scene-wiring validated only. It is not yet a passed device result.
 
-Validate before implementation:
-- current Meta documentation for camera/passthrough frame access,
-- required packages and permissions,
-- device support,
-- privacy/platform restrictions,
+Validate before treating this as working:
+- compatible Quest 3 / Quest 3S headset,
+- compatible Meta Horizon Link / headset OS versions for Editor Link PCA,
+- camera permission prompt and grant behavior,
+- whether `PassthroughCameraAccess.IsPlaying` becomes true,
+- whether the head-locked HUD is readable and stable enough while the user searches for the best view,
+- whether the displayed best-view score responds usefully to viewpoint changes,
+- whether right-controller primary-button capture works without watching Unity Game View,
 - whether the captured image has the same frame/camera relationship expected by registration.
+- whether generated replacement only loads an imported prefab matching the active PCA request id/object id and otherwise falls back to deterministic proxy.
 
 Implementation target:
 - keep the existing `BestViewCaptureSourceMode.DevicePassthroughReserved` contract,
-- implement a device-only capture component, tentatively `DevicePassthroughCaptureService`,
+- use `DevicePassthroughCaptureService` as the device/Link capture component,
 - use a headset-supported passthrough/camera API path rather than Unity `ScreenCapture` or MQDH screenshots,
 - save capture artifacts under `Application.persistentDataPath`,
 - write to the same `GeneratedObjectRequest` shape,
 - preserve `BestViewCameraPose`, crop metadata, object bounds, and best-view yaw.
 
 Expected saved artifacts:
-- `capture.png`
-- `capture.metadata.json`
+- `*.pca.png`
+- `*.pca.crop.png`
+- `*.pca.json`
+- `*.request.json`
+- `GeneratedObjectJobs/*.job.json`
+- `GeneratedObjectJobs/*.prompt.txt`
 
 Expected metadata:
 - timestamp,
@@ -205,7 +220,7 @@ Pass criteria:
 Debugging sequence for MacBook-only development without Link passthrough:
 1. build and install the APK with MQDH or ADB,
 2. launch the app on Quest,
-3. use Immersive Debugger or in-app debug UI to trigger `CapturePassthroughFrame`,
+3. use Immersive Debugger, in-app debug UI, or the mapped capture key path to trigger `CapturePassthroughFrame`,
 4. use MQDH cast/screenshot only to document what the user saw,
 5. pull `capture.png` and `capture.metadata.json` from device storage,
 6. run the current workstation-side image stylization and Seed3D flow,

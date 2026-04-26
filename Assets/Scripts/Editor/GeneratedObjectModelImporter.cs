@@ -196,19 +196,20 @@ public static class GeneratedObjectModelImporter
                 continue;
             }
 
-            var worldBounds = renderer.bounds;
-            var min = worldBounds.min;
-            var max = worldBounds.max;
+            var localBounds = renderer.localBounds;
+            var min = localBounds.min;
+            var max = localBounds.max;
             for (var x = 0; x <= 1; x++)
             {
                 for (var y = 0; y <= 1; y++)
                 {
                     for (var z = 0; z <= 1; z++)
                     {
-                        var worldPoint = new Vector3(
+                        var rendererLocalPoint = new Vector3(
                             x == 0 ? min.x : max.x,
                             y == 0 ? min.y : max.y,
                             z == 0 ? min.z : max.z);
+                        var worldPoint = renderer.transform.TransformPoint(rendererLocalPoint);
                         var localPoint = root.InverseTransformPoint(worldPoint);
                         if (!hasBounds)
                         {

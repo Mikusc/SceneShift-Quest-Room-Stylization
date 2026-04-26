@@ -603,6 +603,8 @@ public class BestViewCaptureService : MonoBehaviour
             PlannedReplacementMode = plannedEntry != null ? plannedEntry.ReplacementMode : ReplacementMode.ProxyPrefab,
             PlannedReplacementId = plannedEntry != null ? plannedEntry.ReplacementId : string.Empty,
             PlannedReplacementDisplayName = plannedEntry != null ? plannedEntry.ReplacementDisplayName : string.Empty,
+            PlannedReplicaName = plannedEntry != null ? plannedEntry.ReplicaName : string.Empty,
+            PlannedReplicaFunction = plannedEntry != null ? plannedEntry.ReplicaFunction : string.Empty,
             PreserveFootprint = plannedEntry == null || plannedEntry.PreserveFootprint,
             PreserveYawOrientation = plannedEntry == null || plannedEntry.PreserveYawOrientation,
             CaptureSourceMode = captureSourceMode,
@@ -752,6 +754,25 @@ public class BestViewCaptureService : MonoBehaviour
             builder.Append(" Preferred replacement cue: ");
             builder.Append(plannedEntry.ReplacementDisplayName);
             builder.Append('.');
+        }
+
+        if (plannedEntry != null && !string.IsNullOrWhiteSpace(plannedEntry.ReplicaName))
+        {
+            builder.Append(" Roomify replica: ");
+            builder.Append(plannedEntry.ReplicaName.Trim());
+            if (!string.IsNullOrWhiteSpace(plannedEntry.ReplicaFunction))
+            {
+                builder.Append(" preserving ");
+                builder.Append(plannedEntry.ReplicaFunction.Trim());
+            }
+
+            builder.Append('.');
+        }
+
+        if (plannedEntry != null && !string.IsNullOrWhiteSpace(plannedEntry.AppearancePrompt))
+        {
+            builder.Append(" Appearance details: ");
+            builder.Append(plannedEntry.AppearancePrompt.Trim());
         }
 
         return builder.ToString();

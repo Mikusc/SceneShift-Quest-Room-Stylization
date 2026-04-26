@@ -58,6 +58,11 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 0
+    ReplicaName: carved archive chamber wall
+    ReplicaFunction: boundary
+    AppearancePrompt: Warm carved stone or aged plaster wall treatment with faint
+      gold inlay lines, scholarly ornament, candlelit amber tones, and low visual
+      noise. Preserve the real wall plane and room boundary readability.
     Notes: Layer walls with warm archive surfaces instead of new geometry.
   - SemanticLabel: floor
     FunctionTag: boundary
@@ -68,6 +73,11 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 0
+    ReplicaName: inlaid archive stone floor
+    ReplicaFunction: walkable boundary
+    AppearancePrompt: Worn stone or dark wood study-room floor with subtle inlaid
+      arcane geometry, muted amber highlights, and clearly readable walking paths.
+      Keep the surface flat and unobtrusive.
     Notes: Use floor treatment only, no path changes.
   - SemanticLabel: table
     FunctionTag: support_surface
@@ -78,6 +88,12 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 1
+    ReplicaName: arcane reading altar table
+    ReplicaFunction: support_surface for reading and collaborative study
+    AppearancePrompt: A rectangular reading altar table with dark polished wood,
+      brass corner guards, carved rune-like border inlays, sturdy legs, and warm
+      amber accent glow. Preserve the real table footprint, tabletop height, long-axis
+      orientation, and support-surface role.
     Notes: Convert tables into reading altars without moving them.
   - SemanticLabel: screen
     FunctionTag: display_surface
@@ -88,6 +104,11 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 0
+    ReplicaName: illuminated manuscript display
+    ReplicaFunction: display_surface
+    AppearancePrompt: A wall-aligned illuminated manuscript display with warm
+      parchment glow, thin brass edging, subtle glyph annotations, and a readable
+      board-like surface. Do not add bulky geometry.
     Notes: Displays become illuminated manuscript surfaces.
   - SemanticLabel: storage
     FunctionTag: storage
@@ -98,6 +119,11 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 1
+    ReplicaName: archive cabinet shelving
+    ReplicaFunction: storage
+    AppearancePrompt: Dark wood archive cabinets and shelves with brass fittings,
+      labelled drawers, scroll compartments, and warm amber edge highlights. Preserve
+      original storage volume and collision boundaries.
     Notes: Storage reads as archive cabinets and shelves.
   - SemanticLabel: seat
     FunctionTag: seating
@@ -108,4 +134,9 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 1
+    ReplicaName: scholarly chamber seat
+    ReplicaFunction: seating
+    AppearancePrompt: A scholarly reading seat with dark carved wood, muted leather
+      or velvet cushions, brass accents, and a clear sit-able silhouette. Preserve
+      footprint and facing direction.
     Notes: Seating remains legible and safe.

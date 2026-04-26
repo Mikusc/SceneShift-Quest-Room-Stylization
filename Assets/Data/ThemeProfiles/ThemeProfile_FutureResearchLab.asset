@@ -60,6 +60,12 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 0
+    ReplicaName: modular illuminated lab wall panels
+    ReplicaFunction: boundary
+    AppearancePrompt: Cool-white composite wall panels with cyan luminous seams,
+      subtle embedded data traces, brushed ceramic-metal surfaces, and restrained
+      research-lab clarity. The treatment should read as a wall boundary, not as
+      new bulky geometry.
     Notes: Cool panel treatment with minimal geometry change.
   - SemanticLabel: floor
     FunctionTag: boundary
@@ -70,6 +76,11 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 0
+    ReplicaName: graphite anti-slip laboratory floor
+    ReplicaFunction: walkable boundary
+    AppearancePrompt: Dark graphite lab floor panels with fine cyan grid traces,
+      low-glare anti-slip finish, clean modular seams, and clear readable walkable
+      paths. Keep it calm and functional rather than decorative.
     Notes: Keep navigable footprint fully intact.
   - SemanticLabel: table
     FunctionTag: support_surface
@@ -80,6 +91,13 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 1
+    ReplicaName: modular future research worktable
+    ReplicaFunction: support_surface for collaborative research work
+    AppearancePrompt: A sleek rectangular research worktable with a thin durable
+      composite tabletop, chamfered edges, subtle cyan emissive strips, compact
+      technical support legs, and small embedded sensor-panel details. Preserve
+      the real tabletop footprint, table height, long-axis orientation, and walk-around
+      clearance.
     Notes: Preserve desk footprint for trust and clearance.
   - SemanticLabel: screen
     FunctionTag: display_surface
@@ -90,6 +108,12 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 0
+    ReplicaName: holographic research display board
+    ReplicaFunction: display_surface
+    AppearancePrompt: A transparent cyan holographic display treatment with thin
+      luminous frame lines, quiet data-grid overlays, and readable research-board
+      composition. It should stay wall/screen-aligned and avoid protruding into
+      the room.
     Notes: Treat displays as holographic research boards.
   - SemanticLabel: storage
     FunctionTag: storage
@@ -100,6 +124,11 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 1
+    ReplicaName: modular lab archive storage
+    ReplicaFunction: storage
+    AppearancePrompt: Modular research archive cabinets with matte graphite panels,
+      cyan status indicators, recessed handles, and clean labelled compartments.
+      Preserve the original storage footprint and keep collision boundaries obvious.
     Notes: Stylize as modular archive storage.
   - SemanticLabel: seat
     FunctionTag: seating
@@ -110,4 +139,9 @@ MonoBehaviour:
     PreserveFootprint: 1
     PreserveYawOrientation: 1
     CollisionSensitive: 1
+    ReplicaName: ergonomic lab collaboration seat
+    ReplicaFunction: seating
+    AppearancePrompt: Ergonomic future-lab seating with slim graphite supports,
+      pale cushions, cyan trim, and a readable sit-able silhouette. Preserve the
+      original seat footprint and facing direction.
     Notes: Keep seating role and placement readable.

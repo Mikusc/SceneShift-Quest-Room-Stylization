@@ -15,6 +15,8 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField] private RoomSemanticBootstrap roomSemanticBootstrap;
     [SerializeField] private ThemeIntentController themeIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
+    [SerializeField] private BestViewCaptureService bestViewCaptureService;
+    [SerializeField] private DevicePassthroughCaptureService devicePassthroughCaptureService;
     [SerializeField] private Transform proxyObjectsRoot;
 
     [Header("Surface Targets")]
@@ -31,9 +33,9 @@ public class AnchorThemeApplier : MonoBehaviour
     private TableProxyVerticalFitMode tableVerticalFitMode = TableProxyVerticalFitMode.FloorToAnchorTop;
     [SerializeField, Range(1f, 1.25f), Tooltip("Horizontal safety expansion applied after the MRUK table footprint so the virtual table slightly covers the real one.")]
     private float tableFootprintSafetyScale = 1.08f;
-    [SerializeField, Range(0.75f, 1.35f), Tooltip("Optional local X correction for room-specific table width mismatch.")]
+    [SerializeField, Range(0.5f, 2.5f), Tooltip("Optional local X correction for room-specific table width mismatch.")]
     private float tableLocalXScale = 1f;
-    [SerializeField, Range(0.75f, 1.35f), Tooltip("Optional local Z correction for room-specific table depth mismatch.")]
+    [SerializeField, Range(0.5f, 2.5f), Tooltip("Optional local Z correction for room-specific table depth mismatch.")]
     private float tableLocalZScale = 1f;
     [SerializeField, Min(0f), Tooltip("Small clearance above the MRUK floor plane used when fitting full-height generated tables.")]
     private float tableFloorClearanceMeters = 0.005f;
@@ -42,10 +44,16 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField, Range(-180f, 180f)] private float tableProxyYawOffsetDegrees = 90f;
     [SerializeField, Tooltip("For imported generated tables, rotate the visual model before fitting when its local long axis does not match the MRUK table long axis.")]
     private bool autoAlignGeneratedTableLongAxis = true;
+    [SerializeField, Tooltip("For generated-object validation, only spawn the imported generated table on the matching captured TABLE anchor instead of replacing every MRUK TABLE anchor.")]
+    private bool onlyReplaceGeneratedTableTarget = true;
+    [SerializeField, Tooltip("After a generated table is successfully placed, keep that anchor bound to the same generated prefab until locks are cleared.")]
+    private bool lockPlacedGeneratedTables = true;
     [SerializeField] private bool augmentFlatTableProxies = true;
     [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
 #if UNITY_EDITOR
     [SerializeField] private bool preferImportedGeneratedTablePrefabs = true;
+    [SerializeField] private bool lockGeneratedTablePrefabsToActiveCapture = true;
+    [SerializeField] private bool allowLatestGeneratedTableWhenNoActiveCapture;
     [SerializeField] private string generatedObjectJobFolderName = "GeneratedObjectJobs";
 #endif
 
@@ -58,6 +66,27 @@ public class AnchorThemeApplier : MonoBehaviour
         Z,
     }
 
+    private sealed class LockedGeneratedTablePrefab
+    {
+        public string ThemeId;
+        public string EntryId;
+        public string ObjectId;
+        public GameObject Prefab;
+        public string PrefabName;
+        public string LockedAtIsoUtc;
+
+        public string ShortStatus
+        {
+            get
+            {
+                var entry = string.IsNullOrWhiteSpace(EntryId)
+                    ? "none"
+                    : EntryId.Length <= 18 ? EntryId : EntryId[..18];
+                return $"{entry}:{(string.IsNullOrWhiteSpace(PrefabName) ? "prefab" : PrefabName)}";
+            }
+        }
+    }
+
     public event Action SummaryChanged;
 
     public string LatestSummary => _latestSummary;
@@ -65,6 +94,7 @@ public class AnchorThemeApplier : MonoBehaviour
     public int LastAppliedRendererCount => _lastAppliedRendererCount;
     public int LastAppliedTableProxyCount => _lastAppliedTableProxyCount;
     public string LastTableProxyStatus => _lastTableProxyStatus;
+    public int LockedGeneratedTableCount => _lockedGeneratedTablePrefabs.Count;
 
     private readonly Dictionary<Renderer, Material[]> _originalSharedMaterials = new();
     private readonly Dictionary<Renderer, bool> _originalRendererStates = new();
@@ -72,9 +102,11 @@ public class AnchorThemeApplier : MonoBehaviour
     private readonly List<Material> _runtimeMaterials = new();
     private readonly List<Texture2D> _runtimeTextures = new();
     private readonly List<GameObject> _spawnedProxyRoots = new();
+    private readonly Dictionary<string, LockedGeneratedTablePrefab> _lockedGeneratedTablePrefabs = new(StringComparer.Ordinal);
 
     private string _latestSummary = "[AnchorThemeApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
     private string _lastTableProxyStatus = "idle";
+    private string _lastGeneratedTableSelectionStatus = "idle";
     private int _lastAppliedAnchorCount;
     private int _lastAppliedRendererCount;
     private int _lastAppliedTableProxyCount;
@@ -106,6 +138,16 @@ public class AnchorThemeApplier : MonoBehaviour
         if (stylizationPlanner == null)
         {
             stylizationPlanner = FindAnyObjectByType<StylizationPlanner>();
+        }
+
+        if (bestViewCaptureService == null)
+        {
+            bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
+        }
+
+        if (devicePassthroughCaptureService == null)
+        {
+            devicePassthroughCaptureService = FindAnyObjectByType<DevicePassthroughCaptureService>();
         }
 
         if (proxyObjectsRoot == null)
@@ -152,6 +194,15 @@ public class AnchorThemeApplier : MonoBehaviour
     public void ReapplyActiveTheme()
     {
         RefreshApplication("manual");
+    }
+
+    [ContextMenu("Clear Locked Generated Tables")]
+    public void ClearLockedGeneratedTables()
+    {
+        _lockedGeneratedTablePrefabs.Clear();
+        _lastGeneratedTableSelectionStatus = "locks_cleared";
+        _needsRefresh = true;
+        RefreshApplication("clear-generated-table-locks");
     }
 
     private void Subscribe()
@@ -337,6 +388,7 @@ public class AnchorThemeApplier : MonoBehaviour
         var lastFailure = "none";
         var lastAugmentation = "none";
         var lastFit = "none";
+        var lockedAppliedCount = 0;
 
         for (var index = 0; index < room.Anchors.Count; index++)
         {
@@ -356,7 +408,19 @@ public class AnchorThemeApplier : MonoBehaviour
 
             matchedPlanCount++;
             lastEntryId = planEntry.EntryId;
-            var proxyPrefab = ResolveProxyPrefab(theme, planEntry, out var prefabSource);
+            var proxyPrefab = ResolveLockedGeneratedTablePrefab(theme, planEntry, out var prefabSource);
+            var usedLockedGeneratedPrefab = proxyPrefab != null;
+            if (!usedLockedGeneratedPrefab)
+            {
+                proxyPrefab = ResolveProxyPrefab(theme, planEntry, out prefabSource);
+            }
+
+            if (onlyReplaceGeneratedTableTarget && !string.Equals(prefabSource, "generated_import", StringComparison.Ordinal))
+            {
+                lastFailure = $"not_generated_target_{planEntry.EntryId}";
+                continue;
+            }
+
             if (proxyPrefab == null)
             {
                 lastFailure = $"missing_prefab_{planEntry.EntryId}";
@@ -369,6 +433,12 @@ public class AnchorThemeApplier : MonoBehaviour
             if (TrySpawnTableProxy(anchor, room, proxyPrefab, prefabSource, planEntry, theme, out var augmentationStatus, out var fitStatus))
             {
                 proxyCount++;
+                if (usedLockedGeneratedPrefab)
+                {
+                    lockedAppliedCount++;
+                }
+
+                RegisterLockedGeneratedTablePrefab(theme, planEntry, proxyPrefab, prefabSource);
                 lastFailure = "none";
                 lastAugmentation = augmentationStatus;
                 lastFit = fitStatus;
@@ -381,8 +451,64 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         _lastTableProxyStatus =
-            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, entry={lastEntryId}, prefab={lastPrefabName}, source={lastPrefabSource}, augment={lastAugmentation}, fit={lastFit}, failure={lastFailure}";
+            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, locks={_lockedGeneratedTablePrefabs.Count}, lockedApplied={lockedAppliedCount}, entry={lastEntryId}, prefab={lastPrefabName}, source={lastPrefabSource}, generated={_lastGeneratedTableSelectionStatus}, augment={lastAugmentation}, fit={lastFit}, failure={lastFailure}";
         return proxyCount;
+    }
+
+    private GameObject ResolveLockedGeneratedTablePrefab(
+        ThemeProfile theme,
+        StylizationPlanEntry planEntry,
+        out string prefabSource)
+    {
+        prefabSource = "none";
+        if (!lockPlacedGeneratedTables || theme == null || planEntry == null)
+        {
+            return null;
+        }
+
+        var lockKey = GetGeneratedTableLockKey(theme.ThemeId, planEntry.EntryId);
+        if (!_lockedGeneratedTablePrefabs.TryGetValue(lockKey, out var lockedPrefab) ||
+            lockedPrefab == null ||
+            lockedPrefab.Prefab == null)
+        {
+            return null;
+        }
+
+        prefabSource = "generated_import";
+        _lastGeneratedTableSelectionStatus = $"locked_anchor({lockedPrefab.ShortStatus})";
+        return lockedPrefab.Prefab;
+    }
+
+    private void RegisterLockedGeneratedTablePrefab(
+        ThemeProfile theme,
+        StylizationPlanEntry planEntry,
+        GameObject proxyPrefab,
+        string prefabSource)
+    {
+        if (!lockPlacedGeneratedTables ||
+            theme == null ||
+            planEntry == null ||
+            proxyPrefab == null ||
+            !string.Equals(prefabSource, "generated_import", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var lockKey = GetGeneratedTableLockKey(theme.ThemeId, planEntry.EntryId);
+        _lockedGeneratedTablePrefabs[lockKey] = new LockedGeneratedTablePrefab
+        {
+            ThemeId = theme.ThemeId,
+            EntryId = planEntry.EntryId,
+            ObjectId = planEntry.ObjectId,
+            Prefab = proxyPrefab,
+            PrefabName = proxyPrefab.name,
+            LockedAtIsoUtc = DateTime.UtcNow.ToString("O"),
+        };
+    }
+
+    private static string GetGeneratedTableLockKey(string themeId, string entryId)
+    {
+        return $"{themeId ?? string.Empty}:{entryId ?? string.Empty}";
     }
 
     private bool TrySpawnTableProxy(
@@ -1196,15 +1322,32 @@ public class AnchorThemeApplier : MonoBehaviour
         var jobDirectory = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Library", generatedObjectJobFolderName));
         if (!Directory.Exists(jobDirectory))
         {
+            _lastGeneratedTableSelectionStatus = "no_job_directory";
             return false;
         }
+
+        GeneratedObjectRequest activeRequest = null;
+        var activeRequestSource = "none";
+        var hasActiveCaptureRequest = lockGeneratedTablePrefabsToActiveCapture &&
+                                      TryGetActiveGeneratedTableRequest(out activeRequest, out activeRequestSource);
+        var requireActiveMatch = lockGeneratedTablePrefabsToActiveCapture &&
+                                 (hasActiveCaptureRequest || !allowLatestGeneratedTableWhenNoActiveCapture);
+        if (requireActiveMatch && !hasActiveCaptureRequest)
+        {
+            _lastGeneratedTableSelectionStatus = "locked(no_active_capture)";
+            return false;
+        }
+
+        _lastGeneratedTableSelectionStatus = hasActiveCaptureRequest
+            ? $"locked({activeRequestSource}:{ShortId(activeRequest.RequestId)})"
+            : "latest_fallback";
 
         GeneratedAssetRecord bestRecord = null;
         DateTime bestUpdatedAt = DateTime.MinValue;
         foreach (var jobPath in Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly))
         {
             var record = TryReadGeneratedAssetRecord(jobPath);
-            if (record == null || !IsUsableGeneratedTableRecord(record, theme, planEntry))
+            if (record == null || !IsUsableGeneratedTableRecord(record, theme, planEntry, activeRequest, hasActiveCaptureRequest))
             {
                 continue;
             }
@@ -1223,11 +1366,50 @@ public class AnchorThemeApplier : MonoBehaviour
 
         if (bestRecord == null || !TryGetProjectRelativePath(bestRecord.ImportedPrefabPath, out var prefabAssetPath))
         {
+            _lastGeneratedTableSelectionStatus += ", match=none";
             return false;
         }
 
         prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabAssetPath);
+        _lastGeneratedTableSelectionStatus += prefab != null
+            ? $", match={ShortId(bestRecord.RequestId)}"
+            : $", load_failed={ShortId(bestRecord.RequestId)}";
         return prefab != null;
+    }
+
+    private bool TryGetActiveGeneratedTableRequest(out GeneratedObjectRequest request, out string source)
+    {
+        request = null;
+        source = "none";
+
+        var deviceRequest = devicePassthroughCaptureService != null
+            ? devicePassthroughCaptureService.LastGeneratedRequest
+            : null;
+        if (IsActiveTableRequest(deviceRequest))
+        {
+            request = deviceRequest;
+            source = "device";
+            return true;
+        }
+
+        var simulatorRequest = bestViewCaptureService != null
+            ? bestViewCaptureService.LastGeneratedRequest
+            : null;
+        if (IsActiveTableRequest(simulatorRequest))
+        {
+            request = simulatorRequest;
+            source = "sim";
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsActiveTableRequest(GeneratedObjectRequest request)
+    {
+        return request != null &&
+               !string.IsNullOrWhiteSpace(request.RequestId) &&
+               string.Equals(request.SemanticLabel, "table", StringComparison.OrdinalIgnoreCase);
     }
 
     private static GeneratedAssetRecord TryReadGeneratedAssetRecord(string jobPath)
@@ -1254,7 +1436,9 @@ public class AnchorThemeApplier : MonoBehaviour
     private static bool IsUsableGeneratedTableRecord(
         GeneratedAssetRecord record,
         ThemeProfile theme,
-        StylizationPlanEntry planEntry)
+        StylizationPlanEntry planEntry,
+        GeneratedObjectRequest activeRequest,
+        bool hasActiveCaptureRequest)
     {
         if (record == null || theme == null || planEntry == null)
         {
@@ -1276,10 +1460,55 @@ public class AnchorThemeApplier : MonoBehaviour
             return false;
         }
 
-        return string.IsNullOrWhiteSpace(record.ObjectId) ||
-               string.IsNullOrWhiteSpace(planEntry.ObjectId) ||
-               record.ObjectId.Contains("TABLE", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(record.ObjectId, planEntry.ObjectId, StringComparison.OrdinalIgnoreCase);
+        if (hasActiveCaptureRequest)
+        {
+            return DoesRecordMatchActiveRequest(record, activeRequest);
+        }
+
+        if (string.IsNullOrWhiteSpace(record.ObjectId) || string.IsNullOrWhiteSpace(planEntry.ObjectId))
+        {
+            return false;
+        }
+
+        return string.Equals(record.ObjectId, planEntry.ObjectId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool DoesRecordMatchActiveRequest(GeneratedAssetRecord record, GeneratedObjectRequest activeRequest)
+    {
+        if (record == null || activeRequest == null)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.RequestId) &&
+            string.Equals(record.RequestId, activeRequest.RequestId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(record.ObjectId) &&
+            !string.IsNullOrWhiteSpace(activeRequest.ObjectId) &&
+            string.Equals(record.ObjectId, activeRequest.ObjectId, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(record.SourceRequestPath) &&
+               !string.IsNullOrWhiteSpace(activeRequest.SourceRequestPath) &&
+               string.Equals(
+                   Path.GetFullPath(record.SourceRequestPath),
+                   Path.GetFullPath(activeRequest.SourceRequestPath),
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ShortId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "none";
+        }
+
+        return value.Length <= 18 ? value : value[..18];
     }
 
     private static bool TryGetProjectRelativePath(string absoluteOrRelativePath, out string assetPath)
@@ -1355,19 +1584,20 @@ public class AnchorThemeApplier : MonoBehaviour
                 continue;
             }
 
-            var worldBounds = renderer.bounds;
-            var min = worldBounds.min;
-            var max = worldBounds.max;
+            var localBounds = renderer.localBounds;
+            var min = localBounds.min;
+            var max = localBounds.max;
             for (var x = 0; x <= 1; x++)
             {
                 for (var y = 0; y <= 1; y++)
                 {
                     for (var z = 0; z <= 1; z++)
                     {
-                        var worldPoint = new Vector3(
+                        var rendererLocalPoint = new Vector3(
                             x == 0 ? min.x : max.x,
                             y == 0 ? min.y : max.y,
                             z == 0 ? min.z : max.z);
+                        var worldPoint = renderer.transform.TransformPoint(rendererLocalPoint);
                         var localPoint = root.InverseTransformPoint(worldPoint);
                         if (!hasBounds)
                         {

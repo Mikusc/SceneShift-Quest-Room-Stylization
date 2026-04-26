@@ -13,6 +13,8 @@ public class StylizationDebugPanel : MonoBehaviour
     [SerializeField] private SurfaceTexturePromptBuilder surfaceTexturePromptBuilder;
     [SerializeField] private SurfaceOverrideApplier surfaceOverrideApplier;
     [SerializeField] private BestViewCaptureService bestViewCaptureService;
+    [SerializeField] private DevicePassthroughCaptureService devicePassthroughCaptureService;
+    [SerializeField] private MRUKShellVisibilityToggle mrukShellVisibilityToggle;
     [SerializeField] private GenerativeObjectCoordinator generativeObjectCoordinator;
     [SerializeField] private LocalGeneratedObjectBackendAdapter localGeneratedObjectBackendAdapter;
     [SerializeField] private TMP_Text summaryText;
@@ -26,6 +28,8 @@ public class StylizationDebugPanel : MonoBehaviour
         surfaceTexturePromptBuilder = FindAnyObjectByType<SurfaceTexturePromptBuilder>();
         surfaceOverrideApplier = FindAnyObjectByType<SurfaceOverrideApplier>();
         bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
+        devicePassthroughCaptureService = FindAnyObjectByType<DevicePassthroughCaptureService>();
+        mrukShellVisibilityToggle = FindAnyObjectByType<MRUKShellVisibilityToggle>();
         generativeObjectCoordinator = FindAnyObjectByType<GenerativeObjectCoordinator>();
         localGeneratedObjectBackendAdapter = FindAnyObjectByType<LocalGeneratedObjectBackendAdapter>();
         summaryText = GetComponentInChildren<TMP_Text>(true);
@@ -68,6 +72,16 @@ public class StylizationDebugPanel : MonoBehaviour
             bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
         }
 
+        if (devicePassthroughCaptureService == null)
+        {
+            devicePassthroughCaptureService = FindAnyObjectByType<DevicePassthroughCaptureService>();
+        }
+
+        if (mrukShellVisibilityToggle == null)
+        {
+            mrukShellVisibilityToggle = FindAnyObjectByType<MRUKShellVisibilityToggle>();
+        }
+
         if (generativeObjectCoordinator == null)
         {
             generativeObjectCoordinator = FindAnyObjectByType<GenerativeObjectCoordinator>();
@@ -101,6 +115,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (summaryText == null)
         {
             return;
+        }
+
+        if (mrukShellVisibilityToggle == null)
+        {
+            mrukShellVisibilityToggle = FindAnyObjectByType<MRUKShellVisibilityToggle>();
         }
 
         if (roomSemanticBootstrap == null)
@@ -146,6 +165,18 @@ public class StylizationDebugPanel : MonoBehaviour
         {
             builder.AppendLine();
             builder.Append(bestViewCaptureService.LatestSummary);
+        }
+
+        if (devicePassthroughCaptureService != null)
+        {
+            builder.AppendLine();
+            builder.Append(devicePassthroughCaptureService.LatestSummary);
+        }
+
+        if (mrukShellVisibilityToggle != null)
+        {
+            builder.AppendLine();
+            builder.Append(mrukShellVisibilityToggle.LatestSummary);
         }
 
         if (generativeObjectCoordinator != null)
@@ -215,6 +246,18 @@ public class StylizationDebugPanel : MonoBehaviour
         bestViewCaptureService.SummaryChanged -= Refresh;
         bestViewCaptureService.SummaryChanged += Refresh;
 
+        if (devicePassthroughCaptureService != null)
+        {
+            devicePassthroughCaptureService.SummaryChanged -= Refresh;
+            devicePassthroughCaptureService.SummaryChanged += Refresh;
+        }
+
+        if (mrukShellVisibilityToggle != null)
+        {
+            mrukShellVisibilityToggle.SummaryChanged -= Refresh;
+            mrukShellVisibilityToggle.SummaryChanged += Refresh;
+        }
+
         if (generativeObjectCoordinator == null)
         {
             return;
@@ -267,6 +310,16 @@ public class StylizationDebugPanel : MonoBehaviour
         if (bestViewCaptureService != null)
         {
             bestViewCaptureService.SummaryChanged -= Refresh;
+        }
+
+        if (devicePassthroughCaptureService != null)
+        {
+            devicePassthroughCaptureService.SummaryChanged -= Refresh;
+        }
+
+        if (mrukShellVisibilityToggle != null)
+        {
+            mrukShellVisibilityToggle.SummaryChanged -= Refresh;
         }
 
         if (generativeObjectCoordinator != null)

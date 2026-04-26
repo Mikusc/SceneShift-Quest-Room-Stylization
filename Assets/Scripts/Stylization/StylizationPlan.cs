@@ -70,6 +70,9 @@ public class StylizationPlanEntry
     public ReplacementMode ReplacementMode;
     public string ReplacementId;
     public string ReplacementDisplayName;
+    public string ReplicaName;
+    public string ReplicaFunction;
+    [TextArea(2, 6)] public string AppearancePrompt;
     public bool PreserveFootprint;
     public bool PreserveYawOrientation;
     public bool CollisionSensitive;

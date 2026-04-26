@@ -38,6 +38,9 @@ Update it after each meaningful implementation step.
 - Initial table proxy spawning is connected from planner to applier.
 - `BestViewCaptureService` tracks the best visible `TABLE` anchor in Play mode and writes a full-frame reference image + metadata + `GeneratedObjectRequest` JSON export to `Library/BestViewCaptures/`; in `ExternalScreenshot` mode the original screenshot is currently used directly as the backend input while the estimated crop rect remains in metadata. Requests now carry target physical length / width / height, target aspect ratio, safety footprint scale, and vertical fit mode for generated asset workers.
 - `BestViewCaptureService` now distinguishes between `ExternalScreenshot`, `UnityFramebufferDebug`, and `DevicePassthroughReserved` source modes; `ExternalScreenshot` is the preferred simulation path.
+- `DevicePassthroughCaptureService` is now attached under `Perception` as the first Quest Link / headset PCA probe. In Play mode it tracks the best visible `TABLE` MRUK anchor, uses `Meta.XR.PassthroughCameraAccess` for native camera texture, pose, intrinsics, and projection, writes full-frame/cropped PNG plus metadata/request JSON, and can queue a `CaptureReady` generated-object job directly under `Library/GeneratedObjectJobs/`.
+- `DevicePassthroughCaptureHud` is attached under `Perception` and creates a head-locked world-space PCA status panel at runtime. The panel shows PCA readiness, target category, best anchor, best-view score, distance, viewport/crop values, input hint, and latest capture/job id so Quest Link validation does not require watching the Unity Game View.
+- `DevicePassthroughCaptureService` now supports keyboard `P` and right-controller primary button capture input for headset-side validation.
 - `GenerativeObjectCoordinator` is now attached under `Perception` and writes a local `.job.json` shell to `Library/GeneratedObjectJobs/` when a new captured request appears.
 - `GeneratedObjectPromptBuilder` now converts each request into a Roomify-inspired prompt artifact and `GenerativeObjectCoordinator` writes it as `Library/GeneratedObjectJobs/*.prompt.txt`.
 - `LocalGeneratedObjectBackendAdapter` is now attached under `Perception` and can locally consume `CaptureReady` jobs into simulated `StylizedImageReady` outputs by applying a theme-aware mock stylization transform, writing `Library/GeneratedObjectOutputs/*.stylized.png`, and writing a matching `*.result.json` backend artifact.
@@ -56,7 +59,7 @@ Update it after each meaningful implementation step.
   - imported bounds: `0.884 x 0.700 x 2.000`
 - `GeneratedObjectModelImporter` imports `ModelReady` jobs, normalizes generated model bounds to a centered bottom pivot, removes imported colliders, saves a prefab, and advances the job to `Imported`.
 - The current imported generated table prefab is `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`.
-- `AnchorThemeApplier` can prefer the latest imported generated table prefab in Editor/Simulator and fall back to the theme/default deterministic proxy when no usable generated prefab exists.
+- `AnchorThemeApplier` can use imported generated table prefabs, but generated-table lookup is now locked to the active capture request by default. It checks the latest `DevicePassthroughCaptureService` request first, then the simulator `BestViewCaptureService` request, and only uses imported jobs with matching `RequestId`, `ObjectId`, or source request path. If no active capture exists, it falls back to deterministic theme/default proxies instead of silently using an old Simulator-generated table.
 - `AnchorThemeApplier` now auto-aligns imported generated table long axes before bounds fitting. If the generated model's local long axis and MRUK target long axis differ, runtime status reports `axis=rotated90(...)` and the visual child is rotated before final per-axis fit.
 - The canonical scene currently keeps table replacement disabled (`applyTableProxies=false`) and original MRUK volume visuals visible (`hideOriginalVolumeVisuals=false`) so the default Play view returns to the MRUK shell. Generated/deterministic table proxy placement is an opt-in validation step, not the default scene state.
 - Table generated-prefab fitting now transforms the MRUK `VolumeBounds` corners through the anchor transform into proxy-root local space before sizing, so rotated MRUK bounds do not treat a local axis as world-up by mistake.
@@ -67,7 +70,7 @@ Update it after each meaningful implementation step.
 ## In Progress
 - Table replacement readability and accept/reject UX after the generated Seed3D prefab is placed.
 - Verifying the generated table visually from the user's intended Simulator camera angle, not just from fit metrics.
-- Verifying that the newest generated table candidate is selected after re-entering Play or reapplying the active theme.
+- Verifying that the generated table candidate for the active capture request is selected after import/reapply, rather than the newest unrelated generated table.
 - Deciding whether exact per-axis generated-prefab fitting is acceptable for the current demo or whether to add a later Roomify-style IoU/orientation refinement step.
 - Keeping old generated jobs compatible while new prompt artifacts use `roomify_image_asset_v2`; the already imported `table_18_20260424071758` job was produced by an earlier prompt artifact.
 - Keeping documentation synchronized with the current code/scene state after each generated-object workflow change.
@@ -83,10 +86,10 @@ Update it after each meaningful implementation step.
 - The current `ExternalScreenshot` path assumes the manual screenshot matches the active gameplay view and excludes window chrome. Because MetaXRSimulator resets the user pose on Play entry, new generated-table runs should take the screenshot after entering Play, paste that screenshot path into `BestViewCaptureService.externalScreenshotPath` in the same Play session, then press `C` without moving.
 - The estimated crop rect can still drift from the screenshot composition because the image source and runtime camera are not the same frame.
 - Image stylization is still manual/offline unless using the local mock adapter. Seed3D model generation has been exercised through Ark for recent table candidates, but local image upload/hosting still depends on an operator-provided path and the Unity-side adapter should still be hardened for zip-package responses before unattended use.
-- Generated asset lookup currently scans imported `.job.json` records; there is no dedicated generated asset registry database yet.
+- Generated asset lookup still scans imported `.job.json` records; there is no dedicated generated asset registry database yet. The scan is now request-locked by default to avoid applying an unrelated generated table in a different real room.
 - Generated furniture still lacks explicit user approval/reject/correction UI.
-- No true-device passthrough/camera-frame capture path is implemented yet; it is only reserved in the contract.
-- MQDH screenshots/casts are useful for human review, but they are not an app-consumable capture source. The generated-object device capture path still needs a headset-side passthrough/camera API implementation that writes PNG + metadata under `Application.persistentDataPath`.
+- A first true-device/Link passthrough-camera capture path exists through `DevicePassthroughCaptureService`, but it has not yet been validated on a Quest 3 / Quest 3S headset. Treat it as a probe until a real Link/device run produces PNG, metadata, request, and job artifacts.
+- MQDH screenshots/casts are useful for human review, but they are not the app-consumable capture source. The app-side capture source should be the headset-supported PCA path, and MQDH should only be used to document what the user saw or to pull saved artifacts.
 - No complete demo-ready UI path outside inspector/debug HUD usage.
 - The Ark API key is read only from `ARK_API_KEY` in the Unity process environment; Unity must be launched with that environment variable for `Seed3DBackendAdapter` to see it.
 - MetaXRSimulator / Editor Play still resets the user start pose between Play sessions. A first editor-only pose-bookmark experiment was reverted because it did not reliably override the simulator start pose; use simulator controls or a future official-rig-compatible solution instead.
@@ -126,11 +129,14 @@ Last stable manual/runtime checks before this document update confirmed:
 - After the editor play-pose bookmark experiment was reverted, the canonical scene no longer contains `PlayModeViewPoseBookmark`; the current scene state intentionally remains on the MRUK shell until table proxy placement is explicitly re-enabled for validation.
 - After the generated-table long-axis correction, `AnchorThemeApplier` reported `axis=rotated90(source=Z, target=X)`, `bottomDelta=0m`, and `failure=none` for generated table placement using an imported generated prefab.
 - After regenerating the table with a stronger long-rectangle prompt, Seed3D task `cgt-20260425030546-n8b7x` succeeded, the returned zip package was extracted outside `Assets/`, `table_18_20260425025836.seed3d.pbr.glb` imported cleanly, `GeneratedObjectModelImporter` advanced the job to `Imported`, and Unity Console reported `0` Error entries after refresh/import.
+- After adding `DevicePassthroughCaptureService`, enabling `horizonos.permission.HEADSET_CAMERA`, and attaching `Meta.XR.PassthroughCameraAccess` plus the service under `AppRoot/Perception`, `Assets/Refresh` completed with Unity Console at `0` entries in non-Play state. This validates compile/scene wiring only; Link/headset camera access is still unverified.
+- After adding `DevicePassthroughCaptureHud` and XR controller capture input, `Assets/Refresh` completed with Unity Console at `0` entries. The HUD scene wiring is saved, but headset readability and controller input still need real Link/device validation.
+- After locking generated-table lookup to the active capture request, `Assets/Refresh` completed with Unity Console at `0` entries. This prevents old Simulator generated-table jobs from being used on a new true-device room unless they match the active request or the fallback lock is explicitly disabled.
 
 ## Current Local Workspace State
 The workspace currently contains uncommitted local state that should be treated as in-progress rather than final:
 - `Assets/Scenes/MR_RoomStylization.unity`
-  Current local scene state includes `ExternalScreenshot` capture input, `HostedImageUploadBridge`, `Seed3DBackendAdapter`, and table proxy placement disabled so the default view shows the MRUK shell.
+  Current local scene state includes `ExternalScreenshot` capture input, `DevicePassthroughCaptureService`, `DevicePassthroughCaptureHud`, `HostedImageUploadBridge`, `Seed3DBackendAdapter`, request-locked generated-table selection, and table proxy placement disabled so the default view shows the MRUK shell.
 - `Assets/Scripts/Stylization/AnchorThemeApplier.cs`
   Generated table prefab selection, MRUK-volume-corner target bounds, 1:1 proxy padding defaults, bottom-face alignment, and fit diagnostics are present locally.
 - `Assets/Scripts/Editor/GeneratedObjectModelImporter.cs`
@@ -139,6 +145,10 @@ The workspace currently contains uncommitted local state that should be treated 
   Contains the current preferred Seed3D GLB and generated table prefab.
 - `Assets/Scripts/Perception/GeneratedObjectPromptBuilder.cs`
   Future generated-object prompts now require an isolated transparent object asset; old jobs may still carry older prompt text.
+- `Assets/Scripts/Perception/DevicePassthroughCaptureService.cs`
+  First native passthrough camera capture probe exists for Quest Link/headset runs and writes the same generated-object request/job shape as the existing simulator screenshot path. It exposes score/status properties for headset HUD display and supports keyboard plus right-controller primary-button capture input.
+- `Assets/Scripts/UI/DevicePassthroughCaptureHud.cs`
+  Runtime head-locked PCA capture HUD exists locally and displays readiness, score, distance, viewport/crop, and latest capture/job status in the headset.
 - `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
   Ark Seed3D 2.0 task creation/poll/download adapter is present locally and requires hosted image URLs plus `ARK_API_KEY` in the Unity process environment.
 - `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
@@ -158,11 +168,20 @@ The workspace currently contains uncommitted local state that should be treated 
 
 ## Next Smallest Task
 For the generated-table branch:
-1. re-enter Play or run `Reapply Active Theme` and confirm the latest imported generated table candidate is selected,
-2. inspect the generated table from the intended Simulator/user camera angle with `AnchorThemeApplier.applyTableProxies` explicitly enabled,
-3. decide whether the current long-axis auto-alignment plus safety footprint scale is visually acceptable,
-4. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready,
-5. harden `Seed3DBackendAdapter` so zip package extraction is automatic rather than a manual post-processing step.
+1. capture or restore the intended active request, then import the matching generated table asset,
+2. re-enter Play or run `Reapply Active Theme` and confirm the table status reports `generated=locked(...), match=<requestId>`,
+3. inspect the generated table from the intended Simulator/user camera angle with `AnchorThemeApplier.applyTableProxies` explicitly enabled,
+4. decide whether the current long-axis auto-alignment plus safety footprint scale is visually acceptable,
+5. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready,
+6. harden `Seed3DBackendAdapter` so zip package extraction is automatic rather than a manual post-processing step.
+
+For the Quest Link / true-device capture probe:
+1. run `MR_RoomStylization` through Quest Link on Quest 3 / Quest 3S with compatible Meta Horizon Link and headset OS versions,
+2. grant `horizonos.permission.HEADSET_CAMERA`,
+3. confirm the head-locked PCA HUD is readable in the headset and shows `PCA playing=true`, a non-empty best anchor, and a visible best-view score,
+4. press keyboard `P` or the right-controller primary button in Play mode and confirm PCA full-frame PNG, crop PNG, metadata JSON, request JSON, prompt text, and `.job.json` are written,
+5. confirm `LocalGeneratedObjectBackendAdapter.ExternalFileProtocol` can consume the resulting job into the existing manual/external worker flow,
+6. after the matching prefab is imported, enable table proxies/reapply and confirm `AnchorThemeApplier` reports a generated match for that same request before accepting the replacement.
 
 For the core Phase 1 room-stylization branch:
 1. keep `SurfaceOverrideApplier` in `Background` mode while furniture replacement is incomplete,
