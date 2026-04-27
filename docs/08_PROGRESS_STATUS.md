@@ -27,6 +27,8 @@ Update it after each meaningful implementation step.
 - `RoomSemanticBootstrap` initializes MRUK room semantics for the canonical scene.
 - `StylizationDebugPanel` shows room/theme/planner/applier state in-scene.
 - Theme selection is available through `ThemeIntentController`.
+- `RuntimeStyleIntentController` is attached under `AppRoot/Perception` and provides a Roomify-like optional user style layer. It converts freeform text such as `cyberpunk` into deterministic style/material/color/motif keywords, can write an LLM handoff prompt under `Library/StyleIntentJobs/`, and feeds those keywords into generated-object requests.
+- `DeepSeekStyleIntentProvider` is attached under `AppRoot/Perception` as an optional external style parser. In Play mode it can call DeepSeek V4 (`deepseek-v4-flash` by default) using `DEEPSEEK_API_KEY`, then replace the deterministic fallback with JSON keyword fields if the response is valid.
 - `StylizationPlanner` generates deterministic mappings for wall, floor, ceiling, table, screen, storage, and seating.
 - `AnchorThemeApplier` visibly stylizes wall / floor / ceiling surfaces.
 - When a `ThemeProfile` has no explicit wall / floor / ceiling material assets, `AnchorThemeApplier` now falls back to deterministic runtime procedural surface textures instead of plain color-only materials.
@@ -43,10 +45,12 @@ Update it after each meaningful implementation step.
 - `DevicePassthroughCaptureService` now supports keyboard `P` and right-controller primary button capture input for headset-side validation.
 - `GenerativeObjectCoordinator` is now attached under `Perception` and writes a local `.job.json` shell to `Library/GeneratedObjectJobs/` when a new captured request appears.
 - `GeneratedObjectPromptBuilder` now converts each request into a Roomify-inspired prompt artifact and `GenerativeObjectCoordinator` writes it as `Library/GeneratedObjectJobs/*.prompt.txt`.
+- `GeneratedObjectPromptBuilder` now emits prompt version `roomify_image_asset_v3_style_keywords`, including `STYLE_INTENT` fields when runtime user style text is provided. The user style layer affects visual language only; object function, footprint, dimensions, yaw, and safety constraints remain controlled by MRUK/planner data.
 - `LocalGeneratedObjectBackendAdapter` is now attached under `Perception` and can locally consume `CaptureReady` jobs into simulated `StylizedImageReady` outputs by applying a theme-aware mock stylization transform, writing `Library/GeneratedObjectOutputs/*.stylized.png`, and writing a matching `*.result.json` backend artifact.
 - `LocalGeneratedObjectBackendAdapter` now also exposes an `ExternalFileProtocol` mode that writes `Library/GeneratedObjectBackendInbox/*.submission.json` plus a prefilled `*.result.template.json`, and can later consume a dropped external `*.result.json` without changing the Unity-side job/prompt contract.
 - `LocalGeneratedObjectBackendAdapter` can now consume either a local stylized PNG path or an external hosted stylized image URL from `GeneratedImageBackendResult`, enabling the Seed3D API path without adding an upload worker.
-- `HostedImageUploadBridge` can optionally upload local stylized PNG outputs to an operator-configured hosting endpoint and write `StylizedImageUrl` back to the job for Seed3D `image_url` input.
+- `ApimartImageBackendAdapter` is attached under `Perception` as the first automated image-generation worker. It reads `APIMART_API_KEY`, submits `CaptureReady` jobs to APIMart `gpt-image-2`, downloads the returned stylized PNG into `Library/GeneratedObjectOutputs/`, and advances the job to `StylizedImageReady`.
+- `HostedImageUploadBridge` uploads local stylized PNG outputs to the configured `www.mikusc.top` Azure Static Web Apps endpoint using `SCENESHIFT_UPLOAD_TOKEN`, raw `image/png` body, and `x-sceneshift-upload-token`, then writes `StylizedImageUrl` back to the job for Seed3D `image_url` input.
 - `Seed3DBackendAdapter` can process `StylizedImageReady` jobs when a public `http(s)` stylized image URL is available, read `ARK_API_KEY` from the Unity process environment, create Ark Seed3D 2.0 tasks, record `ModelGenerationSubmitted`, resume polling by task id after interruption, download the generated model under `Assets/Generated/ThemeAssets/<requestId>/`, and advance the job to `ModelReady`.
 - Current Seed3D downloads must be checked for zip packaging. The validated manual flow extracts backend zip packages under `Library/GeneratedObjectModels/<requestId>/downloaded_package/` and copies only the real `.glb` into `Assets/Generated/ThemeAssets/<requestId>/` before import.
 - Earlier manual GPT-image/Seed3D outputs exist for `TABLE_18`, including `table_18_20260424071758`, `table_18_20260424173938`, and `table_18_20260425025836`.
@@ -72,7 +76,7 @@ Update it after each meaningful implementation step.
 - Verifying the generated table visually from the user's intended Simulator camera angle, not just from fit metrics.
 - Verifying that the generated table candidate for the active capture request is selected after import/reapply, rather than the newest unrelated generated table.
 - Deciding whether exact per-axis generated-prefab fitting is acceptable for the current demo or whether to add a later Roomify-style IoU/orientation refinement step.
-- Keeping old generated jobs compatible while new prompt artifacts use `roomify_image_asset_v2`; the already imported `table_18_20260424071758` job was produced by an earlier prompt artifact.
+- Keeping old generated jobs compatible while new prompt artifacts use `roomify_image_asset_v3_style_keywords`; the already imported `table_18_20260424071758` job was produced by an earlier prompt artifact.
 - Keeping documentation synchronized with the current code/scene state after each generated-object workflow change.
 - Cleaning up crash-related transient workspace state before the next commit.
 
@@ -81,11 +85,12 @@ Update it after each meaningful implementation step.
 - No manual semantic override table yet. If true-device MRUK labels the real table as `OTHER` instead of `TABLE`, this should be implemented before heavier perception work.
 - No manual correction workflow yet.
 - No reset / reapply / clean theme-switch flow documented as finished.
+- Runtime user style extraction has a deterministic fallback plus an optional DeepSeek API path for Editor/Quest Link testing. For standalone headset builds, use a backend/proxy instead of embedding API keys in the APK.
 - The committed surface texture assets are currently GPT-image-2 albedo maps only; matching normal / roughness / metallic maps are still a future refinement.
 - The current object-level crop path is `TABLE`-only and still MRUK-anchor-driven; it is not yet generalized to fused `RoomObjectRecord` inputs.
 - The current `ExternalScreenshot` path assumes the manual screenshot matches the active gameplay view and excludes window chrome. Because MetaXRSimulator resets the user pose on Play entry, new generated-table runs should take the screenshot after entering Play, paste that screenshot path into `BestViewCaptureService.externalScreenshotPath` in the same Play session, then press `C` without moving.
 - The estimated crop rect can still drift from the screenshot composition because the image source and runtime camera are not the same frame.
-- Image stylization is still manual/offline unless using the local mock adapter. Seed3D model generation has been exercised through Ark for recent table candidates, but local image upload/hosting still depends on an operator-provided path and the Unity-side adapter should still be hardened for zip-package responses before unattended use.
+- Image stylization is now wired through APIMart `gpt-image-2`, but it still needs live-key validation against a real `CaptureReady` job. Seed3D model generation has been exercised through Ark for recent table candidates, and hosted upload is configured through `www.mikusc.top`.
 - Generated asset lookup still scans imported `.job.json` records; there is no dedicated generated asset registry database yet. The scan is now request-locked by default to avoid applying an unrelated generated table in a different real room.
 - Generated furniture still lacks explicit user approval/reject/correction UI.
 - A first true-device/Link passthrough-camera capture path exists through `DevicePassthroughCaptureService`, but it has not yet been validated on a Quest 3 / Quest 3S headset. Treat it as a probe until a real Link/device run produces PNG, metadata, request, and job artifacts.
@@ -149,10 +154,12 @@ The workspace currently contains uncommitted local state that should be treated 
   First native passthrough camera capture probe exists for Quest Link/headset runs and writes the same generated-object request/job shape as the existing simulator screenshot path. It exposes score/status properties for headset HUD display and supports keyboard plus right-controller primary-button capture input.
 - `Assets/Scripts/UI/DevicePassthroughCaptureHud.cs`
   Runtime head-locked PCA capture HUD exists locally and displays readiness, score, distance, viewport/crop, and latest capture/job status in the headset.
+- `Assets/Scripts/Perception/ApimartImageBackendAdapter.cs`
+  APIMart `gpt-image-2` image-generation adapter is present locally and requires `APIMART_API_KEY` in the Unity process environment.
 - `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
   Ark Seed3D 2.0 task creation/poll/download adapter is present locally and requires hosted image URLs plus `ARK_API_KEY` in the Unity process environment.
 - `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
-  Optional local-PNG-to-hosted-URL bridge is present locally and requires a configured upload endpoint.
+  Local-PNG-to-hosted-URL bridge is configured for the `www.mikusc.top` upload endpoint and requires `SCENESHIFT_UPLOAD_TOKEN` in the Unity process environment.
 - `Assets/Scripts/Stylization/CorrectionModeController.cs`
   Standalone correction-mode code skeleton exists locally but is not yet integrated into the scene.
 - `ProjectSettings/URPProjectSettings.asset`
@@ -163,17 +170,17 @@ The workspace currently contains uncommitted local state that should be treated 
 ## Biggest Technical Risks
 - Unity editor instability when inspecting runtime objects during Play in this project/runtime combination.
 - The current table proxy source asset reads more like a tabletop slab than a clear furniture replacement, though new prompts/contracts now carry target physical proportions to reduce this risk in future generations.
-- The upload bridge is endpoint-agnostic and untested against a real hosting provider; a concrete hosting endpoint must be configured before it can complete the local PNG -> Ark `image_url` handoff.
+- APIMart image generation is wired but not yet validated from Unity because `APIMART_API_KEY` is not currently visible to the Unity process.
 - Remaining simulator/runtime warnings can obscure newly introduced regressions if Console hygiene is not maintained carefully.
 
 ## Next Smallest Task
 For the generated-table branch:
-1. capture or restore the intended active request, then import the matching generated table asset,
-2. re-enter Play or run `Reapply Active Theme` and confirm the table status reports `generated=locked(...), match=<requestId>`,
-3. inspect the generated table from the intended Simulator/user camera angle with `AnchorThemeApplier.applyTableProxies` explicitly enabled,
-4. decide whether the current long-axis auto-alignment plus safety footprint scale is visually acceptable,
-5. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready,
-6. harden `Seed3DBackendAdapter` so zip package extraction is automatic rather than a manual post-processing step.
+1. set `APIMART_API_KEY` before launching Unity and run one `CaptureReady -> StylizedImageReady` APIMart image job,
+2. confirm `HostedImageUploadBridge` writes a stable `www.mikusc.top` `StylizedImageUrl`,
+3. confirm `Seed3DBackendAdapter` advances the same request through `ModelGenerationSubmitted -> ModelReady`,
+4. import the matching generated table asset and confirm the table status reports `generated=locked(...), match=<requestId>`,
+5. inspect the generated table from the intended Simulator/user camera angle with `AnchorThemeApplier.applyTableProxies` explicitly enabled,
+6. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready.
 
 For the Quest Link / true-device capture probe:
 1. run `MR_RoomStylization` through Quest Link on Quest 3 / Quest 3S with compatible Meta Horizon Link and headset OS versions,

@@ -90,7 +90,21 @@ Meaning:
 
 ---
 
-# 4. Manual image-worker flow
+# 4. Automated APIMart image-worker flow
+
+The canonical scene now includes `ApimartImageBackendAdapter` on `Perception`.
+When `APIMART_API_KEY` is set before launching Unity, the adapter can consume `CaptureReady` jobs directly:
+
+1. read `PromptArtifactPath`
+2. attach `SourceInputImagePath` as a base64 `image_urls` reference
+3. submit APIMart `gpt-image-2`
+4. poll the returned task id
+5. download the generated PNG into `Library/GeneratedObjectOutputs/<requestId>.stylized.png`
+6. set the job to `StylizedImageReady`
+
+The existing `HostedImageUploadBridge` then uploads that local PNG to `www.mikusc.top`, and `Seed3DBackendAdapter` can consume the hosted `StylizedImageUrl`.
+
+# 5. Manual image-worker flow
 
 Use an external image generator manually:
 1. open `PromptArtifactPath`
@@ -112,7 +126,7 @@ The adapter watches the paths listed in the submission JSON.
 
 ---
 
-# 5. Expected Unity-side image-worker result
+# 6. Expected Unity-side image-worker result
 
 With Play still running, the adapter should detect `RequestedResultPath`.
 
@@ -133,7 +147,7 @@ Continue through the Seed3D and Unity import sections below before expecting a g
 
 ---
 
-# 6. Troubleshooting
+# 7. Troubleshooting
 
 ## No `.submission.json`
 Check:
@@ -159,12 +173,13 @@ Regenerate with stricter wording:
 - do not generate a full room,
 - produce a clean object-centric stylized reference.
 
-The current prompt builder version for new requests is `roomify_image_asset_v2`.
+The current prompt builder version for new requests is `roomify_image_asset_v3_style_keywords`.
 It explicitly asks for:
 - one isolated object asset,
 - transparent alpha output,
 - no room background,
 - no chairs, floor, walls, shelves, board games, tabletop props, or clutter.
+- optional runtime user style keywords when `RuntimeStyleIntentController.userStyleIntent` is set before capture.
 
 If native alpha is unavailable, generate on a flat `#00ff00` chroma-key background, remove that key locally, and only then save the final alpha PNG to `RequestedOutputImagePath`.
 
@@ -175,7 +190,7 @@ If the screenshot viewpoint does not match the current Play camera, retake the s
 
 ---
 
-# 7. Manual image-to-3D worker flow
+# 8. Manual image-to-3D worker flow
 
 Use this only after the stylized PNG is an isolated object image.
 
@@ -189,8 +204,11 @@ Current tested backend:
 Automated adapter option:
 - `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
   - optional helper for uploading local stylized PNG files to an operator-configured hosting endpoint
+  - current configured endpoint in the canonical scene: `https://www.mikusc.top/api/scene-shift/upload`
+  - sends raw PNG bytes with `Content-Type: image/png` by default; a multipart form field `file` fallback remains available if `uploadRawPngBody` is disabled
+  - expects a JSON response containing `url`, `image_url`, `public_url`, or `download_url`
   - writes `StylizedImageUrl` back to the job without changing the job state
-  - reads optional upload auth token from a configured environment variable and does not write it to job JSON
+  - reads the upload token from `SCENESHIFT_UPLOAD_TOKEN` and sends it as `x-sceneshift-upload-token`; it does not write the token to job JSON
 - `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
 - reads the API key from environment variable `ARK_API_KEY`
 - default endpoint/model/subdivision/fileformat match the tested Seed3D 2.0 values above
@@ -225,7 +243,7 @@ For the current preferred validated table, the copied GLB path is:
 
 ---
 
-# 8. Unity import flow
+# 9. Unity import flow
 
 The editor importer is:
 - `Assets/Scripts/Editor/GeneratedObjectModelImporter.cs`
@@ -247,7 +265,7 @@ For the current preferred validated table, the imported prefab path is:
 
 ---
 
-# 9. Runtime placement check
+# 10. Runtime placement check
 
 In Editor/Simulator, `AnchorThemeApplier` can prefer imported generated table prefabs.
 If the canonical scene is currently set to the MRUK shell, enable `AnchorThemeApplier.applyTableProxies` for this check and decide separately whether to hide original MRUK volume visuals.
@@ -270,7 +288,7 @@ Interpretation:
 
 ---
 
-# 10. Hard rules
+# 11. Hard rules
 - The deterministic proxy remains the fallback.
 - Never block room stylization while waiting for generated assets.
 - Do not treat a stylized 2D image as a scene-ready 3D asset.

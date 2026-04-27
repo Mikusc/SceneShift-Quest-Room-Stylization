@@ -327,6 +327,15 @@ string RoomId;
 string ThemeId;
 string ThemeDisplayName;
 string ThemeShortDescription;
+string UserStyleIntent;
+string StyleIntentSource;
+string GlobalStyleSummary;
+List<string> StyleKeywords;
+List<string> MaterialKeywords;
+List<string> ColorKeywords;
+List<string> MotifKeywords;
+List<string> NegativeStyleKeywords;
+string ObjectStyleDirective;
 string SemanticLabel;
 string FunctionTag;
 string SourceAnchorName;
@@ -369,8 +378,9 @@ string CreatedAtIsoUtc;
 - In `ExternalScreenshot` mode, `SourceImagePath` may point to the original manual screenshot, while `NormalizedCropRect` remains metadata.
 - `BestViewYawDegrees`, `Dimensions`, and `WorldBounds` are required later for registration.
 - `PromptVersion` must change when prompt format changes.
-- Current image prompt version for new requests is `roomify_image_asset_v2`.
+- Current image prompt version for new requests is `roomify_image_asset_v3_style_keywords`.
 - Older artifacts can still show earlier prompt versions such as `roomify_image_v1`; keep those artifacts for reproducibility instead of rewriting them in place.
+- Runtime style fields are optional. When `UserStyleIntent` is empty, the generated-object prompt uses only the active `ThemeProfile`; when present, `StyleKeywords`, material/color/motif keywords, and negative style keywords act as a Roomify-style visual layer over the preset functional mapping.
 - `ImageStylizationPrompt` must ask for a single isolated object asset suitable for image-to-3D generation. It must not ask the model to edit the original room photo as the final canvas.
 - The final worker output should be a PNG with alpha. If the selected image model cannot produce native transparency, the worker should use the prompt's chroma-key note, remove the key locally, and only then save to `RequestedOutputImagePath`.
 

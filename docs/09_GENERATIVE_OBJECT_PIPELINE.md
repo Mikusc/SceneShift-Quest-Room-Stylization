@@ -114,10 +114,10 @@ Purpose:
   - geometry-preservation prompt constraints
 
 Current repository note:
-- no automated in-repository image stylization API is connected yet
 - the current local placeholder is `LocalGeneratedObjectBackendAdapter`
 - it simulates a `StylizedImageReady` result by applying a small theme-aware local image transform, writing `Library/GeneratedObjectOutputs/*.stylized.png`, and writing a matching local `*.result.json` artifact that records prompt/input/output handoff
 - the same component also supports an `ExternalFileProtocol` mode that writes `Library/GeneratedObjectBackendInbox/*.submission.json` plus a prefilled `*.result.template.json`; that contract has been used once with a manual image worker to produce an isolated RGBA table image
+- `ApimartImageBackendAdapter` is the first automated image stylization backend. It reads `APIMART_API_KEY`, sends the generated prompt plus the captured source image as a base64 `image_urls` reference to APIMart `gpt-image-2`, polls the returned task id, downloads the transient output image into `Library/GeneratedObjectOutputs/<requestId>.stylized.png`, and advances the job to `StylizedImageReady`.
 
 #### `ModelGenerationBackend`
 Purpose:
@@ -201,6 +201,7 @@ In this repository, that chain should map onto runtime modules like this:
 - `LocalGeneratedObjectBackendAdapter` now provides two workstation-side modes:
   - `LocalMockStylization`, which writes a simulated `.stylized.png` and `.result.json`,
   - `ExternalFileProtocol`, which writes `.submission.json` plus `.result.template.json` for a manual or external worker.
+- `ApimartImageBackendAdapter` can now consume `CaptureReady` jobs directly for automated `gpt-image-2` image generation; the local/external adapter remains as a fallback/debug boundary.
 - Multiple manual/external-worker paths have produced isolated table images and imported Seed3D assets.
   - Earlier candidate: `table_18_20260424173938`
   - Current preferred candidate: `table_18_20260425025836`
@@ -214,13 +215,12 @@ In this repository, that chain should map onto runtime modules like this:
 - `GeneratedObjectRequest` and `GeneratedAssetRecord` now carry physical target constraints for generated furniture: target length, width, height, length/width aspect ratio, safety footprint scale, and vertical fit mode.
 - `GeneratedObjectPromptBuilder` includes those constraints in the image prompt so the isolated stylized reference keeps the same MRUK table proportions before image-to-3D.
 - `Seed3DBackendAdapter` is a first automated model backend option. It reads `ARK_API_KEY` from the environment, submits `StylizedImageReady` jobs to Ark Seed3D 2.0, records `ModelGenerationSubmitted` with the task id, resumes polling submitted jobs after interruption, downloads the returned model to `Assets/Generated/ThemeAssets/<requestId>/`, and advances the job to `ModelReady`.
-- `HostedImageUploadBridge` is an optional upload bridge for workstation setups that can host local `Library/GeneratedObjectOutputs/*.stylized.png` files. It writes `StylizedImageUrl` on the job without changing the job state, so `Seed3DBackendAdapter` can consume the hosted URL.
+- `HostedImageUploadBridge` is an optional upload bridge for workstation setups that can host local `Library/GeneratedObjectOutputs/*.stylized.png` files. It writes `StylizedImageUrl` on the job without changing the job state, so `Seed3DBackendAdapter` can consume the hosted URL. The canonical scene is configured for `https://www.mikusc.top/api/scene-shift/upload`, sends raw `image/png` bytes by default, and reads `SCENESHIFT_UPLOAD_TOKEN` into the `x-sceneshift-upload-token` header.
 
 ### What is still missing
 - no normalized `RoomObjectRecord` path yet
 - no generalized multi-category capture path yet; the current raw/cropped image export only targets `TABLE`
-- no automated image stylization API integration; the current image was produced by manual worker flow
-- no built-in cloud storage provider is bundled; `HostedImageUploadBridge` can call a configured upload endpoint, but the project still needs an operator-provided hosting service
+- automated image stylization is wired through APIMart `gpt-image-2`, but it still needs live-key validation against a real capture job
 - no durable generated asset registry beyond scanning imported `.job.json` records
 - no full Roomify-style OBB/IoU generated-proxy registration path yet
 - no manual approval/reject/correction UI specifically for generated furniture
@@ -312,9 +312,15 @@ Repository interpretation:
   - function tag,
   - theme style keywords,
   - safety classification
+- `RuntimeStyleIntentController` can add an optional Roomify-like style extraction layer:
+  - user intent text such as `cyberpunk`,
+  - deterministic fallback style/material/color/motif keywords,
+  - optional DeepSeek V4 JSON keyword extraction through `DeepSeekStyleIntentProvider` when `DEEPSEEK_API_KEY` is available,
+  - optional LLM handoff prompt artifacts under `Library/StyleIntentJobs/`,
+  - an object style directive that preserves function, footprint, proportions, and yaw
 - the future `ImageStylizationBackend` should receive those values rather than re-infer them from scratch
 - in the current repository, `GeneratedObjectPromptBuilder` now materializes this handoff as a Roomify-inspired `.prompt.txt` artifact written by `GenerativeObjectCoordinator`
-- current prompt version is `roomify_image_asset_v2`
+- current prompt version is `roomify_image_asset_v3_style_keywords`
 - the generated image worker must return a single object asset with transparent alpha, no room background, no chairs/floor/walls, and no source-scene clutter
 - when GPT image 2 or another worker cannot output native alpha, the worker should generate on a flat chroma-key background and remove that key before writing the final `*.stylized.png`
 
@@ -331,6 +337,7 @@ Do not assume the raw output is scene-ready.
 The next import/registration stages are mandatory.
 
 Current repository interpretation:
+- APIMart `gpt-image-2` can now automate the stylized-image stage before Seed3D. The adapter downloads APIMart's transient result URL locally so `HostedImageUploadBridge` can publish a stable `www.mikusc.top` image URL for Seed3D.
 - Seed3D 2.0 can be run either through the manual/offline backend step or through `Seed3DBackendAdapter`
 - the tested model command requested medium subdivision and GLB output
 - the downloaded backend package is unpacked outside `Assets/`, then only the Unity-ready GLB is copied into `Assets/Generated/ThemeAssets/<requestId>/`
@@ -509,7 +516,7 @@ Drop the image and result JSON back into the paths requested by `.submission.jso
 
 Status:
 - first real `TABLE_18` image exists as an RGBA stylized PNG
-- future requests should use `roomify_image_asset_v2`, which explicitly requires a transparent isolated object asset
+- future requests should use `roomify_image_asset_v3_style_keywords`, which explicitly requires a transparent isolated object asset and can include runtime user style keywords when `RuntimeStyleIntentController.userStyleIntent` is set. In Editor/Quest Link testing, `DeepSeekStyleIntentProvider` may upgrade those fields from deterministic keywords to DeepSeek V4 JSON output before capture jobs are built.
 
 5. `AnchorThemeApplier` generated-proxy registration
 Add a generated-proxy registration path that can consume a locally imported prefab using:
@@ -530,8 +537,10 @@ Only after the file protocol and generated-proxy registration are stable, connec
 
 Status:
 - manual GPT-image/imagegen and Seed3D steps have been validated for two recent table candidates, with `table_18_20260425025836` preferred for further placement checks
+- `ApimartImageBackendAdapter` is implemented as the first automated image-generation worker for `CaptureReady` jobs
 - `Seed3DBackendAdapter` is implemented as the first automated model-generation worker for public `http(s)` stylized image URLs
-- automated image stylization, local image upload/hosting, and persistent registry are not implemented
+- hosted local PNG upload is configured through `HostedImageUploadBridge` and the `www.mikusc.top` Azure Static Web Apps API
+- persistent registry is not implemented
 
 This preserves the repository’s core principle:
 - deterministic, editable stylization first
@@ -631,7 +640,7 @@ Keep the current `ExternalFileProtocol` flow as the repeatable manual image-work
 
 Current status:
 - completed for table candidates including `table_18_20260424173938` and `table_18_20260425025836`
-- new requests should keep using this boundary until an automated image API worker and upload path are committed
+- new requests can use `ApimartImageBackendAdapter` for automated image generation when `APIMART_API_KEY` is configured; the external file protocol remains the fallback/debug boundary
 
 ### Step 2
 Keep deterministic proxy as the fallback object while the generated image/model remains a candidate artifact under review.

@@ -21,6 +21,7 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     [SerializeField] private PassthroughCameraAccess passthroughCameraAccess;
     [SerializeField] private RoomSemanticBootstrap roomSemanticBootstrap;
     [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
     [SerializeField, Tooltip("Used to keep best-angle scoring live when the Quest Link PCA provider is not playing.")]
     private Camera referenceCamera;
@@ -193,6 +194,11 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         if (themeIntentController == null)
         {
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
+        }
+
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
         }
 
         if (stylizationPlanner == null)
@@ -622,6 +628,9 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             CreatedAtIsoUtc = capturedAtUtc.ToString("O"),
         };
 
+        RuntimeStyleIntentRequestUtility.ApplyToRequest(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null,
+            request);
         request.ImageStylizationPrompt = GeneratedObjectPromptBuilder.BuildImageStylizationPrompt(request);
         return request;
     }

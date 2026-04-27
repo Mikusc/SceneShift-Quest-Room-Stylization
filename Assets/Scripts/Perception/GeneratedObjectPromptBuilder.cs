@@ -1,10 +1,11 @@
 using System.Globalization;
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
 public static class GeneratedObjectPromptBuilder
 {
-    public const string RoomifyImagePromptVersion = "roomify_image_asset_v2";
+    public const string RoomifyImagePromptVersion = "roomify_image_asset_v3_style_keywords";
 
     public static string BuildImageStylizationPrompt(GeneratedObjectRequest request)
     {
@@ -33,6 +34,28 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine($"  id: \"{Safe(request.ThemeId)}\",");
         builder.AppendLine($"  display_name: \"{Safe(request.ThemeDisplayName)}\",");
         builder.AppendLine($"  short_description: \"{Safe(request.ThemeShortDescription)}\"");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("STYLE_INTENT = {");
+        builder.AppendLine($"  user_intent: \"{Safe(request.UserStyleIntent)}\",");
+        builder.AppendLine($"  source: \"{Safe(request.StyleIntentSource)}\",");
+        builder.AppendLine($"  global_style_summary: \"{Safe(request.GlobalStyleSummary)}\",");
+        builder.Append("  style_keywords: ");
+        AppendStringList(builder, request.StyleKeywords);
+        builder.AppendLine(",");
+        builder.Append("  material_keywords: ");
+        AppendStringList(builder, request.MaterialKeywords);
+        builder.AppendLine(",");
+        builder.Append("  color_keywords: ");
+        AppendStringList(builder, request.ColorKeywords);
+        builder.AppendLine(",");
+        builder.Append("  motif_keywords: ");
+        AppendStringList(builder, request.MotifKeywords);
+        builder.AppendLine(",");
+        builder.Append("  negative_style_keywords: ");
+        AppendStringList(builder, request.NegativeStyleKeywords);
+        builder.AppendLine(",");
+        builder.AppendLine($"  object_style_directive: \"{Safe(request.ObjectStyleDirective)}\"");
         builder.AppendLine("}");
         builder.AppendLine();
         builder.AppendLine("GEOMETRY = {");
@@ -66,6 +89,8 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine("IMAGE_INSTRUCTIONS = [");
         builder.AppendLine("  \"Generate exactly one stylized target object, not a complete room scene.\",");
         builder.AppendLine("  \"Transform the original object into the named replica while preserving the original function tag.\",");
+        builder.AppendLine("  \"If STYLE_INTENT.user_intent is non-empty, treat STYLE_INTENT as the primary visual style layer over the preset ThemeProfile.\",");
+        builder.AppendLine("  \"Use STYLE_INTENT keywords to keep arbitrary user themes coherent across objects without changing the object's function or spatial constraints.\",");
         builder.AppendLine("  \"Use OUTPUT_STYLE_HINT as the Roomify appearance prompt: it controls shape language, materials, color palette, and texture details.\",");
         builder.AppendLine("  \"Preserve the overall silhouette, proportions, and dominant viewing angle of the real object.\",");
         builder.AppendLine("  \"Preserve the explicit target length, width, height, and length/width aspect ratio from GEOMETRY as hard spatial constraints for the later 3D fit.\",");
@@ -82,7 +107,8 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine("  \"No room background, no floor plane, no wall, no ceiling, no shelves, no chairs, no other furniture.\",");
         builder.AppendLine("  \"No nearby objects from the source image, including books, boxes, board games, clutter, or tabletop props.\",");
         builder.AppendLine("  \"No people, labels, logos, captions, watermarks, extra decorations, cast shadows, contact shadows, or reflections.\",");
-        builder.AppendLine("  \"Do not crop off object corners, legs, bases, or other registration-relevant silhouette features.\"");
+        builder.AppendLine("  \"Do not crop off object corners, legs, bases, or other registration-relevant silhouette features.\",");
+        builder.AppendLine("  \"Do not let STYLE_INTENT override explicit geometry, footprint, yaw, safety, or functional constraints.\"");
         builder.AppendLine("]");
         builder.AppendLine();
         builder.AppendLine("GPT_IMAGE_2_WORKER_NOTE = [");
@@ -93,9 +119,40 @@ public static class GeneratedObjectPromptBuilder
         builder.AppendLine("]");
         builder.AppendLine();
         builder.Append("OUTPUT_STYLE_HINT = \"");
-        builder.Append(Safe(request.AppearancePrompt));
+        builder.Append(Safe(BuildOutputStyleHint(request)));
         builder.AppendLine("\"");
         return builder.ToString().TrimEnd();
+    }
+
+    private static string BuildOutputStyleHint(GeneratedObjectRequest request)
+    {
+        var builder = new StringBuilder(512);
+        builder.Append(request.AppearancePrompt ?? string.Empty);
+
+        if (!string.IsNullOrWhiteSpace(request.UserStyleIntent))
+        {
+            builder.Append(" Runtime user style intent: ");
+            builder.Append(request.UserStyleIntent.Trim());
+            builder.Append(". Global style summary: ");
+            builder.Append(request.GlobalStyleSummary);
+            builder.Append(". Style keywords: ");
+            builder.Append(JoinList(request.StyleKeywords));
+            builder.Append(". Materials: ");
+            builder.Append(JoinList(request.MaterialKeywords));
+            builder.Append(". Colors and lighting: ");
+            builder.Append(JoinList(request.ColorKeywords));
+            builder.Append(". Motifs: ");
+            builder.Append(JoinList(request.MotifKeywords));
+            builder.Append(". Avoid: ");
+            builder.Append(JoinList(request.NegativeStyleKeywords));
+            if (!string.IsNullOrWhiteSpace(request.ObjectStyleDirective))
+            {
+                builder.Append(". Directive: ");
+                builder.Append(request.ObjectStyleDirective.Trim());
+            }
+        }
+
+        return builder.ToString().Trim();
     }
 
     private static string Safe(string value)
@@ -106,6 +163,32 @@ public static class GeneratedObjectPromptBuilder
         }
 
         return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
+    private static void AppendStringList(StringBuilder builder, List<string> values)
+    {
+        builder.Append('[');
+        if (values != null)
+        {
+            for (var index = 0; index < values.Count; index++)
+            {
+                if (index > 0)
+                {
+                    builder.Append(", ");
+                }
+
+                builder.Append('"');
+                builder.Append(Safe(values[index]));
+                builder.Append('"');
+            }
+        }
+
+        builder.Append(']');
+    }
+
+    private static string JoinList(List<string> values)
+    {
+        return values == null || values.Count == 0 ? "none" : string.Join(", ", values);
     }
 
     private static string Coalesce(string primary, string fallback)

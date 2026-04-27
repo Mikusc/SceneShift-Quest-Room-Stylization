@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [Serializable]
@@ -10,6 +11,15 @@ public class GeneratedObjectRequest
     public string ThemeId;
     public string ThemeDisplayName;
     public string ThemeShortDescription;
+    public string UserStyleIntent;
+    public string StyleIntentSource;
+    public string GlobalStyleSummary;
+    public List<string> StyleKeywords = new List<string>();
+    public List<string> MaterialKeywords = new List<string>();
+    public List<string> ColorKeywords = new List<string>();
+    public List<string> MotifKeywords = new List<string>();
+    public List<string> NegativeStyleKeywords = new List<string>();
+    public string ObjectStyleDirective;
     public string SemanticLabel;
     public string FunctionTag;
     public string SourceAnchorName;

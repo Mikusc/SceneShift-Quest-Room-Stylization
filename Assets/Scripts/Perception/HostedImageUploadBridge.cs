@@ -13,6 +13,7 @@ public class HostedImageUploadBridge : MonoBehaviour
     [SerializeField] private string authHeaderName = "Authorization";
     [SerializeField] private string authTokenEnvironmentVariable = string.Empty;
     [SerializeField] private string authHeaderPrefix = "Bearer ";
+    [SerializeField] private bool uploadRawPngBody = true;
     [SerializeField] private string formFileFieldName = "file";
 
     [Header("Processing")]
@@ -108,10 +109,9 @@ public class HostedImageUploadBridge : MonoBehaviour
         _lastProcessedRecord = record;
         PublishSummary("uploading");
 
-        var form = new WWWForm();
-        form.AddBinaryData(formFileFieldName, File.ReadAllBytes(record.StylizedImagePath), Path.GetFileName(record.StylizedImagePath), "image/png");
+        var imageBytes = File.ReadAllBytes(record.StylizedImagePath);
 
-        using (var request = UnityWebRequest.Post(uploadEndpoint, form))
+        using (var request = CreateUploadRequest(imageBytes, record.StylizedImagePath))
         {
             if (!string.IsNullOrWhiteSpace(authToken) && !string.IsNullOrWhiteSpace(authHeaderName))
             {
@@ -154,6 +154,22 @@ public class HostedImageUploadBridge : MonoBehaviour
         _isProcessing = false;
         PublishSummary("hosted-url-ready");
         Debug.Log($"[HostedImageUploadBridge] Hosted stylized image URL ready for request {record.RequestId}.", this);
+    }
+
+    private UnityWebRequest CreateUploadRequest(byte[] imageBytes, string imagePath)
+    {
+        if (uploadRawPngBody)
+        {
+            var request = new UnityWebRequest(uploadEndpoint, UnityWebRequest.kHttpVerbPOST);
+            request.uploadHandler = new UploadHandlerRaw(imageBytes);
+            request.downloadHandler = new DownloadHandlerBuffer();
+            request.SetRequestHeader("Content-Type", "image/png");
+            return request;
+        }
+
+        var form = new WWWForm();
+        form.AddBinaryData(formFileFieldName, imageBytes, Path.GetFileName(imagePath), "image/png");
+        return UnityWebRequest.Post(uploadEndpoint, form);
     }
 
     private string GetAuthToken()
@@ -240,6 +256,7 @@ public class HostedImageUploadBridge : MonoBehaviour
         builder.AppendLine($"Auto Process: {autoProcessJobsInPlay}");
         builder.AppendLine($"Endpoint Configured: {IsHttpUrl(uploadEndpoint)}");
         builder.AppendLine($"Auth Env: {(string.IsNullOrWhiteSpace(authTokenEnvironmentVariable) ? "none" : authTokenEnvironmentVariable)}");
+        builder.AppendLine($"Upload Body: {(uploadRawPngBody ? "raw image/png" : $"multipart field '{formFileFieldName}'")}");
 
         if (!string.IsNullOrWhiteSpace(_lastProcessedRecord.RequestId))
         {

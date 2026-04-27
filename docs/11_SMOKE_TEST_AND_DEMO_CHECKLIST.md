@@ -19,6 +19,10 @@ Check:
 - `StylizedContentRoot` is present
 - `StylizationDebugPanel` is visible or intentionally hidden
 - theme assets exist under `Assets/Data/ThemeProfiles/`
+- if testing arbitrary user style intent, `RuntimeStyleIntentController.userStyleIntent` is set before capture and the debug panel shows extracted style keywords
+- if testing DeepSeek style parsing, `DEEPSEEK_API_KEY` is set before launching Unity or `DeepSeekStyleIntentProvider.apiKeyOverride` is filled locally but not committed
+- if testing APIMart automated image generation, `APIMART_API_KEY` is set before launching Unity and `ApimartImageBackendAdapter.autoProcessJobsInPlay` is enabled
+- if testing hosted upload to Seed3D, `SCENESHIFT_UPLOAD_TOKEN` is set before launching Unity, `HostedImageUploadBridge.uploadEndpoint` points to `https://www.mikusc.top/api/scene-shift/upload`, `authHeaderName` is `x-sceneshift-upload-token`, and `uploadRawPngBody` is enabled
 
 If testing generated-object handoff:
 - `BestViewCaptureService.externalScreenshotPath` is set, preferably after entering Play and taking a screenshot from the same camera pose that will be used before pressing `C`

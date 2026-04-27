@@ -15,6 +15,7 @@ public class BestViewCaptureService : MonoBehaviour
     [Header("References")]
     [SerializeField] private RoomSemanticBootstrap roomSemanticBootstrap;
     [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
     [SerializeField] private Camera referenceCamera;
     [SerializeField] private Transform referenceCameraTransform;
@@ -153,6 +154,11 @@ public class BestViewCaptureService : MonoBehaviour
         if (themeIntentController == null)
         {
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
+        }
+
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
         }
 
         if (stylizationPlanner == null)
@@ -627,6 +633,9 @@ public class BestViewCaptureService : MonoBehaviour
             CreatedAtIsoUtc = capturedAtUtc.ToString("O"),
         };
 
+        RuntimeStyleIntentRequestUtility.ApplyToRequest(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null,
+            request);
         request.ImageStylizationPrompt = GeneratedObjectPromptBuilder.BuildImageStylizationPrompt(request);
         return request;
     }

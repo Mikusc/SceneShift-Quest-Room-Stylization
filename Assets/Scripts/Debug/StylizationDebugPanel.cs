@@ -8,6 +8,7 @@ public class StylizationDebugPanel : MonoBehaviour
     [Header("References")]
     [SerializeField] private RoomSemanticBootstrap roomSemanticBootstrap;
     [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
     [SerializeField] private AnchorThemeApplier anchorThemeApplier;
     [SerializeField] private SurfaceTexturePromptBuilder surfaceTexturePromptBuilder;
@@ -17,12 +18,16 @@ public class StylizationDebugPanel : MonoBehaviour
     [SerializeField] private MRUKShellVisibilityToggle mrukShellVisibilityToggle;
     [SerializeField] private GenerativeObjectCoordinator generativeObjectCoordinator;
     [SerializeField] private LocalGeneratedObjectBackendAdapter localGeneratedObjectBackendAdapter;
+    [SerializeField] private ApimartImageBackendAdapter apimartImageBackendAdapter;
+    [SerializeField] private HostedImageUploadBridge hostedImageUploadBridge;
+    [SerializeField] private Seed3DBackendAdapter seed3DBackendAdapter;
     [SerializeField] private TMP_Text summaryText;
 
     private void Reset()
     {
         roomSemanticBootstrap = FindAnyObjectByType<RoomSemanticBootstrap>();
         themeIntentController = FindAnyObjectByType<ThemeIntentController>();
+        runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
         stylizationPlanner = FindAnyObjectByType<StylizationPlanner>();
         anchorThemeApplier = FindAnyObjectByType<AnchorThemeApplier>();
         surfaceTexturePromptBuilder = FindAnyObjectByType<SurfaceTexturePromptBuilder>();
@@ -32,6 +37,9 @@ public class StylizationDebugPanel : MonoBehaviour
         mrukShellVisibilityToggle = FindAnyObjectByType<MRUKShellVisibilityToggle>();
         generativeObjectCoordinator = FindAnyObjectByType<GenerativeObjectCoordinator>();
         localGeneratedObjectBackendAdapter = FindAnyObjectByType<LocalGeneratedObjectBackendAdapter>();
+        apimartImageBackendAdapter = FindAnyObjectByType<ApimartImageBackendAdapter>();
+        hostedImageUploadBridge = FindAnyObjectByType<HostedImageUploadBridge>();
+        seed3DBackendAdapter = FindAnyObjectByType<Seed3DBackendAdapter>();
         summaryText = GetComponentInChildren<TMP_Text>(true);
     }
 
@@ -45,6 +53,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (themeIntentController == null)
         {
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
+        }
+
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
         }
 
         if (stylizationPlanner == null)
@@ -92,6 +105,21 @@ public class StylizationDebugPanel : MonoBehaviour
             localGeneratedObjectBackendAdapter = FindAnyObjectByType<LocalGeneratedObjectBackendAdapter>();
         }
 
+        if (apimartImageBackendAdapter == null)
+        {
+            apimartImageBackendAdapter = FindAnyObjectByType<ApimartImageBackendAdapter>();
+        }
+
+        if (hostedImageUploadBridge == null)
+        {
+            hostedImageUploadBridge = FindAnyObjectByType<HostedImageUploadBridge>();
+        }
+
+        if (seed3DBackendAdapter == null)
+        {
+            seed3DBackendAdapter = FindAnyObjectByType<Seed3DBackendAdapter>();
+        }
+
         if (summaryText == null)
         {
             summaryText = GetComponentInChildren<TMP_Text>(true);
@@ -135,6 +163,12 @@ public class StylizationDebugPanel : MonoBehaviour
         {
             builder.AppendLine();
             builder.Append(themeIntentController.GetDebugSummary());
+        }
+
+        if (runtimeStyleIntentController != null)
+        {
+            builder.AppendLine();
+            builder.Append(runtimeStyleIntentController.GetDebugSummary());
         }
 
         if (stylizationPlanner != null)
@@ -189,6 +223,24 @@ public class StylizationDebugPanel : MonoBehaviour
         {
             builder.AppendLine();
             builder.Append(localGeneratedObjectBackendAdapter.LatestSummary);
+        }
+
+        if (apimartImageBackendAdapter != null)
+        {
+            builder.AppendLine();
+            builder.Append(apimartImageBackendAdapter.LatestSummary);
+        }
+
+        if (hostedImageUploadBridge != null)
+        {
+            builder.AppendLine();
+            builder.Append(hostedImageUploadBridge.LatestSummary);
+        }
+
+        if (seed3DBackendAdapter != null)
+        {
+            builder.AppendLine();
+            builder.Append(seed3DBackendAdapter.LatestSummary);
         }
 
         summaryText.text = builder.ToString().TrimEnd();
@@ -273,6 +325,24 @@ public class StylizationDebugPanel : MonoBehaviour
 
         localGeneratedObjectBackendAdapter.SummaryChanged -= Refresh;
         localGeneratedObjectBackendAdapter.SummaryChanged += Refresh;
+
+        if (apimartImageBackendAdapter != null)
+        {
+            apimartImageBackendAdapter.SummaryChanged -= Refresh;
+            apimartImageBackendAdapter.SummaryChanged += Refresh;
+        }
+
+        if (hostedImageUploadBridge != null)
+        {
+            hostedImageUploadBridge.SummaryChanged -= Refresh;
+            hostedImageUploadBridge.SummaryChanged += Refresh;
+        }
+
+        if (seed3DBackendAdapter != null)
+        {
+            seed3DBackendAdapter.SummaryChanged -= Refresh;
+            seed3DBackendAdapter.SummaryChanged += Refresh;
+        }
     }
 
     private void Unsubscribe()
@@ -330,6 +400,21 @@ public class StylizationDebugPanel : MonoBehaviour
         if (localGeneratedObjectBackendAdapter != null)
         {
             localGeneratedObjectBackendAdapter.SummaryChanged -= Refresh;
+        }
+
+        if (apimartImageBackendAdapter != null)
+        {
+            apimartImageBackendAdapter.SummaryChanged -= Refresh;
+        }
+
+        if (hostedImageUploadBridge != null)
+        {
+            hostedImageUploadBridge.SummaryChanged -= Refresh;
+        }
+
+        if (seed3DBackendAdapter != null)
+        {
+            seed3DBackendAdapter.SummaryChanged -= Refresh;
         }
     }
 
