@@ -1571,8 +1571,12 @@ MonoBehaviour:
   ceilingSurfaceOffsetMeters: 0.012
   frameOutwardOffsetMeters: 0.035
   frameBorderWidthMeters: 0.08
-  windowVistaOutwardOffsetMeters: 0.14
+  windowVistaOutwardOffsetMeters: 0.04
+  windowVistaAspectRatio: 1.7777778
   windowVistaScaleMultiplier: 1.12
+  applyVistaToLargestWindowOnly: 1
+  minimumWindowFrameMajorSizeMeters: 1
+  minimumWindowFrameMinorSizeMeters: 0.55
   autoRefreshInterval: 0.75
   logApplications: 1
   visibilityMode: 1
@@ -1584,7 +1588,7 @@ MonoBehaviour:
   demoMinimumWallAlpha: 0.94
   demoMinimumFloorAlpha: 0.92
   demoMinimumCeilingAlpha: 0.86
-  demoMinimumWindowVistaAlpha: 0.92
+  demoMinimumWindowVistaAlpha: 1
   windowVistaEmissionIntensity: 0.45
 --- !u!114 &1272341569
 MonoBehaviour:

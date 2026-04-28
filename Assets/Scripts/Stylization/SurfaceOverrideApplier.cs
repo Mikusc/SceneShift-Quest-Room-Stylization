@@ -28,8 +28,15 @@ public class SurfaceOverrideApplier : MonoBehaviour
     [SerializeField, Min(0f)] private float ceilingSurfaceOffsetMeters = 0.012f;
     [SerializeField, Min(0f)] private float frameOutwardOffsetMeters = 0.035f;
     [SerializeField, Min(0.01f)] private float frameBorderWidthMeters = 0.08f;
-    [SerializeField, Min(0f)] private float windowVistaOutwardOffsetMeters = 0.14f;
+    [SerializeField, Min(0f), Tooltip("Distance to push window vista back outside the room, behind the window frame.")]
+    private float windowVistaOutwardOffsetMeters = 0.04f;
+    [SerializeField, Min(0.1f), Tooltip("Expected generated exterior vista image aspect ratio. APIMart window vista jobs currently request 16:9.")]
+    private float windowVistaAspectRatio = 16f / 9f;
     [SerializeField, Range(1f, 1.5f)] private float windowVistaScaleMultiplier = 1.12f;
+    [SerializeField, Tooltip("Use the largest valid WINDOW_FRAME for the exterior vista to avoid small false-positive windows.")]
+    private bool applyVistaToLargestWindowOnly = true;
+    [SerializeField, Min(0f)] private float minimumWindowFrameMajorSizeMeters = 1.0f;
+    [SerializeField, Min(0f)] private float minimumWindowFrameMinorSizeMeters = 0.55f;
     [SerializeField, Min(0.1f)] private float autoRefreshInterval = 0.75f;
     [SerializeField] private bool logApplications = true;
 
@@ -258,6 +265,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
         var windowVistaCount = 0;
         var skippedCount = 0;
         var materials = new Dictionary<ThemeSurfaceKind, Material>();
+        var primaryVistaAnchor = applyVistaToLargestWindowOnly ? FindPrimaryWindowVistaAnchor(room) : null;
 
         for (var index = 0; index < room.Anchors.Count; index++)
         {
@@ -267,9 +275,24 @@ public class SurfaceOverrideApplier : MonoBehaviour
                 continue;
             }
 
+            if (!anchor.PlaneRect.HasValue)
+            {
+                skippedCount++;
+                continue;
+            }
+
+            if (surfaceKind == ThemeSurfaceKind.WindowFrame &&
+                !IsWindowFrameEligible(anchor.PlaneRect.Value))
+            {
+                skippedCount++;
+                continue;
+            }
+
             var shouldApplySurface = ShouldApply(surfaceKind);
-            var shouldApplyVista = surfaceKind == ThemeSurfaceKind.WindowFrame && applyWindowVistaOverlays;
-            if ((!shouldApplySurface && !shouldApplyVista) || !anchor.PlaneRect.HasValue)
+            var shouldApplyVista = surfaceKind == ThemeSurfaceKind.WindowFrame &&
+                                   applyWindowVistaOverlays &&
+                                   (!applyVistaToLargestWindowOnly || ReferenceEquals(anchor, primaryVistaAnchor));
+            if (!shouldApplySurface && !shouldApplyVista)
             {
                 skippedCount++;
                 continue;
@@ -380,25 +403,64 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private Rect GetSurfaceRect(Rect rect, ThemeSurfaceKind surfaceKind)
     {
-        if (surfaceKind != ThemeSurfaceKind.WindowVista)
-        {
-            return rect;
-        }
-
-        var scale = Mathf.Max(1f, windowVistaScaleMultiplier);
-        var center = rect.center;
-        var size = rect.size * scale;
-        return new Rect(center - size * 0.5f, size);
+        // Window vistas stay clipped to the MRUK window rect; cover-fit happens in UV space.
+        return rect;
     }
 
-    private static Mesh CreateOverrideMesh(Rect rect, float normalOffset, ThemeSurfaceKind surfaceKind, float frameBorderWidth)
+    private MRUKAnchor FindPrimaryWindowVistaAnchor(MRUKRoom room)
+    {
+        if (room == null || !applyWindowVistaOverlays)
+        {
+            return null;
+        }
+
+        MRUKAnchor bestAnchor = null;
+        var bestArea = 0f;
+        foreach (var anchor in room.Anchors)
+        {
+            if (anchor == null ||
+                !anchor.PlaneRect.HasValue ||
+                !anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WINDOW_FRAME) ||
+                !IsWindowFrameEligible(anchor.PlaneRect.Value))
+            {
+                continue;
+            }
+
+            var rect = anchor.PlaneRect.Value;
+            var area = Mathf.Abs(rect.width * rect.height);
+            if (area <= bestArea)
+            {
+                continue;
+            }
+
+            bestArea = area;
+            bestAnchor = anchor;
+        }
+
+        return bestAnchor;
+    }
+
+    private bool IsWindowFrameEligible(Rect rect)
+    {
+        var major = Mathf.Max(Mathf.Abs(rect.width), Mathf.Abs(rect.height));
+        var minor = Mathf.Min(Mathf.Abs(rect.width), Mathf.Abs(rect.height));
+        return major >= minimumWindowFrameMajorSizeMeters &&
+               minor >= minimumWindowFrameMinorSizeMeters;
+    }
+
+    private Mesh CreateOverrideMesh(Rect rect, float normalOffset, ThemeSurfaceKind surfaceKind, float frameBorderWidth)
     {
         return surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame
             ? CreateFrameMesh(rect, normalOffset, frameBorderWidth)
-            : CreatePlaneMesh(rect, normalOffset, surfaceKind);
+            : CreatePlaneMesh(rect, normalOffset, surfaceKind, windowVistaAspectRatio, windowVistaScaleMultiplier);
     }
 
-    private static Mesh CreatePlaneMesh(Rect rect, float normalOffset, ThemeSurfaceKind surfaceKind)
+    private static Mesh CreatePlaneMesh(
+        Rect rect,
+        float normalOffset,
+        ThemeSurfaceKind surfaceKind,
+        float windowVistaAspectRatio,
+        float windowVistaScaleMultiplier)
     {
         var vertices = new[]
         {
@@ -410,13 +472,15 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         var width = Mathf.Max(0.05f, rect.width);
         var height = Mathf.Max(0.05f, rect.height);
-        var uv = new[]
-        {
-            Vector2.zero,
-            new Vector2(width, 0f),
-            new Vector2(width, height),
-            new Vector2(0f, height),
-        };
+        var uv = surfaceKind == ThemeSurfaceKind.WindowVista
+            ? CreateWindowVistaUv(rect, windowVistaAspectRatio, windowVistaScaleMultiplier)
+            : new[]
+            {
+                Vector2.zero,
+                new Vector2(width, 0f),
+                new Vector2(width, height),
+                new Vector2(0f, height),
+            };
 
         var mesh = new Mesh
         {
@@ -434,6 +498,40 @@ public class SurfaceOverrideApplier : MonoBehaviour
         }
 
         return mesh;
+    }
+
+    private static Vector2[] CreateWindowVistaUv(Rect rect, float windowVistaAspectRatio, float windowVistaScaleMultiplier)
+    {
+        var targetWidth = Mathf.Max(0.01f, rect.width);
+        var targetHeight = Mathf.Max(0.01f, rect.height);
+        var targetAspect = targetWidth / targetHeight;
+        var imageAspect = Mathf.Max(0.1f, windowVistaAspectRatio);
+        var overscan = Mathf.Max(1f, windowVistaScaleMultiplier);
+        var uMin = 0f;
+        var uMax = 1f;
+        var vMin = 0f;
+        var vMax = 1f;
+
+        if (targetAspect > imageAspect)
+        {
+            var visibleHeight = Mathf.Clamp01(imageAspect / targetAspect / overscan);
+            vMin = (1f - visibleHeight) * 0.5f;
+            vMax = 1f - vMin;
+        }
+        else
+        {
+            var visibleWidth = Mathf.Clamp01(targetAspect / imageAspect / overscan);
+            uMin = (1f - visibleWidth) * 0.5f;
+            uMax = 1f - uMin;
+        }
+
+        return new[]
+        {
+            new Vector2(uMin, vMin),
+            new Vector2(uMax, vMin),
+            new Vector2(uMax, vMax),
+            new Vector2(uMin, vMax),
+        };
     }
 
     private static Mesh CreateFrameMesh(Rect rect, float normalOffset, float frameBorderWidth)
@@ -617,7 +715,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
             ThemeSurfaceKind.Ceiling => ceilingSurfaceOffsetMeters,
             ThemeSurfaceKind.DoorFrame => frameOutwardOffsetMeters,
             ThemeSurfaceKind.WindowFrame => frameOutwardOffsetMeters,
-            ThemeSurfaceKind.WindowVista => windowVistaOutwardOffsetMeters,
+            ThemeSurfaceKind.WindowVista => -windowVistaOutwardOffsetMeters,
             _ => 0f,
         };
     }
@@ -653,7 +751,12 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private static bool IsOpaqueRoomSurface(ThemeSurfaceKind surfaceKind)
     {
-        return surfaceKind is ThemeSurfaceKind.Wall or ThemeSurfaceKind.Floor or ThemeSurfaceKind.Ceiling;
+        return surfaceKind is ThemeSurfaceKind.Wall
+            or ThemeSurfaceKind.Floor
+            or ThemeSurfaceKind.Ceiling
+            or ThemeSurfaceKind.DoorFrame
+            or ThemeSurfaceKind.WindowFrame
+            or ThemeSurfaceKind.WindowVista;
     }
 
     private float GetBackgroundAlpha(ThemeSurfaceKind surfaceKind)
@@ -911,6 +1014,8 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         _originalRendererStates.Clear();
 
+        ClearOrphanedOverrideChildren();
+
         foreach (var spawnedOverride in _spawnedOverrides)
         {
             if (spawnedOverride != null)
@@ -977,7 +1082,8 @@ public class SurfaceOverrideApplier : MonoBehaviour
         builder.AppendLine($"Skipped: {skippedCount}");
         builder.AppendLine($"Wall Offset: {wallOutwardOffsetMeters:F3}m");
         builder.AppendLine($"Frame Offset: {frameOutwardOffsetMeters:F3}m, Border: {frameBorderWidthMeters:F3}m");
-        builder.AppendLine($"Window Vista: enabled={applyWindowVistaOverlays}, offset={windowVistaOutwardOffsetMeters:F3}m, scale={windowVistaScaleMultiplier:F2}x");
+        builder.AppendLine($"Window Vista: enabled={applyWindowVistaOverlays}, outsideOffset={windowVistaOutwardOffsetMeters:F3}m, aspect={windowVistaAspectRatio:F2}, scale={windowVistaScaleMultiplier:F2}x, largestOnly={applyVistaToLargestWindowOnly}");
+        builder.AppendLine($"Window Filter: major>={minimumWindowFrameMajorSizeMeters:F2}m, minor>={minimumWindowFrameMinorSizeMeters:F2}m");
         if (visibilityMode == SurfaceVisibilityMode.Background)
         {
             builder.AppendLine($"Background Alpha: wall/floor/ceiling=1.00 forced, vista={backgroundWindowVistaAlpha:F2}");
@@ -1016,9 +1122,13 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private static void ConfigureTransparentDoubleSidedMaterial(Material material, ThemeSurfaceKind surfaceKind = ThemeSurfaceKind.Wall)
     {
+        var forceOpaqueBlend = surfaceKind is ThemeSurfaceKind.DoorFrame
+            or ThemeSurfaceKind.WindowFrame
+            or ThemeSurfaceKind.WindowVista;
+
         if (material.HasProperty("_Surface"))
         {
-            material.SetFloat("_Surface", 1f);
+            material.SetFloat("_Surface", forceOpaqueBlend ? 0f : 1f);
         }
 
         if (material.HasProperty("_Blend"))
@@ -1033,12 +1143,16 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         if (material.HasProperty("_SrcBlend"))
         {
-            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetFloat("_SrcBlend", forceOpaqueBlend
+                ? (float)UnityEngine.Rendering.BlendMode.One
+                : (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
         }
 
         if (material.HasProperty("_DstBlend"))
         {
-            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetFloat("_DstBlend", forceOpaqueBlend
+                ? (float)UnityEngine.Rendering.BlendMode.Zero
+                : (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
         }
 
         if (material.HasProperty("_ZWrite"))
@@ -1052,6 +1166,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
         }
 
         material.renderQueue = GetRenderQueue(surfaceKind);
+        material.SetOverrideTag("RenderType", forceOpaqueBlend ? "Opaque" : "Transparent");
     }
 
     private static int GetRenderQueue(ThemeSurfaceKind surfaceKind)
@@ -1103,6 +1218,34 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         material.EnableKeyword("_EMISSION");
         material.SetColor("_EmissionColor", emissionColor);
+    }
+
+    private void ClearOrphanedOverrideChildren()
+    {
+        if (surfaceOverridesRoot == null)
+        {
+            return;
+        }
+
+        var tracked = new HashSet<GameObject>(_spawnedOverrides);
+        var orphanedChildren = new List<GameObject>();
+        for (var index = 0; index < surfaceOverridesRoot.childCount; index++)
+        {
+            var child = surfaceOverridesRoot.GetChild(index);
+            if (child == null ||
+                tracked.Contains(child.gameObject) ||
+                !child.name.StartsWith("SurfaceOverride_", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            orphanedChildren.Add(child.gameObject);
+        }
+
+        foreach (var child in orphanedChildren)
+        {
+            SafeDestroy(child);
+        }
     }
 
     private static void SafeDestroy(UnityEngine.Object target)
