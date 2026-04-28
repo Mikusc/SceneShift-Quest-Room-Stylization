@@ -146,10 +146,16 @@ public class StylizationPlanner : MonoBehaviour
             ["wall"] = 0,
             ["floor"] = 0,
             ["ceiling"] = 0,
+            ["door_frame"] = 0,
+            ["window_frame"] = 0,
             ["table"] = 0,
             ["screen"] = 0,
             ["storage"] = 0,
             ["seating"] = 0,
+            ["bed"] = 0,
+            ["lamp"] = 0,
+            ["plant"] = 0,
+            ["wall_art"] = 0,
         };
 
         for (var index = 0; index < room.Anchors.Count; index++)
@@ -195,7 +201,7 @@ public class StylizationPlanner : MonoBehaviour
         builder.AppendLine($"Entries: {plan.EntryCount}");
         builder.AppendLine($"Warnings: {plan.WarningCount}");
         builder.Append(
-            $"Coverage: wall={coverage["wall"]}, floor={coverage["floor"]}, ceiling={coverage["ceiling"]}, table={coverage["table"]}, screen={coverage["screen"]}, storage={coverage["storage"]}, seating={coverage["seating"]}");
+            $"Coverage: wall={coverage["wall"]}, floor={coverage["floor"]}, ceiling={coverage["ceiling"]}, door={coverage["door_frame"]}, window={coverage["window_frame"]}, wall_art={coverage["wall_art"]}, table={coverage["table"]}, screen={coverage["screen"]}, storage={coverage["storage"]}, seating={coverage["seating"]}, bed={coverage["bed"]}, lamp={coverage["lamp"]}, plant={coverage["plant"]}");
 
         if (plan.WarningCount > 0)
         {
@@ -258,6 +264,27 @@ public class StylizationPlanner : MonoBehaviour
             return true;
         }
 
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.DOOR_FRAME))
+        {
+            semanticLabel = "door_frame";
+            functionTag = "opening_frame";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WINDOW_FRAME))
+        {
+            semanticLabel = "window_frame";
+            functionTag = "opening_frame";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WALL_ART))
+        {
+            semanticLabel = "wall_art";
+            functionTag = "wall_decal";
+            return true;
+        }
+
         if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WALL_FACE) ||
             (includeInnerWallFaces && anchor.HasAnyLabel(MRUKAnchor.SceneLabels.INNER_WALL_FACE)))
         {
@@ -294,6 +321,38 @@ public class StylizationPlanner : MonoBehaviour
         {
             semanticLabel = "seating";
             functionTag = "seating";
+            collisionSensitive = true;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.BED))
+        {
+            semanticLabel = "bed";
+            functionTag = "sleeping_surface";
+            collisionSensitive = true;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.LAMP))
+        {
+            semanticLabel = "lamp";
+            functionTag = "lighting";
+            collisionSensitive = true;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.PLANT))
+        {
+            semanticLabel = "plant";
+            functionTag = "decorative_plant";
+            collisionSensitive = true;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.OTHER))
+        {
+            semanticLabel = "other";
+            functionTag = "model_inferred_object";
             collisionSensitive = true;
             return true;
         }
@@ -488,10 +547,14 @@ public class StylizationPlanner : MonoBehaviour
             case "wall":
             case "floor":
             case "ceiling":
+            case "door_frame":
+            case "window_frame":
                 entry.ReplacementMode = ReplacementMode.MaterialOverride;
                 entry.ReplacementId = $"{theme.ThemeId}_{semanticLabel}_surface";
                 entry.ReplacementDisplayName = $"{theme.DisplayName} {semanticLabel} treatment";
-                entry.Rationale = $"{semanticLabel} uses theme surface colors to preserve room readability.";
+                entry.Rationale = semanticLabel is "door_frame" or "window_frame"
+                    ? $"{semanticLabel} uses a lightweight frame/trim overlay that preserves openings and room readability."
+                    : $"{semanticLabel} uses theme surface colors to preserve room readability.";
                 entry.Parameters.Add(new StylizationPlanParameter { Key = "surface", Value = semanticLabel });
                 return;
 
@@ -569,6 +632,14 @@ public class StylizationPlanner : MonoBehaviour
                     warnings.Add($"SEATING fallback: theme {theme.DisplayName} has no DefaultSeatProxy.");
                 }
 
+                return;
+
+            case "other":
+                entry.ReplacementMode = ReplacementMode.Skip;
+                entry.ReplacementId = $"{theme.ThemeId}_other_generated_only";
+                entry.ReplacementDisplayName = "generated OTHER object candidate";
+                entry.Rationale = "OTHER anchors are skipped by deterministic stylization and only become visible through request-locked generated assets.";
+                entry.Parameters.Add(new StylizationPlanParameter { Key = "generated_only", Value = "true" });
                 return;
 
             default:

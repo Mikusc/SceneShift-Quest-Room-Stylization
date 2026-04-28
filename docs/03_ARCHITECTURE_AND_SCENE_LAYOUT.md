@@ -104,19 +104,46 @@ Outputs:
 
 ### 3.7 `SurfaceTexturePromptBuilder`
 Responsibility:
-- create Roomify-style wall / floor / ceiling prompt artifacts from the active `ThemeProfile`
-- write offline prompt and JSON handoff files under `Library/SurfaceTextureJobs/`
+- create Roomify-style wall / floor / ceiling / door-frame / window-frame / window-vista prompt artifacts from the active `ThemeProfile`
+- include the active `RuntimeStyleIntent` in prompt text and in a stable `StyleVariantId` cache key, allowing arbitrary user style requests without reusing stale preset textures
+- set image aspect per output role, using square images for materials/trim and wide `16:9` images for window vistas
+- write prompt, JSON handoff, and `.surface.job.json` files under `Library/SurfaceTextureJobs/`
 - keep deterministic fallback textures available when generated PBR textures are absent
 
 Outputs:
 - `SurfaceTexturePromptSet`
-- wall / floor / ceiling `.prompt.txt` files
+- wall / floor / ceiling / door-frame / window-frame / window-vista `.prompt.txt` files
+- `SurfaceTextureJobRecord` files for APIMart image generation
 - optional persistent material assets under `Assets/Materials/SurfaceOverrides/`
+
+### 3.7b `ApimartSurfaceTextureBackendAdapter`
+Responsibility:
+- consume `PromptReady` surface texture jobs
+- default to processing only jobs whose `ThemeId` and `StyleVariantId` match the current active theme/style, so Play mode does not submit inactive-theme or stale-style jobs unnecessarily
+- process surface image jobs with bounded parallelism (`maxConcurrentSurfaceImageJobs`, default 2) so surface generation does not block furniture generation
+- call APIMart `gpt-image-2` for image-only surface/trim/vista textures
+- download generated PNGs under `Library/SurfaceTextureOutputs/`
+- advance jobs to `TextureReady` without entering the Seed3D furniture path
+
+### 3.7c `GenerationQueueStatusService`
+Responsibility:
+- scan `Library/GeneratedObjectJobs/` and `Library/SurfaceTextureJobs/`
+- summarize object-generation and surface-generation queue counts for the headset/debug HUD
+- keep progressive feedback visible while jobs run in parallel
+
+### 3.7d `GenerationJobWorldStatusOverlay`
+Responsibility:
+- scan `Library/GeneratedObjectJobs/` during Play
+- resolve each generated-object job back to its `GeneratedObjectRequest`
+- place a small world-space status label above the captured furniture bounds
+- keep per-object progress understandable when several furniture jobs are running or already placed
 
 ### 3.8 `SurfaceOverrideApplier`
 Responsibility:
 - spawn MRUK-scaffold-aligned surface override planes under `StylizedContentRoot/SurfaceOverrides`
 - apply ThemeProfile wall/floor/ceiling materials without changing room geometry
+- apply lightweight door/window frame overlays with open centers
+- apply optional window-vista backdrop planes behind `WINDOW_FRAME` anchors, using generated `window_vista` images or deterministic procedural fallback textures
 - offset wall planes outward by 5cm to avoid occlusion conflicts, matching the Roomify scene-composition rule
 - expose `Off`, `Background`, and `DemoStrong` visibility modes so wall/floor/ceiling can remain low-opacity while furniture replacement is still incomplete
 
@@ -148,6 +175,20 @@ Responsibility:
 - show current theme
 - show stylization plan entries
 - show warnings / unmapped semantics / fallback status
+
+### 3.11b `SceneShiftUISetDashboard`
+Responsibility:
+- provide the headset-facing main control panel using Meta Interaction SDK UISet prefabs
+- use the official `EmptyUIBackplateWithCanvas` prefab as the panel base, preserving Meta ray/poke interactable setup
+- expose demo-critical controls: capture current target, auto gaze target, UISet-style theme dropdown, reapply room surfaces, toggle MRUK shells, and toggle per-object status cards
+- keep the old debug panel available for dense developer diagnostics while this panel serves as the cleaner user-facing entry point
+
+### 3.11c `RoomStyleCacheService`
+Responsibility:
+- summarize reusable generated content by `roomId + themeId + styleVariantId`
+- count active-theme surface texture cache readiness and generated-furniture readiness
+- report `cached / partial / generating / missing` status for each theme
+- give the UISet dashboard a stable cache status line before users switch styles
 
 ### 3.12 `BestViewCaptureService`
 Responsibility:
@@ -297,6 +338,17 @@ Avoid:
 - blocking navigation
 
 Wall overrides should be offset outward by about 5cm when using MRUK wall planes so they do not fight with door/window semantics or the underlying debug mesh.
+
+### 8.1b Openings: door frame / window frame
+Use:
+- trim/frame overlay meshes
+- edge glow or decal-like generated textures
+- transparent/open centers
+
+Avoid:
+- full door/window replacement models
+- opaque center fills
+- anything that blocks passage, view, or real-world affordances
 
 ### 8.2 Table / desk
 Use:

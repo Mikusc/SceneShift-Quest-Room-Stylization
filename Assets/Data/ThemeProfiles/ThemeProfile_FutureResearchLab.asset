@@ -22,10 +22,15 @@ MonoBehaviour:
     WallMaterial: {fileID: 2100000, guid: f7a17f46515704455b0700686de8030e, type: 2}
     FloorMaterial: {fileID: 2100000, guid: 17e8d860006ed4f988a40c287d30d350, type: 2}
     CeilingMaterial: {fileID: 2100000, guid: 58ed60b07ecec4f7aa99b26c5454f354, type: 2}
+    DoorFrameMaterial: {fileID: 0}
+    WindowFrameMaterial: {fileID: 0}
     PatternFamily: 0
     WallColor: {r: 0.18, g: 0.74, b: 0.92, a: 0.92}
     FloorColor: {r: 0.12, g: 0.42, b: 0.56, a: 0.82}
     CeilingColor: {r: 0.68, g: 0.9, b: 0.98, a: 0.65}
+    DoorFrameColor: {r: 0.18, g: 0.88, b: 0.96, a: 0.86}
+    WindowFrameColor: {r: 0.58, g: 0.92, b: 1, a: 0.74}
+    WindowVistaColor: {r: 0.22, g: 0.74, b: 1, a: 0.78}
     SurfaceOpacity: 0.88
     EmissionIntensity: 0.32
     TextureTiling: 4.5
@@ -39,6 +44,15 @@ MonoBehaviour:
     CeilingTreatmentPromptHint: Soft overhead research-lab light panel treatment
       with pale cyan glow, subtle modular ceiling panels, and no heavy geometry that
       hides the real ceiling.
+    DoorFramePromptHint: Reusable cyan-lit laboratory door trim with thin emissive
+      edge lines, brushed composite frame panels, and a fully open center so passage
+      remains unobstructed.
+    WindowFramePromptHint: Reusable translucent research-lab window trim with pale
+      cyan edge glow, subtle data-line etching, and a fully open center so the real
+      view remains visible.
+    WindowVistaPromptHint: Wide exterior vista beyond a research-lab window, showing
+      a distant cyan-lit night campus or clean futuristic skyline with atmospheric
+      depth. No window frame, no room interior, no people, no readable text.
   Mood:
     MainLightColor: {r: 0.83, g: 0.95, b: 1, a: 1}
     MainLightIntensity: 1.18
@@ -94,10 +108,9 @@ MonoBehaviour:
     ReplicaName: modular future research worktable
     ReplicaFunction: support_surface for collaborative research work
     AppearancePrompt: A sleek rectangular research worktable with a thin durable
-      composite tabletop, chamfered edges, subtle cyan emissive strips, compact
-      technical support legs, and small embedded sensor-panel details. Preserve
-      the real tabletop footprint, table height, long-axis orientation, and walk-around
-      clearance.
+      composite tabletop, chamfered edges, subtle cyan emissive strips, compact technical
+      support legs, and small embedded sensor-panel details. Preserve the real tabletop
+      footprint, table height, long-axis orientation, and walk-around clearance.
     Notes: Preserve desk footprint for trust and clearance.
   - SemanticLabel: screen
     FunctionTag: display_surface
@@ -112,8 +125,8 @@ MonoBehaviour:
     ReplicaFunction: display_surface
     AppearancePrompt: A transparent cyan holographic display treatment with thin
       luminous frame lines, quiet data-grid overlays, and readable research-board
-      composition. It should stay wall/screen-aligned and avoid protruding into
-      the room.
+      composition. It should stay wall/screen-aligned and avoid protruding into the
+      room.
     Notes: Treat displays as holographic research boards.
   - SemanticLabel: storage
     FunctionTag: storage
@@ -141,7 +154,7 @@ MonoBehaviour:
     CollisionSensitive: 1
     ReplicaName: ergonomic lab collaboration seat
     ReplicaFunction: seating
-    AppearancePrompt: Ergonomic future-lab seating with slim graphite supports,
-      pale cushions, cyan trim, and a readable sit-able silhouette. Preserve the
-      original seat footprint and facing direction.
+    AppearancePrompt: Ergonomic future-lab seating with slim graphite supports, pale
+      cushions, cyan trim, and a readable sit-able silhouette. Preserve the original
+      seat footprint and facing direction.
     Notes: Keep seating role and placement readable.

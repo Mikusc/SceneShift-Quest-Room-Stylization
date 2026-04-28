@@ -5,7 +5,7 @@ This file is the manual progress tracker for the current vertical slice.
 Update it after each meaningful implementation step.
 
 ## Snapshot
-- Last updated: `2026-04-25`
+- Last updated: `2026-04-27`
 - Current priority: `Phase 1 — room stylization`
 - Canonical scene: `Assets/Scenes/MR_RoomStylization.unity`
 - Primary development validation path: `MetaXRSimulator` for MRUK/planner/applier logic; Quest build validation is required for passthrough camera capture and final spatial confidence.
@@ -33,6 +33,15 @@ Update it after each meaningful implementation step.
 - `AnchorThemeApplier` visibly stylizes wall / floor / ceiling surfaces.
 - When a `ThemeProfile` has no explicit wall / floor / ceiling material assets, `AnchorThemeApplier` now falls back to deterministic runtime procedural surface textures instead of plain color-only materials.
 - `SurfaceTexturePromptBuilder` writes Roomify-style wall / floor / ceiling prompt artifacts under `Library/SurfaceTextureJobs/` for future offline seamless PBR texture generation.
+- `SurfaceTexturePromptBuilder` now writes wall / floor / ceiling / door-frame / window-frame / window-vista prompt artifacts plus `.surface.job.json` records. Prompt text includes active runtime style keywords when `RuntimeStyleIntentController` has a user style intent.
+- Surface texture prompt/job ids are now style-variant-aware. Empty user style keeps the `preset` cache key; arbitrary style requests such as cyberpunk, solarpunk, or underwater produce separate `StyleVariantId` keys and do not reuse old generated surface textures.
+- `window_vista` jobs request wide `16:9` images intended as exterior backdrops behind `WINDOW_FRAME` anchors, not as room interiors, wall materials, or generated 3D assets.
+- `ApimartSurfaceTextureBackendAdapter` is attached under `AppRoot/Stylization` as the first automated surface-image worker. It consumes `PromptReady` surface jobs, calls APIMart `gpt-image-2`, downloads PNGs under `Library/SurfaceTextureOutputs/`, and advances jobs to `TextureReady`.
+- `ApimartSurfaceTextureBackendAdapter` now defaults to active-theme and active-style-only processing, so if multiple theme/style prompt caches exist it will not automatically submit inactive jobs during Play.
+- Generation workers now support bounded parallelism: APIMart furniture image jobs default to 2 concurrent jobs, hosted uploads to 3, Seed3D to 2, and surface image jobs to 2. Unity model import remains editor-side serial.
+- `GenerationQueueStatusService` is attached under `AppRoot/Perception` and summarizes object/surface queue counts for the existing debug/HUD panel, so users can see waiting / running / ready / failed stages instead of waiting blindly.
+- `GenerationJobWorldStatusOverlay` is attached under `UI` and creates per-furniture world-space labels during Play. Each label resolves the job's source request bounds and shows whether that specific captured object is queued, running through image2, waiting for upload/Seed3D, running Seed3D, ready, placed, failed, or awaiting review.
+- `SurfaceOverrideApplier` can prefer generated `TextureReady` surface PNGs at runtime, then fall back to theme materials or procedural textures. Door and window anchors use lightweight frame/trim meshes with open centers instead of full 3D replacement; window anchors can also get a separate vista backdrop plane behind the opening.
 - `Assets/Materials/SurfaceOverrides/` now contains GPT-image-2 generated albedo PNGs plus Unity materials for both current themes, and the `ThemeProfile` surface material fields are populated for wall / floor / ceiling instead of being visually empty in the Inspector.
 - `SurfaceOverrideApplier` now spawns MRUK-scaffold-aligned surface override planes under `StylizedContentRoot/SurfaceOverrides`, including a 5cm wall outward offset aligned with the Roomify scene-composition rule.
 - `SurfaceOverrideApplier` now exposes `Off`, `Background`, and `DemoStrong` surface visibility modes. The canonical scene defaults to `Background` so wall / floor / ceiling stay as low-opacity style atmosphere while furniture replacement is still being brought up.
@@ -42,6 +51,10 @@ Update it after each meaningful implementation step.
 - `BestViewCaptureService` now distinguishes between `ExternalScreenshot`, `UnityFramebufferDebug`, and `DevicePassthroughReserved` source modes; `ExternalScreenshot` is the preferred simulation path.
 - `DevicePassthroughCaptureService` is now attached under `Perception` as the first Quest Link / headset PCA probe. In Play mode it tracks the best visible `TABLE` MRUK anchor, uses `Meta.XR.PassthroughCameraAccess` for native camera texture, pose, intrinsics, and projection, writes full-frame/cropped PNG plus metadata/request JSON, and can queue a `CaptureReady` generated-object job directly under `Library/GeneratedObjectJobs/`.
 - `DevicePassthroughCaptureHud` is attached under `Perception` and creates a head-locked world-space PCA status panel at runtime. The panel shows PCA readiness, target category, best anchor, best-view score, distance, viewport/crop values, input hint, and latest capture/job id so Quest Link validation does not require watching the Unity Game View.
+- `SceneShiftUISetDashboard` is attached under `UI` as a Meta Interaction SDK UISet-based headset control panel. It instantiates from the official `EmptyUIBackplateWithCanvas` prefab and references official UISet button prefabs for Capture, Auto Target, Next Theme, Reapply Room, and Toggle Shell actions.
+- The UISet dashboard also exposes an `Object Status` action that toggles the per-furniture `GenerationJobWorldStatusOverlay` cards. Those cards remain anchored above each furniture request bounds and billboard toward the headset camera; they do not move with the user's head position.
+- `RoomStyleCacheService` is attached under `AppRoot/Stylization` and summarizes reusable generated content by current room, active theme, and `StyleVariantId`. It reports theme cache state as `cached / partial / generating / missing` using surface texture jobs and generated furniture jobs.
+- The UISet dashboard now uses the official `DropDown1LineTextOnly` UISet prefab as the theme selector entry point, with a Unity-compatible fallback dropdown if the package prefab does not expose a standard dropdown component at runtime. The old `Next Theme` button is removed from rebuilt dashboard content.
 - `DevicePassthroughCaptureService` now supports keyboard `P` and right-controller primary button capture input for headset-side validation.
 - `GenerativeObjectCoordinator` is now attached under `Perception` and writes a local `.job.json` shell to `Library/GeneratedObjectJobs/` when a new captured request appears.
 - `GeneratedObjectPromptBuilder` now converts each request into a Roomify-inspired prompt artifact and `GenerativeObjectCoordinator` writes it as `Library/GeneratedObjectJobs/*.prompt.txt`.
@@ -95,6 +108,9 @@ Update it after each meaningful implementation step.
 - Generated furniture still lacks explicit user approval/reject/correction UI.
 - A first true-device/Link passthrough-camera capture path exists through `DevicePassthroughCaptureService`, but it has not yet been validated on a Quest 3 / Quest 3S headset. Treat it as a probe until a real Link/device run produces PNG, metadata, request, and job artifacts.
 - MQDH screenshots/casts are useful for human review, but they are not the app-consumable capture source. The app-side capture source should be the headset-supported PCA path, and MQDH should only be used to document what the user saw or to pull saved artifacts.
+- Surface-generated textures are image-only albedo PNGs for now. There is no automated normal/roughness/metallic import or persistent material-asset promotion step yet.
+- Door/window frame overlays depend on MRUK rooms that actually expose `DOOR_FRAME` / `WINDOW_FRAME` anchors with `PlaneRect`; rooms without those labels will simply skip them.
+- Window-vista overlays also depend on `WINDOW_FRAME` anchors. The deterministic procedural fallback is available immediately, but generated vista PNGs still need one APIMart Play run to validate the returned `16:9` output in the headset.
 - No complete demo-ready UI path outside inspector/debug HUD usage.
 - The Ark API key is read only from `ARK_API_KEY` in the Unity process environment; Unity must be launched with that environment variable for `Seed3DBackendAdapter` to see it.
 - MetaXRSimulator / Editor Play still resets the user start pose between Play sessions. A first editor-only pose-bookmark experiment was reverted because it did not reliably override the simulator start pose; use simulator controls or a future official-rig-compatible solution instead.
@@ -137,6 +153,11 @@ Last stable manual/runtime checks before this document update confirmed:
 - After adding `DevicePassthroughCaptureService`, enabling `horizonos.permission.HEADSET_CAMERA`, and attaching `Meta.XR.PassthroughCameraAccess` plus the service under `AppRoot/Perception`, `Assets/Refresh` completed with Unity Console at `0` entries in non-Play state. This validates compile/scene wiring only; Link/headset camera access is still unverified.
 - After adding `DevicePassthroughCaptureHud` and XR controller capture input, `Assets/Refresh` completed with Unity Console at `0` entries. The HUD scene wiring is saved, but headset readability and controller input still need real Link/device validation.
 - After locking generated-table lookup to the active capture request, `Assets/Refresh` completed with Unity Console at `0` entries. This prevents old Simulator generated-table jobs from being used on a new true-device room unless they match the active request or the fallback lock is explicitly disabled.
+- After adding the first Surface Pipeline automation pass, `AssetDatabase.Refresh` completed, Unity reported `IsCompiling=false` / `IsUpdating=false`, and Console reported `0` Error entries and `0` Warning entries. The canonical scene now has `ApimartSurfaceTextureBackendAdapter` attached under `AppRoot/Stylization`.
+- After generating cached surface prompt/job artifacts, `Library/SurfaceTextureJobs/` contains 12 `.surface.job.json` records: wall / floor / ceiling / door-frame / window-frame / window-vista for both `future_research_lab` and `arcane_knowledge_chamber`. They remain `PromptReady`; no APIMart surface image call was made during this editor-only setup.
+- After making surface caches style-aware, Unity refreshed and compiled cleanly with Console at `0` entries. The preset jobs were rewritten with `StyleVariantId=preset`; future runtime style text will create separate style-specific jobs instead of overwriting or reusing preset textures.
+- Window-vista automation has been added to the same Surface Pipeline: prompt/job metadata now includes `window_vista` with `ImageSize=16:9`, and `SurfaceOverrideApplier` can place the generated or fallback vista texture behind each `WINDOW_FRAME` while keeping the open-center frame overlay separate.
+- After adding bounded parallel generation workers and queue status, Unity refreshed cleanly with Console at `0` entries. The scene now has `GenerationQueueStatusService` attached under `AppRoot/Perception`.
 
 ## Current Local Workspace State
 The workspace currently contains uncommitted local state that should be treated as in-progress rather than final:
@@ -154,6 +175,12 @@ The workspace currently contains uncommitted local state that should be treated 
   First native passthrough camera capture probe exists for Quest Link/headset runs and writes the same generated-object request/job shape as the existing simulator screenshot path. It exposes score/status properties for headset HUD display and supports keyboard plus right-controller primary-button capture input.
 - `Assets/Scripts/UI/DevicePassthroughCaptureHud.cs`
   Runtime head-locked PCA capture HUD exists locally and displays readiness, score, distance, viewport/crop, and latest capture/job status in the headset.
+- `Assets/Scripts/UI/SceneShiftUISetDashboard.cs`
+  Runtime Meta UISet dashboard exists locally and uses official Interaction SDK UISet backplate/button/dropdown prefab references instead of hand-built plain Unity UI styling.
+- `Assets/Scripts/Stylization/RoomStyleCacheService.cs`
+  Runtime cache summary service exists locally. It treats old generated furniture jobs with no `StyleVariantId` as `preset` and filters furniture jobs by current room id when request metadata is available.
+- `Assets/Scripts/UI/GenerationJobWorldStatusOverlay.cs`
+  Runtime world-space generation status cards exist locally and display per-captured-furniture progress above each object's request bounds. The visual treatment now uses a Meta UISet-aligned card style with translucent panel, subtle glow, left status accent strip, title, and note text while staying non-interactive and cheaper than spawning a full UISet Canvas per object.
 - `Assets/Scripts/Perception/ApimartImageBackendAdapter.cs`
   APIMart `gpt-image-2` image-generation adapter is present locally and requires `APIMART_API_KEY` in the Unity process environment.
 - `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`

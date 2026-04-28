@@ -8,15 +8,20 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
 
     [Header("Prompt Export")]
     [SerializeField] private bool writePromptsOnThemeChanged = true;
     [SerializeField] private string jobFolderName = "SurfaceTextureJobs";
+    [SerializeField] private string outputFolderName = "SurfaceTextureOutputs";
 
     public event Action SummaryChanged;
 
     public SurfaceTexturePromptSet LatestPromptSet => _latestPromptSet;
     public string LatestSummary => _latestSummary;
+
+    public const string PromptVersion = "surface_texture_v2_theme_style_frames";
+    public const string PresetStyleVariantId = "preset";
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
@@ -35,6 +40,7 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
 
     private void OnEnable()
     {
+        ResolveReferences();
         Subscribe();
 
         if (writePromptsOnThemeChanged && themeIntentController != null && themeIntentController.ActiveTheme != null)
@@ -67,17 +73,26 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         {
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
         }
+
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
+        }
     }
 
     private void Subscribe()
     {
-        if (themeIntentController == null)
+        if (themeIntentController != null)
         {
-            return;
+            themeIntentController.ThemeChanged -= HandleThemeChanged;
+            themeIntentController.ThemeChanged += HandleThemeChanged;
         }
 
-        themeIntentController.ThemeChanged -= HandleThemeChanged;
-        themeIntentController.ThemeChanged += HandleThemeChanged;
+        if (runtimeStyleIntentController != null)
+        {
+            runtimeStyleIntentController.StyleIntentChanged -= HandleStyleIntentChanged;
+            runtimeStyleIntentController.StyleIntentChanged += HandleStyleIntentChanged;
+        }
     }
 
     private void Unsubscribe()
@@ -85,6 +100,11 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         if (themeIntentController != null)
         {
             themeIntentController.ThemeChanged -= HandleThemeChanged;
+        }
+
+        if (runtimeStyleIntentController != null)
+        {
+            runtimeStyleIntentController.StyleIntentChanged -= HandleStyleIntentChanged;
         }
     }
 
@@ -98,6 +118,24 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         }
 
         BuildAndWrite(theme, "theme-changed");
+    }
+
+    private void HandleStyleIntentChanged()
+    {
+        if (themeIntentController == null || themeIntentController.ActiveTheme == null)
+        {
+            PublishWaitingState("waiting-for-theme");
+            return;
+        }
+
+        if (!writePromptsOnThemeChanged)
+        {
+            BuildPromptSet(themeIntentController.ActiveTheme, ResolveJobFolder());
+            PublishSummary("style-intent-changed", wroteFiles: false);
+            return;
+        }
+
+        BuildAndWrite(themeIntentController.ActiveTheme, "style-intent-changed");
     }
 
     private void BuildAndWrite(ThemeProfile theme, string reason)
@@ -115,9 +153,15 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         foreach (var entry in _latestPromptSet.Entries)
         {
             File.WriteAllText(entry.PromptPath, FormatPromptFile(_latestPromptSet, entry), Utf8NoBom);
+            WriteJobRecord(theme, entry);
         }
 
         var jsonPath = Path.Combine(jobFolder, $"{SanitizeFileName(theme.ThemeId)}_surface_prompts.json");
+        if (_latestPromptSet != null && !string.Equals(_latestPromptSet.StyleVariantId, PresetStyleVariantId, StringComparison.Ordinal))
+        {
+            jsonPath = Path.Combine(jobFolder, $"{SanitizeFileName(theme.ThemeId)}_{SanitizeFileName(_latestPromptSet.StyleVariantId)}_surface_prompts.json");
+        }
+
         File.WriteAllText(jsonPath, JsonUtility.ToJson(_latestPromptSet, prettyPrint: true), Utf8NoBom);
 
         PublishSummary(reason, wroteFiles: true, jsonPath);
@@ -125,71 +169,114 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
 
     private void BuildPromptSet(ThemeProfile theme, string jobFolder)
     {
+        var runtimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
+        var styleVariantId = BuildStyleVariantId(runtimeIntent);
         _latestPromptSet = new SurfaceTexturePromptSet
         {
             ThemeId = theme.ThemeId,
             ThemeDisplayName = theme.DisplayName,
             ThemeDescription = theme.ShortDescription,
+            StyleVariantId = styleVariantId,
+            UserStyleIntent = runtimeIntent != null ? runtimeIntent.UserIntent : string.Empty,
+            StyleIntentSource = runtimeIntent != null ? runtimeIntent.Source : string.Empty,
             CreatedAtIsoUtc = DateTime.UtcNow.ToString("O"),
             JobFolder = jobFolder,
         };
 
-        _latestPromptSet.Entries.Add(BuildEntry(theme, ThemeSurfaceKind.Wall, "wall", "seamless_wall_pbr_texture"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, ThemeSurfaceKind.Floor, "floor", "seamless_floor_pbr_texture"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, ThemeSurfaceKind.Ceiling, "ceiling", "ceiling_treatment_or_skybox_prompt"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.Wall, "wall", "seamless_wall_pbr_texture"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.Floor, "floor", "seamless_floor_pbr_texture"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.Ceiling, "ceiling", "ceiling_treatment_or_skybox_prompt"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.DoorFrame, "door_frame", "door_frame_trim_overlay_texture"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.WindowFrame, "window_frame", "window_frame_trim_overlay_texture"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.WindowVista, "window_vista", "wide_window_exterior_vista_overlay"));
     }
 
     private SurfaceTexturePromptEntry BuildEntry(
         ThemeProfile theme,
+        RuntimeStyleIntent runtimeIntent,
+        string styleVariantId,
         ThemeSurfaceKind surfaceKind,
         string semanticLabel,
         string outputRole)
     {
         var promptHint = GetPromptHint(theme, surfaceKind);
+        var requestId = BuildRequestId(theme.ThemeId, semanticLabel, styleVariantId);
         var promptPath = Path.Combine(
             ResolveJobFolder(),
-            $"{SanitizeFileName(theme.ThemeId)}_{semanticLabel}.prompt.txt");
+            $"{requestId}.prompt.txt");
 
         return new SurfaceTexturePromptEntry
         {
+            RequestId = requestId,
+            StyleVariantId = styleVariantId,
+            UserStyleIntent = runtimeIntent != null ? runtimeIntent.UserIntent : string.Empty,
+            StyleIntentSource = runtimeIntent != null ? runtimeIntent.Source : string.Empty,
             SemanticLabel = semanticLabel,
             SurfaceKind = surfaceKind,
             OutputRole = outputRole,
-            Prompt = BuildPrompt(theme, surfaceKind, promptHint),
+            PromptVersion = PromptVersion,
+            Prompt = BuildPrompt(theme, runtimeIntent, surfaceKind, promptHint),
             NegativePrompt = BuildNegativePrompt(surfaceKind),
+            ImageSize = GetImageSize(surfaceKind),
             PromptPath = promptPath,
-            SeamlessTileable = surfaceKind != ThemeSurfaceKind.Ceiling,
-            PbrMaterial = surfaceKind != ThemeSurfaceKind.Ceiling,
+            JobPath = Path.Combine(ResolveJobFolder(), $"{requestId}.surface.job.json"),
+            OutputImagePath = Path.Combine(ResolveOutputFolder(), $"{requestId}.surface.png"),
+            SeamlessTileable = surfaceKind is ThemeSurfaceKind.Wall or ThemeSurfaceKind.Floor,
+            PbrMaterial = surfaceKind is ThemeSurfaceKind.Wall or ThemeSurfaceKind.Floor or ThemeSurfaceKind.Ceiling,
             RuntimeFallbackAvailable = true,
         };
     }
 
-    private static string BuildPrompt(ThemeProfile theme, ThemeSurfaceKind surfaceKind, string promptHint)
+    private static string BuildPrompt(ThemeProfile theme, RuntimeStyleIntent runtimeIntent, ThemeSurfaceKind surfaceKind, string promptHint)
     {
-        var surfaceLabel = surfaceKind.ToString().ToLowerInvariant();
+        var surfaceLabel = ToSemanticLabel(surfaceKind);
         var colorHex = ColorUtility.ToHtmlStringRGB(theme.AccentColor);
-        var tileableRequirement = surfaceKind == ThemeSurfaceKind.Ceiling
-            ? "If producing a ceiling material, keep it subtle and tileable; if producing a skybox concept, keep the real room boundary readable."
-            : "Generate a seamless, tileable PBR material texture suitable for repeated use on large room surfaces.";
+        var runtimeStyleBlock = BuildRuntimeStyleBlock(runtimeIntent);
+        var tileableRequirement = surfaceKind switch
+        {
+            ThemeSurfaceKind.Ceiling => "Create a subtle ceiling material or overhead treatment texture; keep real room boundaries readable.",
+            ThemeSurfaceKind.DoorFrame => "Create a stylized door-frame trim/decal texture treatment with an explicitly open/transparent center concept; do not block passage.",
+            ThemeSurfaceKind.WindowFrame => "Create a stylized window-frame trim/decal texture treatment with an explicitly open/transparent center concept; do not block view or daylight cues.",
+            ThemeSurfaceKind.WindowVista => "Create a wide stylized exterior vista that appears beyond a real mixed-reality window opening; distant scenery only, soft depth, readable at room scale.",
+            _ => "Create a seamless, tileable PBR-style material texture suitable for repeated use on large room surfaces.",
+        };
+        var outputInstruction = surfaceKind switch
+        {
+            ThemeSurfaceKind.WindowVista =>
+                "Output should read as an exterior panorama/backdrop layer, not a room interior. No window frame, no curtains, no foreground furniture, no people, no text.",
+            ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame =>
+                "Output should read as reusable trim/frame material, edge glow, panel linework, or decal detail. No solid door/window slab, no filled center.",
+            _ =>
+                "Output should be style-consistent with furniture proxies, readable in mixed reality, and not overly eye-catching.",
+        };
+        var pbrInstruction = surfaceKind == ThemeSurfaceKind.WindowVista
+            ? "Use a 16:9 composition with a stable horizon and soft atmospheric depth so it can sit behind multiple window openings."
+            : "Prefer albedo/base color plus matching normal and roughness/metallic guidance when the backend supports PBR maps.";
 
         return
             $"Target style: {theme.DisplayName}\n" +
             $"Style intent: {theme.ShortDescription}\n" +
+            $"{runtimeStyleBlock}" +
             $"Accent color: #{colorHex}\n" +
             $"Surface: {surfaceLabel}\n" +
             $"Roomify role: boundary element aligned to a real MRUK spatial scaffold.\n" +
             $"{tileableRequirement}\n" +
-            "Output should be style-consistent with furniture proxies, readable in mixed reality, and not overly eye-catching.\n" +
-            "Prefer albedo/base color plus matching normal and roughness/metallic guidance when the backend supports PBR maps.\n" +
+            $"{outputInstruction}\n" +
+            $"{pbrInstruction}\n" +
             $"Theme-specific hint: {promptHint}";
     }
 
     private static string BuildNegativePrompt(ThemeSurfaceKind surfaceKind)
     {
         var common = "no furniture, no people, no logos, no readable text, no perspective room render, no strong shadows, no object silhouettes";
-        return surfaceKind == ThemeSurfaceKind.Ceiling
-            ? $"{common}, no opaque virtual ceiling that hides real room boundaries"
-            : $"{common}, no seams, no non-tileable borders, no large focal objects";
+        return surfaceKind switch
+        {
+            ThemeSurfaceKind.Ceiling => $"{common}, no opaque virtual ceiling that hides real room boundaries",
+            ThemeSurfaceKind.DoorFrame => $"{common}, no closed door slab, no blocked doorway, no filled center, no handle-only product render",
+            ThemeSurfaceKind.WindowFrame => $"{common}, no opaque window cover, no blocked view, no filled center, no exterior scenery render",
+            ThemeSurfaceKind.WindowVista => "no window frame, no room interior, no furniture, no people, no logos, no readable text, no close foreground objects, no black border, no UI",
+            _ => $"{common}, no seams, no non-tileable borders, no large focal objects",
+        };
     }
 
     private static string GetPromptHint(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
@@ -199,8 +286,90 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
             ThemeSurfaceKind.Wall => theme.SurfaceMaterials.WallTexturePromptHint,
             ThemeSurfaceKind.Floor => theme.SurfaceMaterials.FloorTexturePromptHint,
             ThemeSurfaceKind.Ceiling => theme.SurfaceMaterials.CeilingTreatmentPromptHint,
+            ThemeSurfaceKind.DoorFrame => theme.SurfaceMaterials.DoorFramePromptHint,
+            ThemeSurfaceKind.WindowFrame => theme.SurfaceMaterials.WindowFramePromptHint,
+            ThemeSurfaceKind.WindowVista => theme.SurfaceMaterials.WindowVistaPromptHint,
             _ => string.Empty,
         };
+    }
+
+    private static string GetImageSize(ThemeSurfaceKind surfaceKind)
+    {
+        return surfaceKind == ThemeSurfaceKind.WindowVista ? "16:9" : "1:1";
+    }
+
+    private void WriteJobRecord(ThemeProfile theme, SurfaceTexturePromptEntry entry)
+    {
+        if (theme == null || entry == null || string.IsNullOrWhiteSpace(entry.JobPath))
+        {
+            return;
+        }
+
+        var existingOutput = HasUsableOutputFile(entry.OutputImagePath);
+        if (File.Exists(entry.JobPath))
+        {
+            var existing = JsonUtility.FromJson<SurfaceTextureJobRecord>(File.ReadAllText(entry.JobPath));
+            if (ShouldPreserveExistingJob(existing))
+            {
+                return;
+            }
+        }
+
+        var record = new SurfaceTextureJobRecord
+        {
+            RequestId = entry.RequestId,
+            ThemeId = theme.ThemeId,
+            ThemeDisplayName = theme.DisplayName,
+            StyleVariantId = entry.StyleVariantId,
+            UserStyleIntent = entry.UserStyleIntent,
+            StyleIntentSource = entry.StyleIntentSource,
+            SemanticLabel = entry.SemanticLabel,
+            SurfaceKind = entry.SurfaceKind,
+            OutputRole = entry.OutputRole,
+            State = existingOutput ? SurfaceTextureJobState.TextureReady : SurfaceTextureJobState.PromptReady,
+            PromptVersion = entry.PromptVersion,
+            ImageSize = entry.ImageSize,
+            PromptArtifactPath = entry.PromptPath,
+            JobPath = entry.JobPath,
+            OutputImagePath = entry.OutputImagePath,
+            BackendAdapterName = string.Empty,
+            StatusNote = existingOutput
+                ? "Existing generated surface texture is available in the output cache."
+                : "Surface texture prompt is ready for an image backend.",
+            UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O"),
+        };
+
+        File.WriteAllText(entry.JobPath, JsonUtility.ToJson(record, prettyPrint: true), Utf8NoBom);
+    }
+
+    private static bool ShouldPreserveExistingJob(SurfaceTextureJobRecord existing)
+    {
+        if (existing == null)
+        {
+            return false;
+        }
+
+        if (existing.State == SurfaceTextureJobState.BackendSubmitted)
+        {
+            return true;
+        }
+
+        if (existing.State is SurfaceTextureJobState.TextureReady or SurfaceTextureJobState.MaterialReady)
+        {
+            return HasUsableOutputFile(existing.OutputImagePath);
+        }
+
+        return false;
+    }
+
+    private static bool HasUsableOutputFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        return new FileInfo(path).Length > 0;
     }
 
     private static string FormatPromptFile(SurfaceTexturePromptSet promptSet, SurfaceTexturePromptEntry entry)
@@ -208,8 +377,17 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         var builder = new StringBuilder(1024);
         builder.AppendLine("[Surface Texture Prompt]");
         builder.AppendLine($"Theme: {promptSet.ThemeDisplayName} ({promptSet.ThemeId})");
+        builder.AppendLine($"Style Variant: {promptSet.StyleVariantId}");
+        if (!string.IsNullOrWhiteSpace(promptSet.UserStyleIntent))
+        {
+            builder.AppendLine($"User Style Intent: {promptSet.UserStyleIntent}");
+            builder.AppendLine($"Style Intent Source: {promptSet.StyleIntentSource}");
+        }
+
         builder.AppendLine($"Semantic: {entry.SemanticLabel}");
         builder.AppendLine($"Output Role: {entry.OutputRole}");
+        builder.AppendLine($"Prompt Version: {entry.PromptVersion}");
+        builder.AppendLine($"Image Size: {entry.ImageSize}");
         builder.AppendLine();
         builder.AppendLine("Prompt:");
         builder.AppendLine(entry.Prompt);
@@ -221,6 +399,8 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         builder.AppendLine("- Save generated materials as theme assets before using them in a demo build.");
         builder.AppendLine("- Keep runtime procedural textures as the deterministic fallback.");
         builder.AppendLine("- Walls should be applied to MRUK wall scaffolds with a 0.05m outward offset.");
+        builder.AppendLine("- Door/window frames should preserve transparent/open center areas and never block passage or view.");
+        builder.AppendLine("- Window vista images are exterior backdrops placed behind WINDOW_FRAME anchors, not wall materials or generated 3D objects.");
         return builder.ToString();
     }
 
@@ -231,6 +411,16 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         return Path.Combine(projectRoot, "Library", string.IsNullOrWhiteSpace(jobFolderName) ? "SurfaceTextureJobs" : jobFolderName);
 #else
         return Path.Combine(Application.persistentDataPath, string.IsNullOrWhiteSpace(jobFolderName) ? "SurfaceTextureJobs" : jobFolderName);
+#endif
+    }
+
+    private string ResolveOutputFolder()
+    {
+#if UNITY_EDITOR
+        var projectRoot = Directory.GetParent(Application.dataPath)?.FullName ?? Application.dataPath;
+        return Path.Combine(projectRoot, "Library", string.IsNullOrWhiteSpace(outputFolderName) ? "SurfaceTextureOutputs" : outputFolderName);
+#else
+        return Path.Combine(Application.persistentDataPath, string.IsNullOrWhiteSpace(outputFolderName) ? "SurfaceTextureOutputs" : outputFolderName);
 #endif
     }
 
@@ -248,6 +438,7 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         builder.AppendLine(wroteFiles ? "State: prompts-written" : "State: prompts-built");
         builder.AppendLine($"Reason: {reason}");
         builder.AppendLine($"Theme: {_latestPromptSet?.ThemeDisplayName ?? "none"}");
+        builder.AppendLine($"Style Variant: {_latestPromptSet?.StyleVariantId ?? "none"}");
         builder.AppendLine($"Entries: {count}");
         builder.AppendLine($"Folder: {_latestPromptSet?.JobFolder ?? "none"}");
         if (!string.IsNullOrWhiteSpace(jsonPath))
@@ -259,18 +450,149 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         SummaryChanged?.Invoke();
     }
 
-    private static string SanitizeFileName(string value)
+    public static string SanitizeFileName(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             return "theme";
         }
 
-        foreach (var invalidChar in Path.GetInvalidFileNameChars())
+        var builder = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
         {
-            value = value.Replace(invalidChar, '_');
+            var character = value[index];
+            builder.Append(char.IsLetterOrDigit(character) || character == '_' || character == '-'
+                ? char.ToLowerInvariant(character)
+                : '_');
         }
 
-        return value;
+        var sanitized = builder.ToString().Trim('_');
+        return string.IsNullOrWhiteSpace(sanitized) ? "theme" : sanitized;
+    }
+
+    public static string BuildStyleVariantId(RuntimeStyleIntent runtimeIntent)
+    {
+        if (runtimeIntent == null || string.IsNullOrWhiteSpace(runtimeIntent.UserIntent))
+        {
+            return PresetStyleVariantId;
+        }
+
+        var label = SanitizeFileName(runtimeIntent.UserIntent);
+        if (label.Length > 32)
+        {
+            label = label.Substring(0, 32).Trim('_');
+        }
+
+        return $"style_{label}_{ComputeStableHash(BuildStyleSignature(runtimeIntent)):x8}";
+    }
+
+    public static string BuildRequestId(string themeId, string semanticLabel, string styleVariantId)
+    {
+        var themeToken = SanitizeFileName(themeId);
+        var semanticToken = SanitizeFileName(semanticLabel);
+        var styleToken = string.IsNullOrWhiteSpace(styleVariantId)
+            ? PresetStyleVariantId
+            : SanitizeFileName(styleVariantId);
+
+        return string.Equals(styleToken, PresetStyleVariantId, StringComparison.Ordinal)
+            ? $"{themeToken}_{semanticToken}_{PromptVersion}"
+            : $"{themeToken}_{styleToken}_{semanticToken}_{PromptVersion}";
+    }
+
+    private static string BuildStyleSignature(RuntimeStyleIntent runtimeIntent)
+    {
+        var builder = new StringBuilder(1024);
+        AppendNormalized(builder, runtimeIntent.UserIntent);
+        AppendNormalized(builder, runtimeIntent.Source);
+        AppendNormalized(builder, runtimeIntent.GlobalStyleSummary);
+        AppendNormalized(builder, runtimeIntent.ObjectStyleDirective);
+        AppendNormalizedList(builder, runtimeIntent.StyleKeywords);
+        AppendNormalizedList(builder, runtimeIntent.MaterialKeywords);
+        AppendNormalizedList(builder, runtimeIntent.ColorKeywords);
+        AppendNormalizedList(builder, runtimeIntent.MotifKeywords);
+        AppendNormalizedList(builder, runtimeIntent.NegativeStyleKeywords);
+        return builder.ToString();
+    }
+
+    private static void AppendNormalizedList(StringBuilder builder, System.Collections.Generic.List<string> values)
+    {
+        if (values == null)
+        {
+            builder.Append('|');
+            return;
+        }
+
+        for (var index = 0; index < values.Count; index++)
+        {
+            AppendNormalized(builder, values[index]);
+        }
+    }
+
+    private static void AppendNormalized(StringBuilder builder, string value)
+    {
+        builder.Append('|');
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        builder.Append(value.Trim().ToLowerInvariant());
+    }
+
+    private static uint ComputeStableHash(string value)
+    {
+        unchecked
+        {
+            const uint offsetBasis = 2166136261u;
+            const uint prime = 16777619u;
+            var hash = offsetBasis;
+            for (var index = 0; index < value.Length; index++)
+            {
+                hash ^= value[index];
+                hash *= prime;
+            }
+
+            return hash;
+        }
+    }
+
+    private static string ToSemanticLabel(ThemeSurfaceKind surfaceKind)
+    {
+        return surfaceKind switch
+        {
+            ThemeSurfaceKind.DoorFrame => "door_frame",
+            ThemeSurfaceKind.WindowFrame => "window_frame",
+            ThemeSurfaceKind.WindowVista => "window_vista",
+            _ => surfaceKind.ToString().ToLowerInvariant(),
+        };
+    }
+
+    private static string BuildRuntimeStyleBlock(RuntimeStyleIntent runtimeIntent)
+    {
+        if (runtimeIntent == null || string.IsNullOrWhiteSpace(runtimeIntent.UserIntent))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(512);
+        builder.AppendLine($"Runtime user style intent: {runtimeIntent.UserIntent}");
+        AppendListLine(builder, "Runtime style keywords", runtimeIntent.StyleKeywords);
+        AppendListLine(builder, "Runtime material keywords", runtimeIntent.MaterialKeywords);
+        AppendListLine(builder, "Runtime color keywords", runtimeIntent.ColorKeywords);
+        AppendListLine(builder, "Runtime motif keywords", runtimeIntent.MotifKeywords);
+        AppendListLine(builder, "Runtime negative style keywords", runtimeIntent.NegativeStyleKeywords);
+        return builder.ToString();
+    }
+
+    private static void AppendListLine(StringBuilder builder, string label, System.Collections.Generic.List<string> values)
+    {
+        if (values == null || values.Count == 0)
+        {
+            return;
+        }
+
+        builder.Append(label);
+        builder.Append(": ");
+        builder.AppendLine(string.Join(", ", values));
     }
 }

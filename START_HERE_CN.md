@@ -55,10 +55,10 @@ NPC 互动放到 **Phase 2**。
 项目当前完成进度、正在做的事情、主要风险、下一步最小任务。
 
 ### 10. `docs/09_GENERATIVE_OBJECT_PIPELINE.md`
-如果你后面想让家具更接近 Roomify 论文里的“先生成风格图，再生成 3D 模型”的路线，这份文档就是接入方案。
+如果你想让家具更接近 Roomify 论文里的“先生成风格图，再生成 3D 模型”的路线，这份文档就是接入方案。当前工程已经接入到 `DeepSeek -> APIMart gpt-image-2 -> hosted upload -> Seed3D` 的自动链路，但它仍然是 Phase 1 的可选生成物支线，不是确定性房间风格化主路径。
 
 ### 11. `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
-手工外部 worker 操作手册。用于 `ExternalFileProtocol`：Unity 写出 submission/prompt/template，你手动把图片和 prompt 交给 GPT 生图，再把结果写回项目。
+外部 worker 操作手册。现在包含两种用途：一是保留 `ExternalFileProtocol` 手工兜底流程，二是说明 APIMart 自动图像 worker 如何从 `CaptureReady` 走到 `StylizedImageReady`。
 
 ### 12. `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
 每次演示或回归验证前使用的检查清单。它说明 Play 前、Play 中、按键、Console、输出文件应该如何确认。
@@ -137,15 +137,23 @@ YourUnityProject/
 - theme / planner / surface stylization
 - table proxy path
 - `BestViewCaptureService`
+- `DevicePassthroughCaptureService`
+- `RuntimeStyleIntentController`
+- `DeepSeekStyleIntentProvider`
 - `GenerativeObjectCoordinator`
 - `LocalGeneratedObjectBackendAdapter`
+- `ApimartImageBackendAdapter`
+- `HostedImageUploadBridge`
+- `Seed3DBackendAdapter`
 - `ExternalFileProtocol` 手工外部 worker 边界
-- 一次已跑通的 `TABLE` 生成物支线：透明底 stylized image -> 手工 Seed3D 2.0 GLB -> Unity imported generated table prefab -> Simulator 中 `source=generated_import` 放置
+- 一次已跑通的 `TABLE` 生成物支线：透明底 stylized image -> Seed3D 2.0 GLB -> Unity imported generated table prefab -> Simulator 中 `source=generated_import` 放置
+- 一个已接入但仍待完整 live 验证的自动链路：freeform style intent -> DeepSeek 关键词拆解 -> APIMart `gpt-image-2` 生图 -> `www.mikusc.top` 上传 -> Ark Seed3D 2.0 -> Unity 导入 / 替换
 
-但生成家具还不是 demo-ready 主路径：
-- 自动图像/Seed3D worker 没有提交进工程
+但生成家具仍然不是 demo-ready 主路径：
+- APIMart 到 Seed3D 的完整 Unity Play 闭环还需要用真实 `CaptureReady` job 再验证一次
 - 生成家具的 accept / reject / reset 控制还没做
-- 当前还需要从目标视角做一次视觉审查，确认桌子尺度、贴地、遮挡和可读性
+- Quest Link / Editor Play 可以验证 MRUK、HUD、best angle、job 状态和落位，但不能把 Quest Pro + Link 当成 native passthrough camera capture 的通过标准
+- 当前还需要从目标视角做视觉审查，确认桌子尺度、贴地、遮挡和可读性
 
 所以以后不要再把 “Milestone 1：MRUK 房间语义调试视图” 当作当前第一任务。
 当前真实进度以 `docs/08_PROGRESS_STATUS.md` 为准。
@@ -188,11 +196,13 @@ YourUnityProject/
 
 尤其是后面如果你开始做：
 - passthrough 真机验证
-- `BestViewCaptureService` 的真实房间采集
+- `DevicePassthroughCaptureService` 的真实房间采集
 - demo 录制
 - 性能 profiling
 
 那 `MQDH` 就应该成为固定工作流的一部分。
+
+注意：Quest Link / Editor Play 对当前项目很有价值，因为它能快速验证 MRUK 房间、HUD、best angle、替换落位和生成物 job 状态。但 native passthrough camera capture 依赖支持的头显和 runtime；Quest Pro + Link 不能作为当前 PCA capture 路径的成功/失败标准。
 
 ---
 
@@ -221,8 +231,9 @@ YourUnityProject/
 2. 启动 Unity，确认 Unity Bridge 还在 Running
 3. 用 Codex 打开这个项目目录
 4. 先看 `docs/08_PROGRESS_STATUS.md` 判断当前最小任务
-5. 如果要继续手工 GPT 生图流程，看 `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
-6. 如果要录 demo 或确认功能没坏，看 `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
-7. 如果要上 Quest 真机，看 `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md`
+5. 如果要继续自动生成物链路，看 `docs/09_GENERATIVE_OBJECT_PIPELINE.md` 和 `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md`
+6. 如果要跑 APIMart / upload / Seed3D，先确认 Unity 进程能读到 `APIMART_API_KEY`、`SCENESHIFT_UPLOAD_TOKEN`、`ARK_API_KEY`
+7. 如果要录 demo 或确认功能没坏，看 `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
+8. 如果要上 Quest 真机，看 `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md`
 
 最稳的协作方式仍然是：一次只让 Codex 做一个小任务，做完后同步 `docs/08_PROGRESS_STATUS.md`。

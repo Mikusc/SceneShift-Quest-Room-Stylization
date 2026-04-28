@@ -10,28 +10,41 @@ public class SurfaceOverrideApplier : MonoBehaviour
     [Header("References")]
     [SerializeField] private RoomSemanticBootstrap roomSemanticBootstrap;
     [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private Transform surfaceOverridesRoot;
 
     [Header("Surface Overrides")]
     [SerializeField] private bool applyWallOverrides = true;
     [SerializeField] private bool applyFloorOverrides = true;
     [SerializeField] private bool applyCeilingOverrides = true;
+    [SerializeField] private bool applyDoorFrameOverrides = true;
+    [SerializeField] private bool applyWindowFrameOverrides = true;
+    [SerializeField] private bool applyWindowVistaOverlays = true;
     [SerializeField] private bool suppressOriginalSurfaceRenderers;
+    [SerializeField] private bool preferGeneratedSurfaceTextures = true;
+    [SerializeField] private string generatedSurfaceJobFolderName = "SurfaceTextureJobs";
     [SerializeField, Min(0f)] private float wallOutwardOffsetMeters = 0.05f;
     [SerializeField, Min(0f)] private float floorSurfaceOffsetMeters = 0.012f;
     [SerializeField, Min(0f)] private float ceilingSurfaceOffsetMeters = 0.012f;
+    [SerializeField, Min(0f)] private float frameOutwardOffsetMeters = 0.035f;
+    [SerializeField, Min(0.01f)] private float frameBorderWidthMeters = 0.08f;
+    [SerializeField, Min(0f)] private float windowVistaOutwardOffsetMeters = 0.14f;
+    [SerializeField, Range(1f, 1.5f)] private float windowVistaScaleMultiplier = 1.12f;
     [SerializeField, Min(0.1f)] private float autoRefreshInterval = 0.75f;
     [SerializeField] private bool logApplications = true;
 
     [Header("Surface Visibility")]
     [SerializeField] private SurfaceVisibilityMode visibilityMode = SurfaceVisibilityMode.Background;
-    [SerializeField, Range(0.05f, 1f)] private float backgroundWallAlpha = 0.3f;
-    [SerializeField, Range(0.05f, 1f)] private float backgroundFloorAlpha = 0.24f;
-    [SerializeField, Range(0.05f, 1f)] private float backgroundCeilingAlpha = 0.2f;
+    [SerializeField, Range(0.05f, 1f)] private float backgroundWallAlpha = 1f;
+    [SerializeField, Range(0.05f, 1f)] private float backgroundFloorAlpha = 1f;
+    [SerializeField, Range(0.05f, 1f)] private float backgroundCeilingAlpha = 1f;
+    [SerializeField, Range(0.05f, 1f)] private float backgroundWindowVistaAlpha = 1f;
     [SerializeField, Range(0.5f, 1.5f)] private float demoOpacityBoost = 1.1f;
-    [SerializeField, Range(0.2f, 1f)] private float demoMinimumWallAlpha = 0.94f;
-    [SerializeField, Range(0.2f, 1f)] private float demoMinimumFloorAlpha = 0.92f;
-    [SerializeField, Range(0.2f, 1f)] private float demoMinimumCeilingAlpha = 0.86f;
+    [SerializeField, Range(0.2f, 1f)] private float demoMinimumWallAlpha = 1f;
+    [SerializeField, Range(0.2f, 1f)] private float demoMinimumFloorAlpha = 1f;
+    [SerializeField, Range(0.2f, 1f)] private float demoMinimumCeilingAlpha = 1f;
+    [SerializeField, Range(0.2f, 1f)] private float demoMinimumWindowVistaAlpha = 0.92f;
+    [SerializeField, Range(0f, 2f)] private float windowVistaEmissionIntensity = 0.45f;
 
     public event Action SummaryChanged;
 
@@ -46,6 +59,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
     private string _latestSummary = "[SurfaceOverrideApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
     private bool _needsRefresh = true;
     private float _nextRefreshTime;
+    private string _lastGeneratedTextureSignature = string.Empty;
 
     private void Reset()
     {
@@ -73,7 +87,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private void Update()
     {
-        if (!Application.isPlaying || !_needsRefresh)
+        if (!Application.isPlaying)
         {
             return;
         }
@@ -84,7 +98,16 @@ public class SurfaceOverrideApplier : MonoBehaviour
         }
 
         _nextRefreshTime = Time.unscaledTime + autoRefreshInterval;
-        RefreshOverrides("auto-refresh");
+        if (_needsRefresh)
+        {
+            RefreshOverrides("auto-refresh");
+            return;
+        }
+
+        if (preferGeneratedSurfaceTextures && HasGeneratedTextureSignatureChanged())
+        {
+            RefreshOverrides("generated-texture-ready");
+        }
     }
 
     [ContextMenu("Reapply Surface Overrides")]
@@ -112,6 +135,11 @@ public class SurfaceOverrideApplier : MonoBehaviour
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
         }
 
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
+        }
+
         if (surfaceOverridesRoot == null)
         {
             var rootObject = GameObject.Find("SurfaceOverrides");
@@ -135,6 +163,12 @@ public class SurfaceOverrideApplier : MonoBehaviour
             themeIntentController.ThemeChanged -= HandleThemeChanged;
             themeIntentController.ThemeChanged += HandleThemeChanged;
         }
+
+        if (runtimeStyleIntentController != null)
+        {
+            runtimeStyleIntentController.StyleIntentChanged -= HandleStyleIntentChanged;
+            runtimeStyleIntentController.StyleIntentChanged += HandleStyleIntentChanged;
+        }
     }
 
     private void Unsubscribe()
@@ -148,6 +182,11 @@ public class SurfaceOverrideApplier : MonoBehaviour
         {
             themeIntentController.ThemeChanged -= HandleThemeChanged;
         }
+
+        if (runtimeStyleIntentController != null)
+        {
+            runtimeStyleIntentController.StyleIntentChanged -= HandleStyleIntentChanged;
+        }
     }
 
     private void HandleRoomChanged()
@@ -160,6 +199,12 @@ public class SurfaceOverrideApplier : MonoBehaviour
     {
         _needsRefresh = true;
         RefreshOverrides("theme-changed");
+    }
+
+    private void HandleStyleIntentChanged()
+    {
+        _needsRefresh = true;
+        RefreshOverrides("style-intent-changed");
     }
 
     private void RefreshOverrides(string reason)
@@ -208,6 +253,9 @@ public class SurfaceOverrideApplier : MonoBehaviour
         var wallCount = 0;
         var floorCount = 0;
         var ceilingCount = 0;
+        var doorFrameCount = 0;
+        var windowFrameCount = 0;
+        var windowVistaCount = 0;
         var skippedCount = 0;
         var materials = new Dictionary<ThemeSurfaceKind, Material>();
 
@@ -219,50 +267,81 @@ public class SurfaceOverrideApplier : MonoBehaviour
                 continue;
             }
 
-            if (!ShouldApply(surfaceKind) || !anchor.PlaneRect.HasValue)
+            var shouldApplySurface = ShouldApply(surfaceKind);
+            var shouldApplyVista = surfaceKind == ThemeSurfaceKind.WindowFrame && applyWindowVistaOverlays;
+            if ((!shouldApplySurface && !shouldApplyVista) || !anchor.PlaneRect.HasValue)
             {
                 skippedCount++;
                 continue;
             }
 
-            if (!materials.TryGetValue(surfaceKind, out var material))
+            if (shouldApplySurface)
             {
-                material = CreateSurfaceMaterial(theme, surfaceKind);
-                materials[surfaceKind] = material;
+                if (!materials.TryGetValue(surfaceKind, out var material))
+                {
+                    material = CreateSurfaceMaterial(theme, surfaceKind);
+                    materials[surfaceKind] = material;
+                }
+
+                if (!TryCreateOverridePlane(anchor, surfaceKind, material, index))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                if (suppressOriginalSurfaceRenderers)
+                {
+                    SuppressAnchorRenderers(anchor);
+                }
+
+                switch (surfaceKind)
+                {
+                    case ThemeSurfaceKind.Wall:
+                        wallCount++;
+                        break;
+                    case ThemeSurfaceKind.Floor:
+                        floorCount++;
+                        break;
+                    case ThemeSurfaceKind.Ceiling:
+                        ceilingCount++;
+                        break;
+                    case ThemeSurfaceKind.DoorFrame:
+                        doorFrameCount++;
+                        break;
+                    case ThemeSurfaceKind.WindowFrame:
+                        windowFrameCount++;
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
             }
 
-            if (!TryCreateOverridePlane(anchor, surfaceKind, material, index))
+            if (shouldApplyVista)
             {
-                skippedCount++;
-                continue;
-            }
+                if (!materials.TryGetValue(ThemeSurfaceKind.WindowVista, out var vistaMaterial))
+                {
+                    vistaMaterial = CreateSurfaceMaterial(theme, ThemeSurfaceKind.WindowVista);
+                    materials[ThemeSurfaceKind.WindowVista] = vistaMaterial;
+                }
 
-            if (suppressOriginalSurfaceRenderers)
-            {
-                SuppressAnchorRenderers(anchor);
-            }
-
-            switch (surfaceKind)
-            {
-                case ThemeSurfaceKind.Wall:
-                    wallCount++;
-                    break;
-                case ThemeSurfaceKind.Floor:
-                    floorCount++;
-                    break;
-                case ThemeSurfaceKind.Ceiling:
-                    ceilingCount++;
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException();
+                if (TryCreateOverridePlane(anchor, ThemeSurfaceKind.WindowVista, vistaMaterial, index))
+                {
+                    windowVistaCount++;
+                }
+                else
+                {
+                    skippedCount++;
+                }
             }
         }
 
-        _needsRefresh = visibilityMode != SurfaceVisibilityMode.Off && wallCount + floorCount + ceilingCount == 0;
-        _latestSummary = BuildSummary(reason, theme, wallCount, floorCount, ceilingCount, skippedCount);
+        _needsRefresh = visibilityMode != SurfaceVisibilityMode.Off &&
+                        wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount == 0;
+        _lastGeneratedTextureSignature = BuildGeneratedTextureSignature(theme);
+        _latestSummary = BuildSummary(reason, theme, wallCount, floorCount, ceilingCount, doorFrameCount, windowFrameCount, windowVistaCount, skippedCount);
         SummaryChanged?.Invoke();
 
-        if (logApplications && wallCount + floorCount + ceilingCount > 0)
+        if (logApplications && wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount > 0)
         {
             Debug.Log(_latestSummary, this);
         }
@@ -279,7 +358,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
             return false;
         }
 
-        var rect = anchor.PlaneRect.Value;
+        var rect = GetSurfaceRect(anchor.PlaneRect.Value, surfaceKind);
         var offset = GetSurfaceOffset(surfaceKind);
         var surface = new GameObject($"SurfaceOverride_{surfaceKind}_{anchorIndex:D2}");
         surface.transform.SetParent(surfaceOverridesRoot, false);
@@ -289,7 +368,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         var meshFilter = surface.AddComponent<MeshFilter>();
         var meshRenderer = surface.AddComponent<MeshRenderer>();
-        var mesh = CreatePlaneMesh(rect, offset, surfaceKind);
+        var mesh = CreateOverrideMesh(rect, offset, surfaceKind, frameBorderWidthMeters);
         mesh.name = $"{surface.name}_Mesh";
         meshFilter.sharedMesh = mesh;
         meshRenderer.sharedMaterial = material;
@@ -297,6 +376,26 @@ public class SurfaceOverrideApplier : MonoBehaviour
         _runtimeMeshes.Add(mesh);
         _spawnedOverrides.Add(surface);
         return true;
+    }
+
+    private Rect GetSurfaceRect(Rect rect, ThemeSurfaceKind surfaceKind)
+    {
+        if (surfaceKind != ThemeSurfaceKind.WindowVista)
+        {
+            return rect;
+        }
+
+        var scale = Mathf.Max(1f, windowVistaScaleMultiplier);
+        var center = rect.center;
+        var size = rect.size * scale;
+        return new Rect(center - size * 0.5f, size);
+    }
+
+    private static Mesh CreateOverrideMesh(Rect rect, float normalOffset, ThemeSurfaceKind surfaceKind, float frameBorderWidth)
+    {
+        return surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame
+            ? CreateFrameMesh(rect, normalOffset, frameBorderWidth)
+            : CreatePlaneMesh(rect, normalOffset, surfaceKind);
     }
 
     private static Mesh CreatePlaneMesh(Rect rect, float normalOffset, ThemeSurfaceKind surfaceKind)
@@ -337,8 +436,73 @@ public class SurfaceOverrideApplier : MonoBehaviour
         return mesh;
     }
 
+    private static Mesh CreateFrameMesh(Rect rect, float normalOffset, float frameBorderWidth)
+    {
+        var width = Mathf.Max(0.05f, rect.width);
+        var height = Mathf.Max(0.05f, rect.height);
+        var border = Mathf.Min(
+            Mathf.Max(0.01f, frameBorderWidth),
+            Mathf.Min(width, height) * 0.45f);
+
+        var vertices = new List<Vector3>(16);
+        var uv = new List<Vector2>(16);
+        var triangles = new List<int>(24);
+
+        AddQuad(vertices, uv, triangles, rect.xMin, rect.xMin + border, rect.yMin, rect.yMax, normalOffset);
+        AddQuad(vertices, uv, triangles, rect.xMax - border, rect.xMax, rect.yMin, rect.yMax, normalOffset);
+        AddQuad(vertices, uv, triangles, rect.xMin + border, rect.xMax - border, rect.yMax - border, rect.yMax, normalOffset);
+        AddQuad(vertices, uv, triangles, rect.xMin + border, rect.xMax - border, rect.yMin, rect.yMin + border, normalOffset);
+
+        var mesh = new Mesh
+        {
+            vertices = vertices.ToArray(),
+            uv = uv.ToArray(),
+            triangles = triangles.ToArray(),
+        };
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private static void AddQuad(
+        ICollection<Vector3> vertices,
+        ICollection<Vector2> uv,
+        ICollection<int> triangles,
+        float xMin,
+        float xMax,
+        float yMin,
+        float yMax,
+        float normalOffset)
+    {
+        var start = vertices.Count;
+        vertices.Add(new Vector3(xMin, yMin, normalOffset));
+        vertices.Add(new Vector3(xMax, yMin, normalOffset));
+        vertices.Add(new Vector3(xMax, yMax, normalOffset));
+        vertices.Add(new Vector3(xMin, yMax, normalOffset));
+
+        uv.Add(new Vector2(xMin, yMin));
+        uv.Add(new Vector2(xMax, yMin));
+        uv.Add(new Vector2(xMax, yMax));
+        uv.Add(new Vector2(xMin, yMax));
+
+        triangles.Add(start);
+        triangles.Add(start + 1);
+        triangles.Add(start + 2);
+        triangles.Add(start);
+        triangles.Add(start + 2);
+        triangles.Add(start + 3);
+    }
+
     private Material CreateSurfaceMaterial(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
     {
+        if (preferGeneratedSurfaceTextures &&
+            TryCreateGeneratedSurfaceMaterial(theme, surfaceKind, out var generatedMaterial))
+        {
+            _runtimeMaterials.Add(generatedMaterial);
+            return generatedMaterial;
+        }
+
         var sourceMaterial = theme.SurfaceMaterials.GetMaterialOverride(surfaceKind);
         Material material;
 
@@ -348,26 +512,81 @@ public class SurfaceOverrideApplier : MonoBehaviour
         }
         else
         {
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ??
-                         Shader.Find("Universal Render Pipeline/Unlit") ??
-                         Shader.Find("Standard");
+            var shader = GetSurfaceShader(surfaceKind);
             material = new Material(shader);
-            ConfigureTransparentDoubleSidedMaterial(material);
+            ConfigureTransparentDoubleSidedMaterial(material, surfaceKind);
 
             var texture = ProceduralSurfaceTextureFactory.CreateTexture(theme, surfaceKind);
             if (texture != null)
             {
                 _runtimeTextures.Add(texture);
-                SetMaterialTexture(material, texture, theme.SurfaceMaterials.TextureTiling);
+                SetMaterialTexture(material, texture, GetTextureTiling(theme, surfaceKind));
             }
         }
 
         var tintColor = ApplyVisibilityBoost(theme.SurfaceMaterials.GetTintColor(surfaceKind), surfaceKind);
         SetMaterialColor(material, new Color(1f, 1f, 1f, tintColor.a));
-        SetEmission(material, tintColor * Mathf.Max(0f, theme.SurfaceMaterials.EmissionIntensity));
-        ConfigureTransparentDoubleSidedMaterial(material);
+        SetEmission(material, tintColor * GetEmissionIntensity(theme, surfaceKind));
+        ConfigureTransparentDoubleSidedMaterial(material, surfaceKind);
         _runtimeMaterials.Add(material);
         return material;
+    }
+
+    private bool TryCreateGeneratedSurfaceMaterial(ThemeProfile theme, ThemeSurfaceKind surfaceKind, out Material material)
+    {
+        material = null;
+        if (theme == null || !TryFindGeneratedSurfaceTexture(theme, surfaceKind, out var imagePath))
+        {
+            return false;
+        }
+
+        var bytes = System.IO.File.ReadAllBytes(imagePath);
+        if (bytes == null || bytes.Length == 0)
+        {
+            return false;
+        }
+
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, true)
+        {
+            name = $"Generated_{theme.ThemeId}_{surfaceKind}_Texture",
+            wrapMode = surfaceKind == ThemeSurfaceKind.WindowVista ? TextureWrapMode.Clamp : TextureWrapMode.Repeat,
+            filterMode = FilterMode.Bilinear,
+            anisoLevel = 4,
+        };
+
+        if (!ImageConversion.LoadImage(texture, bytes, false))
+        {
+            SafeDestroy(texture);
+            return false;
+        }
+
+        _runtimeTextures.Add(texture);
+
+        var shader = GetSurfaceShader(surfaceKind);
+        material = new Material(shader)
+        {
+            name = $"Runtime_{theme.ThemeId}_{surfaceKind}_GeneratedSurface",
+        };
+        ConfigureTransparentDoubleSidedMaterial(material, surfaceKind);
+        SetMaterialTexture(material, texture, GetTextureTiling(theme, surfaceKind));
+
+        var tintColor = ApplyVisibilityBoost(theme.SurfaceMaterials.GetTintColor(surfaceKind), surfaceKind);
+        SetMaterialColor(material, new Color(1f, 1f, 1f, tintColor.a));
+        SetEmission(material, tintColor * GetEmissionIntensity(theme, surfaceKind));
+        ConfigureTransparentDoubleSidedMaterial(material, surfaceKind);
+        return true;
+    }
+
+    private float GetTextureTiling(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
+    {
+        return surfaceKind == ThemeSurfaceKind.WindowVista ? 1f : theme.SurfaceMaterials.TextureTiling;
+    }
+
+    private float GetEmissionIntensity(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
+    {
+        return surfaceKind == ThemeSurfaceKind.WindowVista
+            ? Mathf.Max(0f, windowVistaEmissionIntensity)
+            : Mathf.Max(0f, theme.SurfaceMaterials.EmissionIntensity);
     }
 
     private bool ShouldApply(ThemeSurfaceKind surfaceKind)
@@ -382,6 +601,9 @@ public class SurfaceOverrideApplier : MonoBehaviour
             ThemeSurfaceKind.Wall => applyWallOverrides,
             ThemeSurfaceKind.Floor => applyFloorOverrides,
             ThemeSurfaceKind.Ceiling => applyCeilingOverrides,
+            ThemeSurfaceKind.DoorFrame => applyDoorFrameOverrides,
+            ThemeSurfaceKind.WindowFrame => applyWindowFrameOverrides,
+            ThemeSurfaceKind.WindowVista => applyWindowVistaOverlays,
             _ => false,
         };
     }
@@ -393,12 +615,21 @@ public class SurfaceOverrideApplier : MonoBehaviour
             ThemeSurfaceKind.Wall => wallOutwardOffsetMeters,
             ThemeSurfaceKind.Floor => floorSurfaceOffsetMeters,
             ThemeSurfaceKind.Ceiling => ceilingSurfaceOffsetMeters,
+            ThemeSurfaceKind.DoorFrame => frameOutwardOffsetMeters,
+            ThemeSurfaceKind.WindowFrame => frameOutwardOffsetMeters,
+            ThemeSurfaceKind.WindowVista => windowVistaOutwardOffsetMeters,
             _ => 0f,
         };
     }
 
     private Color ApplyVisibilityBoost(Color color, ThemeSurfaceKind surfaceKind)
     {
+        if (IsOpaqueRoomSurface(surfaceKind))
+        {
+            color.a = 1f;
+            return color;
+        }
+
         if (visibilityMode == SurfaceVisibilityMode.Background)
         {
             color.a = Mathf.Clamp01(Mathf.Min(color.a, GetBackgroundAlpha(surfaceKind)));
@@ -410,11 +641,19 @@ public class SurfaceOverrideApplier : MonoBehaviour
             ThemeSurfaceKind.Wall => demoMinimumWallAlpha,
             ThemeSurfaceKind.Floor => demoMinimumFloorAlpha,
             ThemeSurfaceKind.Ceiling => demoMinimumCeilingAlpha,
+            ThemeSurfaceKind.DoorFrame => demoMinimumWallAlpha,
+            ThemeSurfaceKind.WindowFrame => demoMinimumWallAlpha,
+            ThemeSurfaceKind.WindowVista => demoMinimumWindowVistaAlpha,
             _ => 0f,
         };
 
         color.a = Mathf.Clamp01(Mathf.Max(color.a * Mathf.Max(0f, demoOpacityBoost), minimumAlpha));
         return color;
+    }
+
+    private static bool IsOpaqueRoomSurface(ThemeSurfaceKind surfaceKind)
+    {
+        return surfaceKind is ThemeSurfaceKind.Wall or ThemeSurfaceKind.Floor or ThemeSurfaceKind.Ceiling;
     }
 
     private float GetBackgroundAlpha(ThemeSurfaceKind surfaceKind)
@@ -424,6 +663,9 @@ public class SurfaceOverrideApplier : MonoBehaviour
             ThemeSurfaceKind.Wall => backgroundWallAlpha,
             ThemeSurfaceKind.Floor => backgroundFloorAlpha,
             ThemeSurfaceKind.Ceiling => backgroundCeilingAlpha,
+            ThemeSurfaceKind.DoorFrame => backgroundWallAlpha,
+            ThemeSurfaceKind.WindowFrame => backgroundWallAlpha,
+            ThemeSurfaceKind.WindowVista => backgroundWindowVistaAlpha,
             _ => 0f,
         };
     }
@@ -432,6 +674,18 @@ public class SurfaceOverrideApplier : MonoBehaviour
     {
         if (anchor != null)
         {
+            if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.DOOR_FRAME))
+            {
+                surfaceKind = ThemeSurfaceKind.DoorFrame;
+                return true;
+            }
+
+            if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WINDOW_FRAME))
+            {
+                surfaceKind = ThemeSurfaceKind.WindowFrame;
+                return true;
+            }
+
             if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WALL_FACE))
             {
                 surfaceKind = ThemeSurfaceKind.Wall;
@@ -453,6 +707,177 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         surfaceKind = default;
         return false;
+    }
+
+    private bool HasGeneratedTextureSignatureChanged()
+    {
+        if (themeIntentController == null || themeIntentController.ActiveTheme == null)
+        {
+            return false;
+        }
+
+        var signature = BuildGeneratedTextureSignature(themeIntentController.ActiveTheme);
+        if (string.Equals(signature, _lastGeneratedTextureSignature, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _lastGeneratedTextureSignature = signature;
+        return true;
+    }
+
+    private string BuildGeneratedTextureSignature(ThemeProfile theme)
+    {
+        if (theme == null)
+        {
+            return string.Empty;
+        }
+
+        var jobDirectory = GetGeneratedSurfaceJobDirectory();
+        if (string.IsNullOrWhiteSpace(jobDirectory) || !System.IO.Directory.Exists(jobDirectory))
+        {
+            return "no-job-folder";
+        }
+
+        var builder = new StringBuilder(256);
+        builder.Append(theme.ThemeId);
+        var styleVariantId = GetActiveStyleVariantId();
+        builder.Append('|').Append(styleVariantId);
+        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.Wall);
+        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.Floor);
+        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.Ceiling);
+        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.DoorFrame);
+        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.WindowFrame);
+        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.WindowVista);
+        return builder.ToString();
+    }
+
+    private static void AppendGeneratedTextureSignature(
+        StringBuilder builder,
+        string jobDirectory,
+        ThemeProfile theme,
+        string styleVariantId,
+        ThemeSurfaceKind surfaceKind)
+    {
+        var requestId = BuildSurfaceRequestId(theme.ThemeId, styleVariantId, surfaceKind);
+        var jobPath = System.IO.Path.Combine(jobDirectory, $"{requestId}.surface.job.json");
+        builder.Append('|').Append(requestId).Append(':');
+        if (!System.IO.File.Exists(jobPath))
+        {
+            builder.Append("missing");
+            return;
+        }
+
+        var record = JsonUtility.FromJson<SurfaceTextureJobRecord>(System.IO.File.ReadAllText(jobPath));
+        if (record == null)
+        {
+            builder.Append("invalid");
+            return;
+        }
+
+        builder.Append(record.State);
+        if (!string.IsNullOrWhiteSpace(record.OutputImagePath) && System.IO.File.Exists(record.OutputImagePath))
+        {
+            builder.Append(':').Append(System.IO.File.GetLastWriteTimeUtc(record.OutputImagePath).Ticks);
+        }
+    }
+
+    private bool TryFindGeneratedSurfaceTexture(ThemeProfile theme, ThemeSurfaceKind surfaceKind, out string imagePath)
+    {
+        imagePath = string.Empty;
+        var jobDirectory = GetGeneratedSurfaceJobDirectory();
+        if (string.IsNullOrWhiteSpace(jobDirectory) || !System.IO.Directory.Exists(jobDirectory))
+        {
+            return false;
+        }
+
+        var requestId = BuildSurfaceRequestId(theme.ThemeId, GetActiveStyleVariantId(), surfaceKind);
+        var preferredPath = System.IO.Path.Combine(jobDirectory, $"{requestId}.surface.job.json");
+        if (TryLoadGeneratedSurfaceJob(preferredPath, requestId, out imagePath))
+        {
+            return true;
+        }
+
+        var jobs = System.IO.Directory.GetFiles(jobDirectory, "*.surface.job.json", System.IO.SearchOption.TopDirectoryOnly);
+        for (var index = 0; index < jobs.Length; index++)
+        {
+            if (TryLoadGeneratedSurfaceJob(jobs[index], requestId, out imagePath))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryLoadGeneratedSurfaceJob(string jobPath, string requestId, out string imagePath)
+    {
+        imagePath = string.Empty;
+        if (string.IsNullOrWhiteSpace(jobPath) || !System.IO.File.Exists(jobPath))
+        {
+            return false;
+        }
+
+        var record = JsonUtility.FromJson<SurfaceTextureJobRecord>(System.IO.File.ReadAllText(jobPath));
+        if (record == null ||
+            !string.Equals(record.RequestId, requestId, StringComparison.OrdinalIgnoreCase) ||
+            record.State is not (SurfaceTextureJobState.TextureReady or SurfaceTextureJobState.MaterialReady) ||
+            string.IsNullOrWhiteSpace(record.OutputImagePath) ||
+            !System.IO.File.Exists(record.OutputImagePath) ||
+            new System.IO.FileInfo(record.OutputImagePath).Length == 0)
+        {
+            return false;
+        }
+
+        imagePath = record.OutputImagePath;
+        return true;
+    }
+
+    private string GetGeneratedSurfaceJobDirectory()
+    {
+#if UNITY_EDITOR
+        var projectRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(Application.dataPath, ".."));
+        return System.IO.Path.Combine(projectRoot, "Library", string.IsNullOrWhiteSpace(generatedSurfaceJobFolderName) ? "SurfaceTextureJobs" : generatedSurfaceJobFolderName);
+#else
+        return System.IO.Path.Combine(Application.persistentDataPath, string.IsNullOrWhiteSpace(generatedSurfaceJobFolderName) ? "SurfaceTextureJobs" : generatedSurfaceJobFolderName);
+#endif
+    }
+
+    private string GetActiveStyleVariantId()
+    {
+        return SurfaceTexturePromptBuilder.BuildStyleVariantId(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
+    }
+
+    private static string BuildSurfaceRequestId(string themeId, string styleVariantId, ThemeSurfaceKind surfaceKind)
+    {
+        return SurfaceTexturePromptBuilder.BuildRequestId(themeId, ToSemanticLabel(surfaceKind), styleVariantId);
+    }
+
+    private static string ToSemanticLabel(ThemeSurfaceKind surfaceKind)
+    {
+        return surfaceKind switch
+        {
+            ThemeSurfaceKind.DoorFrame => "door_frame",
+            ThemeSurfaceKind.WindowFrame => "window_frame",
+            ThemeSurfaceKind.WindowVista => "window_vista",
+            _ => surfaceKind.ToString().ToLowerInvariant(),
+        };
+    }
+
+    private static string SanitizeFileName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "surface";
+        }
+
+        foreach (var invalidChar in System.IO.Path.GetInvalidFileNameChars())
+        {
+            value = value.Replace(invalidChar, '_');
+        }
+
+        return value;
     }
 
     private void SuppressAnchorRenderers(MRUKAnchor anchor)
@@ -533,28 +958,34 @@ public class SurfaceOverrideApplier : MonoBehaviour
         int wallCount,
         int floorCount,
         int ceilingCount,
+        int doorFrameCount,
+        int windowFrameCount,
+        int windowVistaCount,
         int skippedCount)
     {
         var builder = new StringBuilder(384);
+        var totalCount = wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount;
         builder.AppendLine("[SurfaceOverrideApplier]");
         builder.AppendLine(visibilityMode == SurfaceVisibilityMode.Off
             ? "State: off"
-            : wallCount + floorCount + ceilingCount > 0 ? "State: applied" : "State: waiting-for-targets");
+            : totalCount > 0 ? "State: applied" : "State: waiting-for-targets");
         builder.AppendLine($"Theme: {theme.DisplayName}");
         builder.AppendLine($"Reason: {reason}");
         builder.AppendLine($"Visibility Mode: {visibilityMode}");
-        builder.AppendLine($"Override Planes: {wallCount + floorCount + ceilingCount}");
-        builder.AppendLine($"Coverage: floor={floorCount}, wall={wallCount}, ceiling={ceilingCount}");
+        builder.AppendLine($"Override Planes: {totalCount}");
+        builder.AppendLine($"Coverage: floor={floorCount}, wall={wallCount}, ceiling={ceilingCount}, door={doorFrameCount}, window={windowFrameCount}, vista={windowVistaCount}");
         builder.AppendLine($"Skipped: {skippedCount}");
         builder.AppendLine($"Wall Offset: {wallOutwardOffsetMeters:F3}m");
+        builder.AppendLine($"Frame Offset: {frameOutwardOffsetMeters:F3}m, Border: {frameBorderWidthMeters:F3}m");
+        builder.AppendLine($"Window Vista: enabled={applyWindowVistaOverlays}, offset={windowVistaOutwardOffsetMeters:F3}m, scale={windowVistaScaleMultiplier:F2}x");
         if (visibilityMode == SurfaceVisibilityMode.Background)
         {
-            builder.AppendLine($"Background Alpha: wall={backgroundWallAlpha:F2}, floor={backgroundFloorAlpha:F2}, ceiling={backgroundCeilingAlpha:F2}");
+            builder.AppendLine($"Background Alpha: wall/floor/ceiling=1.00 forced, vista={backgroundWindowVistaAlpha:F2}");
         }
         else if (visibilityMode == SurfaceVisibilityMode.DemoStrong)
         {
             builder.AppendLine($"Demo Opacity Boost: {demoOpacityBoost:F2}x");
-            builder.AppendLine($"Demo Min Alpha: wall={demoMinimumWallAlpha:F2}, floor={demoMinimumFloorAlpha:F2}, ceiling={demoMinimumCeilingAlpha:F2}");
+            builder.AppendLine($"Demo Min Alpha: wall/floor/ceiling=1.00 forced, vista={demoMinimumWindowVistaAlpha:F2}");
         }
 
         builder.Append($"Root: {(surfaceOverridesRoot != null ? surfaceOverridesRoot.name : "none")}");
@@ -568,7 +999,22 @@ public class SurfaceOverrideApplier : MonoBehaviour
         SummaryChanged?.Invoke();
     }
 
-    private static void ConfigureTransparentDoubleSidedMaterial(Material material)
+    private static Shader GetSurfaceShader(ThemeSurfaceKind surfaceKind)
+    {
+        if (surfaceKind == ThemeSurfaceKind.WindowVista)
+        {
+            return Shader.Find("Universal Render Pipeline/Unlit") ??
+                   Shader.Find("Unlit/Texture") ??
+                   Shader.Find("Unlit/Color") ??
+                   Shader.Find("Standard");
+        }
+
+        return Shader.Find("Universal Render Pipeline/Lit") ??
+               Shader.Find("Universal Render Pipeline/Unlit") ??
+               Shader.Find("Standard");
+    }
+
+    private static void ConfigureTransparentDoubleSidedMaterial(Material material, ThemeSurfaceKind surfaceKind = ThemeSurfaceKind.Wall)
     {
         if (material.HasProperty("_Surface"))
         {
@@ -605,7 +1051,18 @@ public class SurfaceOverrideApplier : MonoBehaviour
             material.SetFloat("_Cull", (float)UnityEngine.Rendering.CullMode.Off);
         }
 
-        material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        material.renderQueue = GetRenderQueue(surfaceKind);
+    }
+
+    private static int GetRenderQueue(ThemeSurfaceKind surfaceKind)
+    {
+        var transparent = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        return surfaceKind switch
+        {
+            ThemeSurfaceKind.WindowVista => transparent + 80,
+            ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame => transparent + 100,
+            _ => transparent,
+        };
     }
 
     private static void SetMaterialColor(Material material, Color color)

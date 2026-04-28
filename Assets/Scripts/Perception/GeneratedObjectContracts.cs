@@ -11,6 +11,7 @@ public class GeneratedObjectRequest
     public string ThemeId;
     public string ThemeDisplayName;
     public string ThemeShortDescription;
+    public string StyleVariantId = "preset";
     public string UserStyleIntent;
     public string StyleIntentSource;
     public string GlobalStyleSummary;
@@ -65,6 +66,7 @@ public class GeneratedAssetRecord
     public string RequestId;
     public string ObjectId;
     public string ThemeId;
+    public string StyleVariantId = "preset";
     public BestViewCaptureSourceMode CaptureSourceMode = BestViewCaptureSourceMode.ExternalScreenshot;
     public GeneratedObjectJobState State = GeneratedObjectJobState.Pending;
     public string SourceInputImagePath;
@@ -111,6 +113,7 @@ public class GeneratedImageBackendResult
     public string RequestId;
     public string ObjectId;
     public string ThemeId;
+    public string StyleVariantId = "preset";
     public string PromptVersion;
     public string PromptArtifactPath;
     public string SourceInputImagePath;
@@ -131,6 +134,7 @@ public class GeneratedImageBackendSubmission
     public string RequestId;
     public string ObjectId;
     public string ThemeId;
+    public string StyleVariantId = "preset";
     public string PromptVersion;
     public string PromptArtifactPath;
     public string SourceInputImagePath;

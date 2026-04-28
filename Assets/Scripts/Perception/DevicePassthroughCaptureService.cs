@@ -16,6 +16,17 @@ using UnityEngine.InputSystem;
 public class DevicePassthroughCaptureService : MonoBehaviour
 {
     private const string CameraPermission = "horizonos.permission.HEADSET_CAMERA";
+    private static readonly BestViewSemanticCategory[] DefaultGeneratedObjectCategories =
+    {
+        BestViewSemanticCategory.Table,
+        BestViewSemanticCategory.Screen,
+        BestViewSemanticCategory.Storage,
+        BestViewSemanticCategory.Seating,
+        BestViewSemanticCategory.Bed,
+        BestViewSemanticCategory.Lamp,
+        BestViewSemanticCategory.Plant,
+        BestViewSemanticCategory.Other,
+    };
 
     [Header("References")]
     [SerializeField] private PassthroughCameraAccess passthroughCameraAccess;
@@ -28,6 +39,20 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     [SerializeField] private Transform referenceCameraTransform;
 
     [Header("Capture Target")]
+    [SerializeField, Tooltip("When enabled, capture targets the best visible supported MRUK anchor under the user's gaze instead of requiring Table/Storage switching.")]
+    private bool autoSelectTargetFromGaze = true;
+    [SerializeField, Tooltip("Generated-object categories that can be auto-selected from gaze. Keep this narrow until placement is validated per category.")]
+    private List<BestViewSemanticCategory> autoTargetCategories = new()
+    {
+        BestViewSemanticCategory.Table,
+        BestViewSemanticCategory.Screen,
+        BestViewSemanticCategory.Storage,
+        BestViewSemanticCategory.Seating,
+        BestViewSemanticCategory.Bed,
+        BestViewSemanticCategory.Lamp,
+        BestViewSemanticCategory.Plant,
+        BestViewSemanticCategory.Other,
+    };
     [SerializeField] private BestViewSemanticCategory targetCategory = BestViewSemanticCategory.Table;
     [SerializeField, Min(0.5f)] private float maxCaptureDistance = 5f;
     [SerializeField, Range(0f, 0.45f)] private float viewportMargin = 0.08f;
@@ -50,9 +75,18 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     [SerializeField] private bool requestPermissionOnCapture = true;
     [SerializeField] private bool enableKeyboardCapture = true;
     [SerializeField] private KeyCode captureKey = KeyCode.P;
+    [SerializeField] private bool enableKeyboardTargetCycle = true;
+    [SerializeField] private KeyCode targetCycleKey = KeyCode.T;
     [SerializeField] private bool enableXrControllerCapture = true;
     [SerializeField] private XRNode xrCaptureController = XRNode.RightHand;
     [SerializeField] private XrControllerCaptureButton xrCaptureButton = XrControllerCaptureButton.PrimaryButton;
+    [SerializeField, Tooltip("Quest controller target toggle. Y is used to avoid conflicting with the right-hand B shell visibility toggle.")]
+    private bool enableOvrControllerTargetCycle = true;
+    [SerializeField] private OVRInput.RawButton ovrTargetCycleButton = OVRInput.RawButton.Y;
+    [SerializeField, Tooltip("Legacy Unity XR fallback. Keep disabled unless a device does not expose OVRInput.")]
+    private bool enableXrControllerTargetCycle;
+    [SerializeField] private XRNode xrTargetCycleController = XRNode.LeftHand;
+    [SerializeField] private XrControllerCaptureButton xrTargetCycleButton = XrControllerCaptureButton.SecondaryButton;
 
     [Header("PCA Provider Failure Handling")]
     [SerializeField, Min(0.1f), Tooltip("Delay before treating a started PCA provider as failed when it does not enter IsPlaying.")]
@@ -72,10 +106,42 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     public GeneratedObjectRequest LastGeneratedRequest => _lastGeneratedRequest;
     public string CurrentState => _lastState;
     public BestViewSemanticCategory TargetCategory => targetCategory;
+    public bool AutoSelectTargetFromGaze => autoSelectTargetFromGaze;
+    public BestViewSemanticCategory BestCandidateCategory => _bestCandidate.IsValid ? _bestCandidate.Category : targetCategory;
+    public string TargetSelectionLabel
+    {
+        get
+        {
+            if (!autoSelectTargetFromGaze)
+            {
+                return targetCategory.ToString();
+            }
+
+            return _bestCandidate.IsValid
+                ? $"Auto -> {_bestCandidate.Category}"
+                : $"Auto ({GetAutoTargetCategoriesLabel()})";
+        }
+    }
     public bool HasBestCandidate => _bestCandidate.IsValid;
+    public int BestAnchorIndex => _bestCandidate.IsValid ? _bestCandidate.AnchorIndex : -1;
     public string BestAnchorDisplayName => _bestCandidate.IsValid
         ? $"{_bestCandidate.AnchorIndex:D2} ({_bestCandidate.Anchor.name})"
         : "none";
+    public string BestAnchorObjectId
+    {
+        get
+        {
+            if (!_bestCandidate.IsValid)
+            {
+                return string.Empty;
+            }
+
+            var plannedEntry = FindMatchingPlanEntry(_bestCandidate.Anchor, _bestCandidate.AnchorIndex);
+            return plannedEntry != null
+                ? plannedEntry.ObjectId
+                : $"{SanitizeToken(_bestCandidate.Anchor != null ? _bestCandidate.Anchor.name : _bestCandidate.Category.ToString())}_{_bestCandidate.AnchorIndex:D2}";
+        }
+    }
     public float BestCandidateScore => _bestCandidate.IsValid ? _bestCandidate.Score : 0f;
     public float BestCandidateDistance => _bestCandidate.IsValid ? _bestCandidate.Distance : 0f;
     public Vector2 BestCandidateViewportCenter => _bestCandidate.IsValid ? _bestCandidate.ViewportCenter : Vector2.zero;
@@ -93,12 +159,41 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     public string CaptureInputHint => enableXrControllerCapture
         ? $"{captureKey} / {xrCaptureController} {xrCaptureButton}"
         : captureKey.ToString();
+    public string TargetCycleInputHint
+    {
+        get
+        {
+            if (autoSelectTargetFromGaze)
+            {
+                return "auto gaze target";
+            }
+
+            var builder = new StringBuilder(64);
+            builder.Append(targetCycleKey);
+            if (enableOvrControllerTargetCycle)
+            {
+                builder.Append(" / controller ");
+                builder.Append(ovrTargetCycleButton);
+            }
+            else if (enableXrControllerTargetCycle)
+            {
+                builder.Append(" / ");
+                builder.Append(xrTargetCycleController);
+                builder.Append(' ');
+                builder.Append(xrTargetCycleButton);
+            }
+
+            return builder.ToString();
+        }
+    }
 
     private DevicePassthroughCandidate _bestCandidate;
     private DevicePassthroughCaptureRecord _lastCapture = new();
     private GeneratedObjectRequest _lastGeneratedRequest = new();
     private string _lastQueuedJobPath = string.Empty;
     private bool _wasXrCapturePressed;
+    private bool _wasOvrTargetCyclePressed;
+    private bool _wasXrTargetCyclePressed;
     private bool _pcaStartAttemptPending;
     private float _pcaStartAttemptTime = -1f;
     private float _pcaRetryAllowedAt = -1f;
@@ -110,17 +205,25 @@ public class DevicePassthroughCaptureService : MonoBehaviour
 
     private void Reset()
     {
+        NormalizeTargetCycleBinding();
         ResolveReferences();
+    }
+
+    private void OnValidate()
+    {
+        NormalizeTargetCycleBinding();
     }
 
     private void Awake()
     {
+        NormalizeTargetCycleBinding();
         ResolveReferences();
         PublishSummary("awake");
     }
 
     private void OnEnable()
     {
+        NormalizeTargetCycleBinding();
         ResolveReferences();
         PublishSummary("enabled");
     }
@@ -135,6 +238,18 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         if (trackBestCandidateDuringPlay)
         {
             RefreshBestCandidate();
+        }
+
+        if (!autoSelectTargetFromGaze)
+        {
+            var keyboardTargetCyclePressed = enableKeyboardTargetCycle && WasKeyboardCapturePressed(targetCycleKey);
+            var ovrTargetCyclePressed = enableOvrControllerTargetCycle && WasOvrTargetCyclePressed();
+            var xrTargetCyclePressed = enableXrControllerTargetCycle && WasXrTargetCyclePressed();
+            if (keyboardTargetCyclePressed || ovrTargetCyclePressed || xrTargetCyclePressed)
+            {
+                CycleGeneratedFurnitureTarget();
+                return;
+            }
         }
 
         var keyboardCapturePressed = enableKeyboardCapture && WasKeyboardCapturePressed(captureKey);
@@ -177,6 +292,60 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         }
 
         StartCoroutine(CaptureAtEndOfFrame());
+    }
+
+    [ContextMenu("Target/Auto From Gaze")]
+    public void SetTargetSelectionAuto()
+    {
+        if (autoSelectTargetFromGaze)
+        {
+            return;
+        }
+
+        autoSelectTargetFromGaze = true;
+        _bestCandidate = default;
+        PublishSummary("target-auto");
+    }
+
+    [ContextMenu("Target/Table")]
+    public void SetTargetCategoryToTable()
+    {
+        SetTargetCategory(BestViewSemanticCategory.Table);
+    }
+
+    [ContextMenu("Target/Storage")]
+    public void SetTargetCategoryToStorage()
+    {
+        SetTargetCategory(BestViewSemanticCategory.Storage);
+    }
+
+    public void SetTargetCategory(BestViewSemanticCategory category)
+    {
+        if (!autoSelectTargetFromGaze && targetCategory == category)
+        {
+            return;
+        }
+
+        autoSelectTargetFromGaze = false;
+        targetCategory = category;
+        _bestCandidate = default;
+        PublishSummary($"target-{targetCategory.ToString().ToLowerInvariant()}");
+    }
+
+    private void CycleGeneratedFurnitureTarget()
+    {
+        var categories = GetManualTargetCycleCategories();
+        if (categories.Count == 0)
+        {
+            SetTargetCategory(BestViewSemanticCategory.Table);
+            RefreshBestCandidate();
+            return;
+        }
+
+        var currentIndex = categories.IndexOf(targetCategory);
+        var nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % categories.Count;
+        SetTargetCategory(categories[nextIndex]);
+        RefreshBestCandidate();
     }
 
     private void ResolveReferences()
@@ -335,12 +504,24 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         for (var index = 0; index < room.Anchors.Count; index++)
         {
             var anchor = room.Anchors[index];
-            if (!MatchesTargetCategory(anchor))
+            if (!TryResolveAnchorTargetCategory(anchor, out var candidateCategory))
             {
                 continue;
             }
 
-            if (!TryBuildCandidate(anchor, index, cameraPose, usePcaProjection, out var candidate))
+            if (autoSelectTargetFromGaze)
+            {
+                if (!IsAutoTargetCategoryEnabled(candidateCategory))
+                {
+                    continue;
+                }
+            }
+            else if (candidateCategory != targetCategory)
+            {
+                continue;
+            }
+
+            if (!TryBuildCandidate(anchor, index, cameraPose, usePcaProjection, candidateCategory, out var candidate))
             {
                 continue;
             }
@@ -368,6 +549,7 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         int anchorIndex,
         Pose cameraPose,
         bool usePcaProjection,
+        BestViewSemanticCategory category,
         out DevicePassthroughCandidate candidate)
     {
         candidate = default;
@@ -424,6 +606,7 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             Distance = cameraSpace.magnitude,
             CameraPose = cameraPose,
             UsesPcaProjection = usePcaProjection,
+            Category = category,
             Score = centerScore * 0.55f + distanceScore * 0.25f + apparentSizeScore * 0.2f,
             CropRect = TryCalculateNormalizedCropRect(anchor, localCenter, dimensions, cameraPose, usePcaProjection, out var cropRect)
                 ? cropRect
@@ -457,7 +640,8 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         }
 
         var capturedAtUtc = DateTime.UtcNow;
-        var captureId = $"{targetCategory.ToString().ToLowerInvariant()}_{_bestCandidate.AnchorIndex:D2}_{capturedAtUtc:yyyyMMddHHmmss}";
+        var captureCategory = GetResolvedCaptureCategory();
+        var captureId = $"{captureCategory.ToString().ToLowerInvariant()}_{_bestCandidate.AnchorIndex:D2}_{capturedAtUtc:yyyyMMddHHmmss}";
         var outputDirectory = GetCaptureDirectory();
         Directory.CreateDirectory(outputDirectory);
 
@@ -528,8 +712,8 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             ThemeId = themeIntentController != null && themeIntentController.ActiveTheme != null
                 ? themeIntentController.ActiveTheme.ThemeId
                 : "no_theme",
-            SemanticLabel = GetSemanticLabel(targetCategory),
-            FunctionTag = GetFunctionTag(targetCategory),
+            SemanticLabel = GetSemanticLabel(GetResolvedCaptureCategory()),
+            FunctionTag = GetFunctionTag(GetResolvedCaptureCategory()),
             AnchorName = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.name : "unknown_anchor",
             AnchorIndex = _bestCandidate.AnchorIndex,
             CreatedAtIsoUtc = capturedAtUtc.ToString("O"),
@@ -567,8 +751,9 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         string requestPath,
         DateTime capturedAtUtc)
     {
-        var semanticLabel = GetSemanticLabel(targetCategory);
-        var functionTag = GetFunctionTag(targetCategory);
+        var captureCategory = GetResolvedCaptureCategory();
+        var semanticLabel = GetSemanticLabel(captureCategory);
+        var functionTag = GetFunctionTag(captureCategory);
         var theme = themeIntentController != null ? themeIntentController.ActiveTheme : null;
         var plannedEntry = FindMatchingPlanEntry(_bestCandidate.Anchor, _bestCandidate.AnchorIndex);
         var targetSize = CalculateTargetPhysicalSize(_bestCandidate.Dimensions);
@@ -588,6 +773,7 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             ThemeId = theme != null ? theme.ThemeId : "no_theme",
             ThemeDisplayName = theme != null ? theme.DisplayName : "No Theme",
             ThemeShortDescription = theme != null ? theme.ShortDescription : string.Empty,
+            StyleVariantId = SurfaceTexturePromptBuilder.PresetStyleVariantId,
             SemanticLabel = semanticLabel,
             FunctionTag = functionTag,
             SourceAnchorName = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.name : "unknown_anchor",
@@ -653,6 +839,9 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             RequestId = request.RequestId,
             ObjectId = request.ObjectId,
             ThemeId = request.ThemeId,
+            StyleVariantId = string.IsNullOrWhiteSpace(request.StyleVariantId)
+                ? SurfaceTexturePromptBuilder.PresetStyleVariantId
+                : request.StyleVariantId,
             CaptureSourceMode = request.CaptureSourceMode,
             State = GeneratedObjectJobState.CaptureReady,
             SourceInputImagePath = request.SourceImagePath,
@@ -699,20 +888,102 @@ public class DevicePassthroughCaptureService : MonoBehaviour
 
     private bool MatchesTargetCategory(MRUKAnchor anchor)
     {
+        return TryResolveAnchorTargetCategory(anchor, out var category) && category == targetCategory;
+    }
+
+    private BestViewSemanticCategory GetResolvedCaptureCategory()
+    {
+        return _bestCandidate.IsValid ? _bestCandidate.Category : targetCategory;
+    }
+
+    private bool IsAutoTargetCategoryEnabled(BestViewSemanticCategory category)
+    {
+        if (autoTargetCategories == null || autoTargetCategories.Count == 0)
+        {
+            return Array.IndexOf(DefaultGeneratedObjectCategories, category) >= 0;
+        }
+
+        return autoTargetCategories.Contains(category);
+    }
+
+    private string GetAutoTargetCategoriesLabel()
+    {
+        if (autoTargetCategories == null || autoTargetCategories.Count == 0)
+        {
+            return GetDefaultGeneratedObjectCategoriesLabel();
+        }
+
+        var builder = new StringBuilder(48);
+        for (var index = 0; index < autoTargetCategories.Count; index++)
+        {
+            if (index > 0)
+            {
+                builder.Append(", ");
+            }
+
+            builder.Append(autoTargetCategories[index]);
+        }
+
+        return builder.ToString();
+    }
+
+    private bool TryResolveAnchorTargetCategory(MRUKAnchor anchor, out BestViewSemanticCategory category)
+    {
+        category = default;
         if (anchor == null)
         {
             return false;
         }
 
-        return targetCategory switch
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.TABLE))
         {
-            BestViewSemanticCategory.Table => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.TABLE),
-            BestViewSemanticCategory.Screen => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.SCREEN),
-            BestViewSemanticCategory.Storage => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.STORAGE),
-            BestViewSemanticCategory.Seating => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.COUCH),
-            BestViewSemanticCategory.Other => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.OTHER),
-            _ => false,
-        };
+            category = BestViewSemanticCategory.Table;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.SCREEN))
+        {
+            category = BestViewSemanticCategory.Screen;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.STORAGE))
+        {
+            category = BestViewSemanticCategory.Storage;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.COUCH))
+        {
+            category = BestViewSemanticCategory.Seating;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.BED))
+        {
+            category = BestViewSemanticCategory.Bed;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.LAMP))
+        {
+            category = BestViewSemanticCategory.Lamp;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.PLANT))
+        {
+            category = BestViewSemanticCategory.Plant;
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.OTHER))
+        {
+            category = BestViewSemanticCategory.Other;
+            return true;
+        }
+
+        return false;
     }
 
     private bool TryCalculateNormalizedCropRect(
@@ -960,7 +1231,7 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         var builder = new StringBuilder(640);
         builder.AppendLine("[DevicePassthroughCaptureService]");
         builder.AppendLine($"State: {state}");
-        builder.AppendLine($"Target: {targetCategory}");
+        builder.AppendLine($"Target: {TargetSelectionLabel}");
         builder.AppendLine($"Input: {CaptureInputHint} (Play mode)");
         builder.AppendLine($"PCA Component: {(passthroughCameraAccess != null ? passthroughCameraAccess.name : "missing")}");
         builder.AppendLine($"PCA Supported: {(passthroughCameraAccess != null ? PassthroughCameraAccess.IsSupported : false)}");
@@ -973,7 +1244,8 @@ public class DevicePassthroughCaptureService : MonoBehaviour
 
         if (_bestCandidate.IsValid)
         {
-            builder.AppendLine($"Best Anchor: {_bestCandidate.AnchorIndex:D2} ({_bestCandidate.Anchor.name})");
+            builder.AppendLine($"Best Anchor: {_bestCandidate.AnchorIndex:D2} ({_bestCandidate.Anchor.name}) [{_bestCandidate.Category}]");
+            builder.AppendLine($"Object ID: {BestAnchorObjectId}");
             builder.AppendLine($"Score: {_bestCandidate.Score:F2}");
             builder.AppendLine($"Distance: {_bestCandidate.Distance:F2}m");
             builder.AppendLine($"Viewport: {_bestCandidate.ViewportCenter.x:F2}, {_bestCandidate.ViewportCenter.y:F2}");
@@ -1080,6 +1352,9 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             BestViewSemanticCategory.Screen => "screen",
             BestViewSemanticCategory.Storage => "storage",
             BestViewSemanticCategory.Seating => "seating",
+            BestViewSemanticCategory.Bed => "bed",
+            BestViewSemanticCategory.Lamp => "lamp",
+            BestViewSemanticCategory.Plant => "plant",
             BestViewSemanticCategory.Other => "other",
             _ => "unknown",
         };
@@ -1093,7 +1368,10 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             BestViewSemanticCategory.Screen => "display_surface",
             BestViewSemanticCategory.Storage => "storage",
             BestViewSemanticCategory.Seating => "seating",
-            BestViewSemanticCategory.Other => "general",
+            BestViewSemanticCategory.Bed => "sleeping_surface",
+            BestViewSemanticCategory.Lamp => "lighting",
+            BestViewSemanticCategory.Plant => "decorative_plant",
+            BestViewSemanticCategory.Other => "model_inferred_object",
             _ => "unknown",
         };
     }
@@ -1103,7 +1381,11 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         return string.Equals(functionTag, "support_surface", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(functionTag, "display_surface", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(functionTag, "storage", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(functionTag, "seating", StringComparison.OrdinalIgnoreCase);
+               string.Equals(functionTag, "seating", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(functionTag, "sleeping_surface", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(functionTag, "lighting", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(functionTag, "decorative_plant", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(functionTag, "model_inferred_object", StringComparison.OrdinalIgnoreCase);
     }
 
     private static float GetHorizontalYawDegrees(Vector3 forward)
@@ -1156,13 +1438,22 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         StylizationPlanEntry plannedEntry)
     {
         var builder = new StringBuilder(256);
-        builder.Append("Stylize the ");
-        builder.Append(semanticLabel);
-        builder.Append(" for the theme \"");
-        builder.Append(theme != null ? theme.DisplayName : "Unassigned Theme");
-        builder.Append("\" while preserving its ");
-        builder.Append(functionTag);
-        builder.Append(", approximate dimensions, dominant yaw, and walk-around footprint.");
+        if (string.Equals(semanticLabel, "other", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.Append("The spatial system labeled this as an unknown room object. Use the reference image to infer the object's visual category and functional role, then stylize that same physical object for the theme \"");
+            builder.Append(theme != null ? theme.DisplayName : "Unassigned Theme");
+            builder.Append("\" while preserving its approximate dimensions, dominant yaw, footprint, and contact surface.");
+        }
+        else
+        {
+            builder.Append("Stylize the ");
+            builder.Append(semanticLabel);
+            builder.Append(" for the theme \"");
+            builder.Append(theme != null ? theme.DisplayName : "Unassigned Theme");
+            builder.Append("\" while preserving its ");
+            builder.Append(functionTag);
+            builder.Append(", approximate dimensions, dominant yaw, and walk-around footprint.");
+        }
 
         if (theme != null && !string.IsNullOrWhiteSpace(theme.ShortDescription))
         {
@@ -1259,6 +1550,82 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         return wasPressedThisFrame;
     }
 
+    private bool WasOvrTargetCyclePressed()
+    {
+        var isPressed = OVRInput.Get(ovrTargetCycleButton);
+        var wasPressedThisFrame = isPressed && !_wasOvrTargetCyclePressed;
+        _wasOvrTargetCyclePressed = isPressed;
+        return wasPressedThisFrame;
+    }
+
+    private bool WasXrTargetCyclePressed()
+    {
+        var device = InputDevices.GetDeviceAtXRNode(xrTargetCycleController);
+        if (!device.isValid || !TryGetXrButtonPressed(device, xrTargetCycleButton, out var isPressed))
+        {
+            _wasXrTargetCyclePressed = false;
+            return false;
+        }
+
+        var wasPressedThisFrame = isPressed && !_wasXrTargetCyclePressed;
+        _wasXrTargetCyclePressed = isPressed;
+        return wasPressedThisFrame;
+    }
+
+    private void NormalizeTargetCycleBinding()
+    {
+        EnsureAutoTargetCategories();
+
+        if (enableXrControllerTargetCycle &&
+            xrTargetCycleController == XRNode.RightHand &&
+            xrTargetCycleButton == XrControllerCaptureButton.SecondaryButton)
+        {
+            enableXrControllerTargetCycle = false;
+            enableOvrControllerTargetCycle = true;
+            ovrTargetCycleButton = OVRInput.RawButton.Y;
+        }
+    }
+
+    private void EnsureAutoTargetCategories()
+    {
+        autoTargetCategories ??= new List<BestViewSemanticCategory>();
+
+        foreach (var category in DefaultGeneratedObjectCategories)
+        {
+            if (!autoTargetCategories.Contains(category))
+            {
+                autoTargetCategories.Add(category);
+            }
+        }
+    }
+
+    private List<BestViewSemanticCategory> GetManualTargetCycleCategories()
+    {
+        EnsureAutoTargetCategories();
+        if (autoTargetCategories == null || autoTargetCategories.Count == 0)
+        {
+            return new List<BestViewSemanticCategory>(DefaultGeneratedObjectCategories);
+        }
+
+        return autoTargetCategories;
+    }
+
+    private static string GetDefaultGeneratedObjectCategoriesLabel()
+    {
+        var builder = new StringBuilder(64);
+        for (var index = 0; index < DefaultGeneratedObjectCategories.Length; index++)
+        {
+            if (index > 0)
+            {
+                builder.Append(", ");
+            }
+
+            builder.Append(DefaultGeneratedObjectCategories[index]);
+        }
+
+        return builder.ToString();
+    }
+
     private static bool TryGetXrButtonPressed(
         UnityEngine.XR.InputDevice device,
         XrControllerCaptureButton button,
@@ -1302,6 +1669,7 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         public Rect CropRect;
         public Pose CameraPose;
         public bool UsesPcaProjection;
+        public BestViewSemanticCategory Category;
 
         public bool IsValid => Anchor != null;
     }

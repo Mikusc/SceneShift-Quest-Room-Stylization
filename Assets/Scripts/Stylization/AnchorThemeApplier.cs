@@ -26,6 +26,22 @@ public class AnchorThemeApplier : MonoBehaviour
 
     [Header("Proxy Targets")]
     [SerializeField] private bool applyTableProxies = true;
+    [SerializeField, Tooltip("Allows generated/imported storage cabinet proxies to be placed on matching MRUK STORAGE anchors.")]
+    private bool applyStorageProxies = true;
+    [SerializeField, Tooltip("Allows generated/imported display proxies to be placed on matching MRUK SCREEN anchors when a usable scaffold exists.")]
+    private bool applyScreenGeneratedProxies = true;
+    [SerializeField, Tooltip("Allows generated/imported seating proxies to be placed on matching MRUK COUCH anchors.")]
+    private bool applySeatingGeneratedProxies = true;
+    [SerializeField, Tooltip("Allows generated/imported bed proxies to be placed on matching MRUK BED anchors.")]
+    private bool applyBedGeneratedProxies = true;
+    [SerializeField, Tooltip("Allows generated/imported lamp proxies to be placed on matching MRUK LAMP anchors.")]
+    private bool applyLampGeneratedProxies = true;
+    [SerializeField, Tooltip("Allows generated/imported plant proxies to be placed on matching MRUK PLANT anchors.")]
+    private bool applyPlantGeneratedProxies = true;
+    [SerializeField, Tooltip("Allows request-locked generated assets to be placed on MRUK OTHER anchors with generic bounds fitting only.")]
+    private bool applyOtherGeneratedProxies = true;
+    [SerializeField, Tooltip("For storage/cabinets, fit generated assets to the visible MRUK volume shell renderer when available instead of only MRUK VolumeBounds.")]
+    private bool storageFitToVisibleShellBounds = true;
     [SerializeField] private bool hideOriginalVolumeVisuals = true;
     [SerializeField, Min(0.1f)] private float proxyFootprintPadding = 1f;
     [SerializeField, Min(0.1f)] private float proxyHeightPadding = 1f;
@@ -33,27 +49,39 @@ public class AnchorThemeApplier : MonoBehaviour
     private TableProxyVerticalFitMode tableVerticalFitMode = TableProxyVerticalFitMode.FloorToAnchorTop;
     [SerializeField, Range(1f, 1.25f), Tooltip("Horizontal safety expansion applied after the MRUK table footprint so the virtual table slightly covers the real one.")]
     private float tableFootprintSafetyScale = 1.08f;
+    [SerializeField, Range(1f, 1.15f), Tooltip("Horizontal safety expansion for generated storage/cabinet assets. Keep close to 1.0 to avoid blocking walkable space.")]
+    private float storageFootprintSafetyScale = 1f;
     [SerializeField, Range(0.5f, 2.5f), Tooltip("Optional local X correction for room-specific table width mismatch.")]
     private float tableLocalXScale = 1f;
     [SerializeField, Range(0.5f, 2.5f), Tooltip("Optional local Z correction for room-specific table depth mismatch.")]
     private float tableLocalZScale = 1f;
+    [SerializeField, Range(0.5f, 2.5f), Tooltip("Optional local X correction for generated storage/cabinet length mismatch.")]
+    private float storageLocalXScale = 1f;
+    [SerializeField, Range(0.5f, 2.5f), Tooltip("Optional local Z correction for generated storage/cabinet depth mismatch.")]
+    private float storageLocalZScale = 1f;
     [SerializeField, Min(0f), Tooltip("Small clearance above the MRUK floor plane used when fitting full-height generated tables.")]
     private float tableFloorClearanceMeters = 0.005f;
     [SerializeField, Tooltip("Final world-space Y offset for manual room calibration after automatic fitting.")]
     private float tableProxyVerticalOffsetMeters;
     [SerializeField, Range(-180f, 180f)] private float tableProxyYawOffsetDegrees = 90f;
+    [SerializeField, Range(-180f, 180f)] private float storageProxyYawOffsetDegrees;
     [SerializeField, Tooltip("For imported generated tables, rotate the visual model before fitting when its local long axis does not match the MRUK table long axis.")]
     private bool autoAlignGeneratedTableLongAxis = true;
-    [SerializeField, Tooltip("For generated-object validation, only spawn the imported generated table on the matching captured TABLE anchor instead of replacing every MRUK TABLE anchor.")]
+    [SerializeField, Tooltip("For generated-object validation, only spawn imported generated furniture on matching captured anchors instead of replacing every MRUK furniture anchor.")]
     private bool onlyReplaceGeneratedTableTarget = true;
-    [SerializeField, Tooltip("After a generated table is successfully placed, keep that anchor bound to the same generated prefab until locks are cleared.")]
+    [SerializeField, Tooltip("After generated furniture is successfully placed, keep that anchor bound to the same generated prefab until locks are cleared.")]
     private bool lockPlacedGeneratedTables = true;
     [SerializeField] private bool augmentFlatTableProxies = true;
     [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
 #if UNITY_EDITOR
     [SerializeField] private bool preferImportedGeneratedTablePrefabs = true;
     [SerializeField] private bool lockGeneratedTablePrefabsToActiveCapture = true;
-    [SerializeField] private bool allowLatestGeneratedTableWhenNoActiveCapture;
+    [SerializeField, Tooltip("When no active capture exists, still load the newest generated prefab that matches each table ObjectId. Disable this to require a fresh capture in every Play session.")]
+    private bool allowLatestGeneratedTableWhenNoActiveCapture = true;
+    [SerializeField, Tooltip("Allows request-locked generated tables that failed automatic quality review to be placed for visual validation only.")]
+    private bool allowNeedsReviewGeneratedTablesForValidation = true;
+    [SerializeField, Tooltip("Debug only: allows the newest generated table to appear on the current best-view target even when ObjectId does not match. Keep disabled for multi-table validation.")]
+    private bool allowUnmatchedLatestGeneratedTableForDebug;
     [SerializeField] private string generatedObjectJobFolderName = "GeneratedObjectJobs";
 #endif
 
@@ -66,7 +94,7 @@ public class AnchorThemeApplier : MonoBehaviour
         Z,
     }
 
-    private sealed class LockedGeneratedTablePrefab
+    private sealed class LockedGeneratedFurniturePrefab
     {
         public string ThemeId;
         public string EntryId;
@@ -102,7 +130,7 @@ public class AnchorThemeApplier : MonoBehaviour
     private readonly List<Material> _runtimeMaterials = new();
     private readonly List<Texture2D> _runtimeTextures = new();
     private readonly List<GameObject> _spawnedProxyRoots = new();
-    private readonly Dictionary<string, LockedGeneratedTablePrefab> _lockedGeneratedTablePrefabs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LockedGeneratedFurniturePrefab> _lockedGeneratedTablePrefabs = new(StringComparer.Ordinal);
 
     private string _latestSummary = "[AnchorThemeApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
     private string _lastTableProxyStatus = "idle";
@@ -344,7 +372,16 @@ public class AnchorThemeApplier : MonoBehaviour
             }
         }
 
-        _lastAppliedTableProxyCount = applyTableProxies ? ApplyTableProxies(theme, room, plan) : 0;
+        _lastAppliedTableProxyCount = applyTableProxies ||
+                                      applyStorageProxies ||
+                                      applyScreenGeneratedProxies ||
+                                      applySeatingGeneratedProxies ||
+                                      applyBedGeneratedProxies ||
+                                      applyLampGeneratedProxies ||
+                                      applyPlantGeneratedProxies ||
+                                      applyOtherGeneratedProxies
+            ? ApplyFurnitureProxies(theme, room, plan)
+            : 0;
 
         var builder = new StringBuilder(256);
         builder.AppendLine("[AnchorThemeApplier]");
@@ -355,9 +392,9 @@ public class AnchorThemeApplier : MonoBehaviour
         builder.AppendLine($"Reason: {reason}");
         builder.AppendLine($"Surface Anchors: {_lastAppliedAnchorCount}");
         builder.AppendLine($"Renderers: {_lastAppliedRendererCount}");
-        builder.AppendLine($"Table Proxies: {_lastAppliedTableProxyCount}");
+        builder.AppendLine($"Furniture Proxies: {_lastAppliedTableProxyCount}");
         builder.AppendLine($"Plan Entries: {plan?.EntryCount ?? 0}");
-        builder.AppendLine($"Table Status: {_lastTableProxyStatus}");
+        builder.AppendLine($"Furniture Status: {_lastTableProxyStatus}");
         builder.Append($"Coverage: floor={floorCount}, wall={wallCount}, ceiling={ceilingCount}");
         _latestSummary = builder.ToString();
         _needsRefresh = _lastAppliedRendererCount == 0;
@@ -370,7 +407,7 @@ public class AnchorThemeApplier : MonoBehaviour
         }
     }
 
-    private int ApplyTableProxies(ThemeProfile theme, MRUKRoom room, StylizationPlan plan)
+    private int ApplyFurnitureProxies(ThemeProfile theme, MRUKRoom room, StylizationPlan plan)
     {
         if (theme == null || room == null || plan == null || proxyObjectsRoot == null)
         {
@@ -379,7 +416,7 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         var proxyCount = 0;
-        var tableAnchorCount = 0;
+        var furnitureAnchorCount = 0;
         var matchedPlanCount = 0;
         var resolvedPrefabCount = 0;
         var lastEntryId = "none";
@@ -389,33 +426,45 @@ public class AnchorThemeApplier : MonoBehaviour
         var lastAugmentation = "none";
         var lastFit = "none";
         var lockedAppliedCount = 0;
+        var lastSemanticLabel = "none";
 
         for (var index = 0; index < room.Anchors.Count; index++)
         {
             var anchor = room.Anchors[index];
-            if (anchor == null || !anchor.HasAnyLabel(MRUKAnchor.SceneLabels.TABLE) || !anchor.VolumeBounds.HasValue)
+            if (anchor == null ||
+                !anchor.VolumeBounds.HasValue ||
+                !TryGetGeneratedFurnitureSemantic(anchor, out var semanticLabel) ||
+                !IsGeneratedFurnitureSemanticEnabled(semanticLabel))
             {
                 continue;
             }
 
-            tableAnchorCount++;
-            var planEntry = FindPlanEntry(plan, theme.ThemeId, "table", index);
-            if (planEntry == null || planEntry.ReplacementMode != ReplacementMode.ProxyPrefab)
+            furnitureAnchorCount++;
+            lastSemanticLabel = semanticLabel;
+            var planEntry = FindPlanEntry(plan, theme.ThemeId, semanticLabel, index);
+            if (planEntry == null)
             {
-                lastFailure = planEntry == null ? $"missing_plan_{index}" : $"mode_{planEntry.ReplacementMode}";
+                lastFailure = $"missing_plan_{index}";
                 continue;
             }
 
             matchedPlanCount++;
             lastEntryId = planEntry.EntryId;
-            var proxyPrefab = ResolveLockedGeneratedTablePrefab(theme, planEntry, out var prefabSource);
+            var proxyPrefab = ResolveLockedGeneratedFurniturePrefab(theme, planEntry, out var prefabSource);
             var usedLockedGeneratedPrefab = proxyPrefab != null;
             if (!usedLockedGeneratedPrefab)
             {
                 proxyPrefab = ResolveProxyPrefab(theme, planEntry, out prefabSource);
             }
 
-            if (onlyReplaceGeneratedTableTarget && !string.Equals(prefabSource, "generated_import", StringComparison.Ordinal))
+            var usingGeneratedPrefab = string.Equals(prefabSource, "generated_import", StringComparison.Ordinal);
+            if (planEntry.ReplacementMode != ReplacementMode.ProxyPrefab && !usingGeneratedPrefab)
+            {
+                lastFailure = $"mode_{planEntry.ReplacementMode}";
+                continue;
+            }
+
+            if (onlyReplaceGeneratedTableTarget && !usingGeneratedPrefab)
             {
                 lastFailure = $"not_generated_target_{planEntry.EntryId}";
                 continue;
@@ -430,7 +479,7 @@ public class AnchorThemeApplier : MonoBehaviour
             resolvedPrefabCount++;
             lastPrefabName = proxyPrefab.name;
             lastPrefabSource = prefabSource;
-            if (TrySpawnTableProxy(anchor, room, proxyPrefab, prefabSource, planEntry, theme, out var augmentationStatus, out var fitStatus))
+            if (TrySpawnFurnitureProxy(anchor, room, proxyPrefab, prefabSource, planEntry, theme, semanticLabel, out var augmentationStatus, out var fitStatus))
             {
                 proxyCount++;
                 if (usedLockedGeneratedPrefab)
@@ -438,7 +487,7 @@ public class AnchorThemeApplier : MonoBehaviour
                     lockedAppliedCount++;
                 }
 
-                RegisterLockedGeneratedTablePrefab(theme, planEntry, proxyPrefab, prefabSource);
+                RegisterLockedGeneratedFurniturePrefab(theme, planEntry, proxyPrefab, prefabSource);
                 lastFailure = "none";
                 lastAugmentation = augmentationStatus;
                 lastFit = fitStatus;
@@ -451,11 +500,11 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         _lastTableProxyStatus =
-            $"anchors={tableAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, locks={_lockedGeneratedTablePrefabs.Count}, lockedApplied={lockedAppliedCount}, entry={lastEntryId}, prefab={lastPrefabName}, source={lastPrefabSource}, generated={_lastGeneratedTableSelectionStatus}, augment={lastAugmentation}, fit={lastFit}, failure={lastFailure}";
+            $"anchors={furnitureAnchorCount}, plans={matchedPlanCount}, prefabs={resolvedPrefabCount}, spawned={proxyCount}, locks={_lockedGeneratedTablePrefabs.Count}, lockedApplied={lockedAppliedCount}, semantic={lastSemanticLabel}, entry={lastEntryId}, prefab={lastPrefabName}, source={lastPrefabSource}, generated={_lastGeneratedTableSelectionStatus}, augment={lastAugmentation}, fit={lastFit}, failure={lastFailure}";
         return proxyCount;
     }
 
-    private GameObject ResolveLockedGeneratedTablePrefab(
+    private GameObject ResolveLockedGeneratedFurniturePrefab(
         ThemeProfile theme,
         StylizationPlanEntry planEntry,
         out string prefabSource)
@@ -466,7 +515,7 @@ public class AnchorThemeApplier : MonoBehaviour
             return null;
         }
 
-        var lockKey = GetGeneratedTableLockKey(theme.ThemeId, planEntry.EntryId);
+        var lockKey = GetGeneratedFurnitureLockKey(theme.ThemeId, planEntry.EntryId);
         if (!_lockedGeneratedTablePrefabs.TryGetValue(lockKey, out var lockedPrefab) ||
             lockedPrefab == null ||
             lockedPrefab.Prefab == null)
@@ -479,7 +528,7 @@ public class AnchorThemeApplier : MonoBehaviour
         return lockedPrefab.Prefab;
     }
 
-    private void RegisterLockedGeneratedTablePrefab(
+    private void RegisterLockedGeneratedFurniturePrefab(
         ThemeProfile theme,
         StylizationPlanEntry planEntry,
         GameObject proxyPrefab,
@@ -494,8 +543,8 @@ public class AnchorThemeApplier : MonoBehaviour
             return;
         }
 
-        var lockKey = GetGeneratedTableLockKey(theme.ThemeId, planEntry.EntryId);
-        _lockedGeneratedTablePrefabs[lockKey] = new LockedGeneratedTablePrefab
+        var lockKey = GetGeneratedFurnitureLockKey(theme.ThemeId, planEntry.EntryId);
+        _lockedGeneratedTablePrefabs[lockKey] = new LockedGeneratedFurniturePrefab
         {
             ThemeId = theme.ThemeId,
             EntryId = planEntry.EntryId,
@@ -506,18 +555,19 @@ public class AnchorThemeApplier : MonoBehaviour
         };
     }
 
-    private static string GetGeneratedTableLockKey(string themeId, string entryId)
+    private static string GetGeneratedFurnitureLockKey(string themeId, string entryId)
     {
         return $"{themeId ?? string.Empty}:{entryId ?? string.Empty}";
     }
 
-    private bool TrySpawnTableProxy(
+    private bool TrySpawnFurnitureProxy(
         MRUKAnchor anchor,
         MRUKRoom room,
         GameObject proxyPrefab,
         string prefabSource,
         StylizationPlanEntry planEntry,
         ThemeProfile theme,
+        string semanticLabel,
         out string augmentationStatus,
         out string fitStatus)
     {
@@ -529,13 +579,16 @@ public class AnchorThemeApplier : MonoBehaviour
             return false;
         }
 
-        var proxyRoot = new GameObject($"TableProxy_{planEntry.EntryId}");
+        var proxyRoot = new GameObject($"{ToTitleCase(semanticLabel)}Proxy_{planEntry.EntryId}");
         proxyRoot.transform.SetParent(proxyObjectsRoot, false);
 
         var volumeBounds = anchor.VolumeBounds.Value;
         proxyRoot.transform.position = anchor.transform.TransformPoint(volumeBounds.center);
 
-        proxyRoot.transform.rotation = GetTableProxyRotation(anchor, planEntry.PreserveYawOrientation, tableProxyYawOffsetDegrees);
+        proxyRoot.transform.rotation = GetFurnitureProxyRotation(
+            anchor,
+            planEntry.PreserveYawOrientation,
+            GetFurnitureYawOffsetDegrees(semanticLabel));
 
         var proxyInstance = Instantiate(proxyPrefab, proxyRoot.transform);
         proxyInstance.name = $"{proxyPrefab.name}_{planEntry.EntryId}";
@@ -543,16 +596,30 @@ public class AnchorThemeApplier : MonoBehaviour
         proxyInstance.transform.localRotation = Quaternion.identity;
         proxyInstance.transform.localScale = Vector3.one;
 
-        if (!TryCalculateAnchorTargetBounds(proxyRoot.transform, anchor.transform, volumeBounds, out var rawTargetBounds) ||
-            !TryAdjustTableTargetBoundsForVerticalFit(proxyRoot.transform, room, rawTargetBounds, out var targetBounds, out var verticalFitStatus))
+        var targetBoundsSource = "volume_bounds";
+        var rawTargetBounds = default(Bounds);
+        var hasShellTargetBounds = IsStorageSemantic(semanticLabel) &&
+                                   storageFitToVisibleShellBounds &&
+                                   TryCalculateAnchorShellRendererTargetBounds(proxyRoot.transform, anchor, out rawTargetBounds);
+        if (hasShellTargetBounds)
+        {
+            targetBoundsSource = "visible_shell_bounds";
+        }
+        else if (!TryCalculateAnchorTargetBounds(proxyRoot.transform, anchor.transform, volumeBounds, out rawTargetBounds))
         {
             SafeDestroy(proxyRoot);
             return false;
         }
 
-        var axisAlignmentStatus = AutoAlignGeneratedTableLongAxis(proxyRoot.transform, proxyInstance.transform, targetBounds, prefabSource);
+        if (!TryAdjustFurnitureTargetBoundsForVerticalFit(proxyRoot.transform, room, rawTargetBounds, semanticLabel, out var targetBounds, out var verticalFitStatus))
+        {
+            SafeDestroy(proxyRoot);
+            return false;
+        }
 
-        if (!FitProxyToTableAnchor(proxyRoot.transform, proxyInstance.transform, targetBounds, out var fittedBounds, out var targetSize, out var sourceSize, out var appliedScale))
+        var axisAlignmentStatus = AutoAlignGeneratedFurnitureLongAxis(proxyRoot.transform, proxyInstance.transform, targetBounds, prefabSource, semanticLabel);
+
+        if (!FitProxyToFurnitureAnchor(proxyRoot.transform, proxyInstance.transform, targetBounds, semanticLabel, out var fittedBounds, out var targetSize, out var sourceSize, out var appliedScale))
         {
             SafeDestroy(proxyRoot);
             return false;
@@ -564,10 +631,12 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         var bottomDelta = fittedBounds.min.y - targetBounds.min.y;
-        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}, vertical={verticalFitStatus}, axis={axisAlignmentStatus}, safety={tableFootprintSafetyScale:0.###}, offsetY={FormatMeters(tableProxyVerticalOffsetMeters)}";
+        fitStatus = $"target={FormatSize(targetSize)}, source={FormatSize(sourceSize)}, scale={FormatSize(appliedScale)}, bottomDelta={FormatMeters(bottomDelta)}, sourceBounds={targetBoundsSource}, vertical={verticalFitStatus}, axis={axisAlignmentStatus}, safety={GetFurnitureFootprintSafetyScale(semanticLabel):0.###}, offsetY={FormatMeters(tableProxyVerticalOffsetMeters)}";
 
         ApplyProxyAccent(proxyInstance, theme);
-        augmentationStatus = AugmentFlatTableProxy(proxyRoot.transform, proxyInstance.transform, fittedBounds, targetSize, theme);
+        augmentationStatus = IsTableSemantic(semanticLabel)
+            ? AugmentFlatTableProxy(proxyRoot.transform, proxyInstance.transform, fittedBounds, targetSize, theme)
+            : "not_table";
 
         if (hideOriginalVolumeVisuals)
         {
@@ -578,12 +647,18 @@ public class AnchorThemeApplier : MonoBehaviour
         return true;
     }
 
-    private string AutoAlignGeneratedTableLongAxis(
+    private string AutoAlignGeneratedFurnitureLongAxis(
         Transform proxyRoot,
         Transform proxyInstance,
         Bounds targetBounds,
-        string prefabSource)
+        string prefabSource,
+        string semanticLabel)
     {
+        if (IsOtherSemantic(semanticLabel))
+        {
+            return "generic_no_axis_search";
+        }
+
         if (!autoAlignGeneratedTableLongAxis)
         {
             return "auto_disabled";
@@ -635,10 +710,11 @@ public class AnchorThemeApplier : MonoBehaviour
         return HorizontalLongAxis.Balanced;
     }
 
-    private bool FitProxyToTableAnchor(
+    private bool FitProxyToFurnitureAnchor(
         Transform proxyRoot,
         Transform proxyInstance,
         Bounds targetBounds,
+        string semanticLabel,
         out Bounds fittedBounds,
         out Vector3 targetSize,
         out Vector3 sourceSize,
@@ -655,11 +731,11 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         sourceSize = initialBounds.size;
-        var footprintScale = Mathf.Max(0.01f, proxyFootprintPadding * tableFootprintSafetyScale);
+        var footprintScale = Mathf.Max(0.01f, proxyFootprintPadding * GetFurnitureFootprintSafetyScale(semanticLabel));
         targetSize = new Vector3(
-            Mathf.Max(targetBounds.size.x * footprintScale * tableLocalXScale, 0.05f),
+            Mathf.Max(targetBounds.size.x * footprintScale * GetFurnitureLocalXScale(semanticLabel), 0.05f),
             Mathf.Max(targetBounds.size.y * proxyHeightPadding, 0.05f),
-            Mathf.Max(targetBounds.size.z * footprintScale * tableLocalZScale, 0.05f));
+            Mathf.Max(targetBounds.size.z * footprintScale * GetFurnitureLocalZScale(semanticLabel), 0.05f));
 
         var xScale = sourceSize.x > 0.001f ? targetSize.x / sourceSize.x : 1f;
         var zScale = sourceSize.z > 0.001f ? targetSize.z / sourceSize.z : 1f;
@@ -747,10 +823,85 @@ public class AnchorThemeApplier : MonoBehaviour
         return hasBounds;
     }
 
-    private bool TryAdjustTableTargetBoundsForVerticalFit(
+    private static bool TryCalculateAnchorShellRendererTargetBounds(
+        Transform proxyRoot,
+        MRUKAnchor anchor,
+        out Bounds targetBounds)
+    {
+        targetBounds = default;
+        if (proxyRoot == null || anchor == null)
+        {
+            return false;
+        }
+
+        var renderers = anchor.GetComponentsInChildren<Renderer>(true);
+        var hasBounds = false;
+        for (var index = 0; index < renderers.Length; index++)
+        {
+            var renderer = renderers[index];
+            if (!ShouldUseRendererForShellTargetBounds(renderer))
+            {
+                continue;
+            }
+
+            var localBounds = renderer.localBounds;
+            var min = localBounds.min;
+            var max = localBounds.max;
+            for (var x = 0; x <= 1; x++)
+            {
+                for (var y = 0; y <= 1; y++)
+                {
+                    for (var z = 0; z <= 1; z++)
+                    {
+                        var rendererLocalPoint = new Vector3(
+                            x == 0 ? min.x : max.x,
+                            y == 0 ? min.y : max.y,
+                            z == 0 ? min.z : max.z);
+                        var worldPoint = renderer.transform.TransformPoint(rendererLocalPoint);
+                        var targetLocalPoint = proxyRoot.InverseTransformPoint(worldPoint);
+                        if (!hasBounds)
+                        {
+                            targetBounds = new Bounds(targetLocalPoint, Vector3.zero);
+                            hasBounds = true;
+                        }
+                        else
+                        {
+                            targetBounds.Encapsulate(targetLocalPoint);
+                        }
+                    }
+                }
+            }
+        }
+
+        return hasBounds;
+    }
+
+    private static bool ShouldUseRendererForShellTargetBounds(Renderer renderer)
+    {
+        if (renderer == null || renderer is ParticleSystemRenderer)
+        {
+            return false;
+        }
+
+        var current = renderer.transform;
+        while (current != null)
+        {
+            if (current.name.StartsWith("Volume(", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            current = current.parent;
+        }
+
+        return false;
+    }
+
+    private bool TryAdjustFurnitureTargetBoundsForVerticalFit(
         Transform proxyRoot,
         MRUKRoom room,
         Bounds sourceTargetBounds,
+        string semanticLabel,
         out Bounds adjustedTargetBounds,
         out string fitStatus)
     {
@@ -761,6 +912,12 @@ public class AnchorThemeApplier : MonoBehaviour
         {
             fitStatus = "missing_proxy_root";
             return false;
+        }
+
+        if (!IsTableSemantic(semanticLabel))
+        {
+            fitStatus = $"AnchorBoundsBottom({semanticLabel})";
+            return true;
         }
 
         if (tableVerticalFitMode == TableProxyVerticalFitMode.AnchorBoundsBottom)
@@ -974,7 +1131,7 @@ public class AnchorThemeApplier : MonoBehaviour
         return "generated_supports";
     }
 
-    private static Quaternion GetTableProxyRotation(
+    private static Quaternion GetFurnitureProxyRotation(
         MRUKAnchor anchor,
         bool preserveYawOrientation,
         float yawOffsetDegrees)
@@ -1235,7 +1392,225 @@ public class AnchorThemeApplier : MonoBehaviour
             return "TABLE";
         }
 
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.SCREEN))
+        {
+            return "SCREEN";
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.STORAGE))
+        {
+            return "STORAGE";
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.COUCH))
+        {
+            return "COUCH";
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.BED))
+        {
+            return "BED";
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.LAMP))
+        {
+            return "LAMP";
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.PLANT))
+        {
+            return "PLANT";
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.OTHER))
+        {
+            return "OTHER";
+        }
+
         return null;
+    }
+
+    private static bool TryGetGeneratedFurnitureSemantic(MRUKAnchor anchor, out string semanticLabel)
+    {
+        semanticLabel = string.Empty;
+        if (anchor == null)
+        {
+            return false;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.TABLE))
+        {
+            semanticLabel = "table";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.SCREEN))
+        {
+            semanticLabel = "screen";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.STORAGE))
+        {
+            semanticLabel = "storage";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.COUCH))
+        {
+            semanticLabel = "seating";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.BED))
+        {
+            semanticLabel = "bed";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.LAMP))
+        {
+            semanticLabel = "lamp";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.PLANT))
+        {
+            semanticLabel = "plant";
+            return true;
+        }
+
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.OTHER))
+        {
+            semanticLabel = "other";
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsGeneratedFurnitureSemanticEnabled(string semanticLabel)
+    {
+        if (IsTableSemantic(semanticLabel))
+        {
+            return applyTableProxies;
+        }
+
+        if (IsStorageSemantic(semanticLabel))
+        {
+            return applyStorageProxies;
+        }
+
+        if (IsScreenSemantic(semanticLabel))
+        {
+            return applyScreenGeneratedProxies;
+        }
+
+        if (IsSeatingSemantic(semanticLabel))
+        {
+            return applySeatingGeneratedProxies;
+        }
+
+        if (IsBedSemantic(semanticLabel))
+        {
+            return applyBedGeneratedProxies;
+        }
+
+        if (IsLampSemantic(semanticLabel))
+        {
+            return applyLampGeneratedProxies;
+        }
+
+        if (IsPlantSemantic(semanticLabel))
+        {
+            return applyPlantGeneratedProxies;
+        }
+
+        return IsOtherSemantic(semanticLabel) && applyOtherGeneratedProxies;
+    }
+
+    private static bool IsGeneratedFurnitureEntry(StylizationPlanEntry planEntry)
+    {
+        return planEntry != null &&
+               (IsTableSemantic(planEntry.OriginalSemanticLabel) ||
+                IsScreenSemantic(planEntry.OriginalSemanticLabel) ||
+                IsStorageSemantic(planEntry.OriginalSemanticLabel) ||
+                IsSeatingSemantic(planEntry.OriginalSemanticLabel) ||
+                IsBedSemantic(planEntry.OriginalSemanticLabel) ||
+                IsLampSemantic(planEntry.OriginalSemanticLabel) ||
+                IsPlantSemantic(planEntry.OriginalSemanticLabel) ||
+                IsOtherSemantic(planEntry.OriginalSemanticLabel));
+    }
+
+    private static bool IsTableSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "table", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsStorageSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "storage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsScreenSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "screen", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSeatingSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "seating", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsBedSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "bed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsLampSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "lamp", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPlantSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "plant", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsOtherSemantic(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "other", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private float GetFurnitureFootprintSafetyScale(string semanticLabel)
+    {
+        return IsTableSemantic(semanticLabel) ? tableFootprintSafetyScale : storageFootprintSafetyScale;
+    }
+
+    private float GetFurnitureYawOffsetDegrees(string semanticLabel)
+    {
+        return IsTableSemantic(semanticLabel) ? tableProxyYawOffsetDegrees : storageProxyYawOffsetDegrees;
+    }
+
+    private float GetFurnitureLocalXScale(string semanticLabel)
+    {
+        return IsTableSemantic(semanticLabel) ? tableLocalXScale : storageLocalXScale;
+    }
+
+    private float GetFurnitureLocalZScale(string semanticLabel)
+    {
+        return IsTableSemantic(semanticLabel) ? tableLocalZScale : storageLocalZScale;
+    }
+
+    private static string ToTitleCase(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "Object";
+        }
+
+        var normalized = value.Trim();
+        return char.ToUpperInvariant(normalized[0]) + (normalized.Length > 1 ? normalized[1..] : string.Empty);
     }
 
     private static bool HasAncestorNamed(Transform current, string ancestorName)
@@ -1287,8 +1662,8 @@ public class AnchorThemeApplier : MonoBehaviour
 
 #if UNITY_EDITOR
         if (preferImportedGeneratedTablePrefabs &&
-            IsTableEntry(planEntry) &&
-            TryLoadImportedGeneratedTablePrefab(theme, planEntry, out var importedGeneratedPrefab))
+            IsGeneratedFurnitureEntry(planEntry) &&
+            TryLoadImportedGeneratedFurniturePrefab(theme, planEntry, out var importedGeneratedPrefab))
         {
             prefabSource = "generated_import";
             return importedGeneratedPrefab;
@@ -1306,14 +1681,8 @@ public class AnchorThemeApplier : MonoBehaviour
         return theme.GetDefaultProxy(planEntry.OriginalSemanticLabel);
     }
 
-    private static bool IsTableEntry(StylizationPlanEntry planEntry)
-    {
-        return planEntry != null &&
-               string.Equals(planEntry.OriginalSemanticLabel, "table", StringComparison.OrdinalIgnoreCase);
-    }
-
 #if UNITY_EDITOR
-    private bool TryLoadImportedGeneratedTablePrefab(
+    private bool TryLoadImportedGeneratedFurniturePrefab(
         ThemeProfile theme,
         StylizationPlanEntry planEntry,
         out GameObject prefab)
@@ -1329,25 +1698,36 @@ public class AnchorThemeApplier : MonoBehaviour
         GeneratedObjectRequest activeRequest = null;
         var activeRequestSource = "none";
         var hasActiveCaptureRequest = lockGeneratedTablePrefabsToActiveCapture &&
-                                      TryGetActiveGeneratedTableRequest(out activeRequest, out activeRequestSource);
-        var requireActiveMatch = lockGeneratedTablePrefabsToActiveCapture &&
-                                 (hasActiveCaptureRequest || !allowLatestGeneratedTableWhenNoActiveCapture);
-        if (requireActiveMatch && !hasActiveCaptureRequest)
+                                      TryGetActiveGeneratedFurnitureRequest(out activeRequest, out activeRequestSource);
+        if (lockGeneratedTablePrefabsToActiveCapture &&
+            !hasActiveCaptureRequest &&
+            !allowLatestGeneratedTableWhenNoActiveCapture)
         {
             _lastGeneratedTableSelectionStatus = "locked(no_active_capture)";
             return false;
         }
 
+        var allowUnmatchedDebugFallback = !hasActiveCaptureRequest &&
+                                          allowUnmatchedLatestGeneratedTableForDebug &&
+                                          IsCurrentBestGeneratedFurnitureTarget(planEntry);
         _lastGeneratedTableSelectionStatus = hasActiveCaptureRequest
             ? $"locked({activeRequestSource}:{ShortId(activeRequest.RequestId)})"
-            : "latest_fallback";
+            : allowUnmatchedDebugFallback ? "debug_unmatched_latest_best_target" : "per_object_fallback";
 
         GeneratedAssetRecord bestRecord = null;
         DateTime bestUpdatedAt = DateTime.MinValue;
         foreach (var jobPath in Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly))
         {
             var record = TryReadGeneratedAssetRecord(jobPath);
-            if (record == null || !IsUsableGeneratedTableRecord(record, theme, planEntry, activeRequest, hasActiveCaptureRequest))
+            if (record == null ||
+                !IsUsableGeneratedTableRecord(
+                    record,
+                    theme,
+                    planEntry,
+                    activeRequest,
+                    hasActiveCaptureRequest,
+                    allowNeedsReviewGeneratedTablesForValidation,
+                    allowUnmatchedDebugFallback))
             {
                 continue;
             }
@@ -1372,12 +1752,26 @@ public class AnchorThemeApplier : MonoBehaviour
 
         prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabAssetPath);
         _lastGeneratedTableSelectionStatus += prefab != null
-            ? $", match={ShortId(bestRecord.RequestId)}"
+            ? $", match={ShortId(bestRecord.RequestId)}, object={bestRecord.ObjectId}, state={bestRecord.State}"
             : $", load_failed={ShortId(bestRecord.RequestId)}";
         return prefab != null;
     }
 
-    private bool TryGetActiveGeneratedTableRequest(out GeneratedObjectRequest request, out string source)
+    private bool IsCurrentBestGeneratedFurnitureTarget(StylizationPlanEntry planEntry)
+    {
+        if (planEntry == null || devicePassthroughCaptureService == null || !devicePassthroughCaptureService.HasBestCandidate)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(planEntry.ObjectId) &&
+               string.Equals(
+                   planEntry.ObjectId,
+                   devicePassthroughCaptureService.BestAnchorObjectId,
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool TryGetActiveGeneratedFurnitureRequest(out GeneratedObjectRequest request, out string source)
     {
         request = null;
         source = "none";
@@ -1385,7 +1779,7 @@ public class AnchorThemeApplier : MonoBehaviour
         var deviceRequest = devicePassthroughCaptureService != null
             ? devicePassthroughCaptureService.LastGeneratedRequest
             : null;
-        if (IsActiveTableRequest(deviceRequest))
+        if (IsActiveGeneratedFurnitureRequest(deviceRequest))
         {
             request = deviceRequest;
             source = "device";
@@ -1395,7 +1789,7 @@ public class AnchorThemeApplier : MonoBehaviour
         var simulatorRequest = bestViewCaptureService != null
             ? bestViewCaptureService.LastGeneratedRequest
             : null;
-        if (IsActiveTableRequest(simulatorRequest))
+        if (IsActiveGeneratedFurnitureRequest(simulatorRequest))
         {
             request = simulatorRequest;
             source = "sim";
@@ -1405,11 +1799,18 @@ public class AnchorThemeApplier : MonoBehaviour
         return false;
     }
 
-    private static bool IsActiveTableRequest(GeneratedObjectRequest request)
+    private static bool IsActiveGeneratedFurnitureRequest(GeneratedObjectRequest request)
     {
         return request != null &&
                !string.IsNullOrWhiteSpace(request.RequestId) &&
-               string.Equals(request.SemanticLabel, "table", StringComparison.OrdinalIgnoreCase);
+               (string.Equals(request.SemanticLabel, "table", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "screen", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "storage", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "seating", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "bed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "lamp", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "plant", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.SemanticLabel, "other", StringComparison.OrdinalIgnoreCase));
     }
 
     private static GeneratedAssetRecord TryReadGeneratedAssetRecord(string jobPath)
@@ -1438,14 +1839,17 @@ public class AnchorThemeApplier : MonoBehaviour
         ThemeProfile theme,
         StylizationPlanEntry planEntry,
         GeneratedObjectRequest activeRequest,
-        bool hasActiveCaptureRequest)
+        bool hasActiveCaptureRequest,
+        bool allowNeedsReviewForValidation,
+        bool allowUnmatchedDebugFallback)
     {
         if (record == null || theme == null || planEntry == null)
         {
             return false;
         }
 
-        if (record.State != GeneratedObjectJobState.Imported)
+        if (record.State != GeneratedObjectJobState.Imported &&
+            !(allowNeedsReviewForValidation && record.State == GeneratedObjectJobState.NeedsReview))
         {
             return false;
         }
@@ -1460,17 +1864,35 @@ public class AnchorThemeApplier : MonoBehaviour
             return false;
         }
 
-        if (hasActiveCaptureRequest)
+        if (hasActiveCaptureRequest && DoesPlanEntryMatchActiveRequest(planEntry, activeRequest))
         {
             return DoesRecordMatchActiveRequest(record, activeRequest);
         }
 
-        if (string.IsNullOrWhiteSpace(record.ObjectId) || string.IsNullOrWhiteSpace(planEntry.ObjectId))
+        if (allowUnmatchedDebugFallback)
         {
-            return false;
+            return true;
         }
 
-        return string.Equals(record.ObjectId, planEntry.ObjectId, StringComparison.OrdinalIgnoreCase);
+        return DoesRecordMatchPlanEntry(record, planEntry);
+    }
+
+    private static bool DoesPlanEntryMatchActiveRequest(StylizationPlanEntry planEntry, GeneratedObjectRequest activeRequest)
+    {
+        return planEntry != null &&
+               activeRequest != null &&
+               !string.IsNullOrWhiteSpace(planEntry.ObjectId) &&
+               !string.IsNullOrWhiteSpace(activeRequest.ObjectId) &&
+               string.Equals(planEntry.ObjectId, activeRequest.ObjectId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool DoesRecordMatchPlanEntry(GeneratedAssetRecord record, StylizationPlanEntry planEntry)
+    {
+        return record != null &&
+               planEntry != null &&
+               !string.IsNullOrWhiteSpace(record.ObjectId) &&
+               !string.IsNullOrWhiteSpace(planEntry.ObjectId) &&
+               string.Equals(record.ObjectId, planEntry.ObjectId, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool DoesRecordMatchActiveRequest(GeneratedAssetRecord record, GeneratedObjectRequest activeRequest)

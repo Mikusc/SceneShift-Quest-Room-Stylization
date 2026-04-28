@@ -22,10 +22,15 @@ MonoBehaviour:
     WallMaterial: {fileID: 2100000, guid: e1d9ac058b04e44ffa0a76403774d25f, type: 2}
     FloorMaterial: {fileID: 2100000, guid: 06c079fc83b3d4a4eb6cf969e8cf31be, type: 2}
     CeilingMaterial: {fileID: 2100000, guid: bf1a0e42a52f8454b8134dc17d0e77bd, type: 2}
+    DoorFrameMaterial: {fileID: 0}
+    WindowFrameMaterial: {fileID: 0}
     PatternFamily: 1
     WallColor: {r: 0.63, g: 0.36, b: 0.16, a: 0.9}
     FloorColor: {r: 0.34, g: 0.2, b: 0.08, a: 0.78}
     CeilingColor: {r: 0.86, g: 0.67, b: 0.42, a: 0.58}
+    DoorFrameColor: {r: 0.95, g: 0.63, b: 0.24, a: 0.84}
+    WindowFrameColor: {r: 0.98, g: 0.78, b: 0.42, a: 0.7}
+    WindowVistaColor: {r: 0.9, g: 0.58, b: 0.22, a: 0.76}
     SurfaceOpacity: 0.86
     EmissionIntensity: 0.18
     TextureTiling: 3.8
@@ -37,6 +42,15 @@ MonoBehaviour:
     CeilingTreatmentPromptHint: Warm candlelit overhead treatment with muted plaster,
       soft ornament rings, and ambient library-chamber mood without obscuring real
       boundaries.
+    DoorFramePromptHint: Reusable brass-and-carved-wood archive door trim with warm
+      amber linework, ceremonial edging, and a fully open center so passage remains
+      unobstructed.
+    WindowFramePromptHint: Reusable warm brass archive window trim with faint glyph
+      edge etching, parchment-like glow accents, and a fully open center so the real
+      view remains visible.
+    WindowVistaPromptHint: Wide exterior vista beyond an archive window, showing distant
+      floating book towers, amber mist, and a calm star-lit magical horizon. No window
+      frame, no room interior, no people, no readable text.
   Mood:
     MainLightColor: {r: 1, g: 0.84, b: 0.65, a: 1}
     MainLightIntensity: 0.92
@@ -106,9 +120,9 @@ MonoBehaviour:
     CollisionSensitive: 0
     ReplicaName: illuminated manuscript display
     ReplicaFunction: display_surface
-    AppearancePrompt: A wall-aligned illuminated manuscript display with warm
-      parchment glow, thin brass edging, subtle glyph annotations, and a readable
-      board-like surface. Do not add bulky geometry.
+    AppearancePrompt: A wall-aligned illuminated manuscript display with warm parchment
+      glow, thin brass edging, subtle glyph annotations, and a readable board-like
+      surface. Do not add bulky geometry.
     Notes: Displays become illuminated manuscript surfaces.
   - SemanticLabel: storage
     FunctionTag: storage

@@ -90,9 +90,10 @@ public static class GeneratedObjectModelImporter
 
         var outputFolder = $"{ThemeAssetFolder}/{record.RequestId}";
         Directory.CreateDirectory(Path.Combine(GetProjectRoot(), outputFolder));
-        var prefabAssetPath = $"{outputFolder}/{record.RequestId}.generated_table_proxy.prefab";
+        var semanticLabel = InferSemanticLabel(record);
+        var prefabAssetPath = $"{outputFolder}/{record.RequestId}.generated_{semanticLabel}_proxy.prefab";
 
-        var wrapper = new GameObject($"{record.RequestId}_GeneratedTableProxy");
+        var wrapper = new GameObject($"{record.RequestId}_Generated{ToPascalCase(semanticLabel)}Proxy");
         try
         {
             var instance = PrefabUtility.InstantiatePrefab(importedModel) as GameObject;
@@ -249,7 +250,7 @@ public static class GeneratedObjectModelImporter
         var horizontalShort = Mathf.Min(size.x, size.z);
         if (horizontalShort < MinimumBoundsExtent || horizontalLong < MinimumBoundsExtent)
         {
-            result.AddWarning("Horizontal footprint bounds are too small for reliable table registration.");
+                result.AddWarning("Horizontal footprint bounds are too small for reliable generated-furniture registration.");
             result.Score -= 0.35f;
         }
         else
@@ -323,6 +324,47 @@ public static class GeneratedObjectModelImporter
     private static string GetProjectRoot()
     {
         return Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+    }
+
+    private static string InferSemanticLabel(GeneratedAssetRecord record)
+    {
+        if (record == null || string.IsNullOrWhiteSpace(record.RequestId))
+        {
+            return "object";
+        }
+
+        var underscoreIndex = record.RequestId.IndexOf('_');
+        var prefix = underscoreIndex > 0 ? record.RequestId[..underscoreIndex] : record.RequestId;
+        return SanitizeToken(prefix);
+    }
+
+    private static string SanitizeToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "object";
+        }
+
+        var result = string.Empty;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            result += char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '_';
+        }
+
+        result = result.Trim('_');
+        return string.IsNullOrWhiteSpace(result) ? "object" : result;
+    }
+
+    private static string ToPascalCase(string value)
+    {
+        var token = SanitizeToken(value);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return "Object";
+        }
+
+        return char.ToUpperInvariant(token[0]) + (token.Length > 1 ? token[1..] : string.Empty);
     }
 
     private struct GeneratedModelQualityResult

@@ -443,6 +443,9 @@ public class BestViewCaptureService : MonoBehaviour
             BestViewSemanticCategory.Storage => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.STORAGE),
             BestViewSemanticCategory.Seating => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.COUCH),
             BestViewSemanticCategory.Other => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.OTHER),
+            BestViewSemanticCategory.Bed => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.BED),
+            BestViewSemanticCategory.Lamp => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.LAMP),
+            BestViewSemanticCategory.Plant => anchor.HasAnyLabel(MRUKAnchor.SceneLabels.PLANT),
             _ => false,
         };
     }
@@ -512,6 +515,9 @@ public class BestViewCaptureService : MonoBehaviour
             BestViewSemanticCategory.Storage => "storage",
             BestViewSemanticCategory.Seating => "seating",
             BestViewSemanticCategory.Other => "other",
+            BestViewSemanticCategory.Bed => "bed",
+            BestViewSemanticCategory.Lamp => "lamp",
+            BestViewSemanticCategory.Plant => "plant",
             _ => "unknown",
         };
     }
@@ -525,6 +531,9 @@ public class BestViewCaptureService : MonoBehaviour
             BestViewSemanticCategory.Storage => "storage",
             BestViewSemanticCategory.Seating => "seating",
             BestViewSemanticCategory.Other => "general",
+            BestViewSemanticCategory.Bed => "sleeping_surface",
+            BestViewSemanticCategory.Lamp => "lighting",
+            BestViewSemanticCategory.Plant => "decorative_plant",
             _ => "unknown",
         };
     }
@@ -1234,4 +1243,7 @@ public enum BestViewSemanticCategory
     Storage,
     Seating,
     Other,
+    Bed,
+    Lamp,
+    Plant,
 }

@@ -31,6 +31,13 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
     private float refreshIntervalSeconds = 0.75f;
     [SerializeField] private bool logToggleEvents = true;
 
+    [Header("Clean View")]
+    [SerializeField, Tooltip("B/controller B enters a clean demo view: stylized room plus the main SceneShift dashboard only.")]
+    private bool cleanViewActive;
+    [SerializeField] private bool hideObjectStatusCardsInCleanView = true;
+    [SerializeField] private bool hideLegacyHeadsetOverlaysInCleanView = true;
+    [SerializeField] private bool hideRuntimeButtonInCleanView = true;
+
     [Header("Targets")]
     [SerializeField] private bool includeVolumeShells = true;
     [SerializeField] private bool includePlaneShells = true;
@@ -54,6 +61,7 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
     public event Action SummaryChanged;
 
     public bool ShellsVisible => shellsVisible;
+    public bool CleanViewActive => cleanViewActive;
     public string LatestSummary => _latestSummary;
 
     private readonly Dictionary<Renderer, bool> _originalRendererStates = new();
@@ -90,6 +98,11 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
             shellsVisible = false;
         }
 
+        if (cleanViewActive)
+        {
+            shellsVisible = false;
+        }
+
         ApplyVisibility("awake", true, false);
     }
 
@@ -97,7 +110,16 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
     {
         ResolveReferences();
         EnsureRuntimeButton();
+        if (cleanViewActive)
+        {
+            shellsVisible = false;
+        }
+
         ApplyVisibility("enabled", true, false);
+        if (cleanViewActive)
+        {
+            EnforceCleanViewOverlays();
+        }
     }
 
     private void OnDisable()
@@ -119,12 +141,17 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
 
         ResolveReferences();
         EnsureRuntimeButton();
-        SetButtonVisible(showRuntimeButtonInPlay);
+        SetButtonVisible(showRuntimeButtonInPlay && (!cleanViewActive || !hideRuntimeButtonInCleanView));
         UpdateHeadLockedPlacement();
+
+        if (cleanViewActive)
+        {
+            EnforceCleanViewOverlays();
+        }
 
         if (WasKeyboardTogglePressed() || WasOvrControllerTogglePressed())
         {
-            ToggleShells();
+            ToggleCleanView();
             return;
         }
 
@@ -135,6 +162,29 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
 
         _nextRefreshTime = Time.unscaledTime + refreshIntervalSeconds;
         ApplyVisibility("refresh", true, false);
+    }
+
+    [ContextMenu("Toggle Clean View")]
+    public void ToggleCleanView()
+    {
+        SetCleanViewActive(!cleanViewActive);
+    }
+
+    public void SetCleanViewActive(bool active)
+    {
+        cleanViewActive = active;
+        shellsVisible = !active;
+        ApplyVisibility(active ? "clean-view-on" : "clean-view-off", true, true);
+
+        if (active)
+        {
+            EnforceCleanViewOverlays();
+        }
+        else
+        {
+            SetObjectStatusCardsVisible(true);
+            SetButtonVisible(showRuntimeButtonInPlay);
+        }
     }
 
     [ContextMenu("Toggle Shells")]
@@ -157,6 +207,7 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
 
     public void SetShellsVisible(bool visible)
     {
+        cleanViewActive = false;
         shellsVisible = visible;
         ApplyVisibility(visible ? "shells-visible" : "shells-hidden", true, true);
     }
@@ -221,8 +272,9 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
 
         toggleButton = buttonObject.GetComponent<Button>();
         toggleButton.targetGraphic = buttonImage;
+        toggleButton.onClick.RemoveListener(ToggleCleanView);
         toggleButton.onClick.RemoveListener(ToggleShells);
-        toggleButton.onClick.AddListener(ToggleShells);
+        toggleButton.onClick.AddListener(ToggleCleanView);
 
         var labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
         labelObject.transform.SetParent(buttonObject.transform, false);
@@ -302,6 +354,62 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
         }
 
         return affectedCount;
+    }
+
+    private void EnforceCleanViewOverlays()
+    {
+        if (!Application.isPlaying)
+        {
+            return;
+        }
+
+        SetObjectStatusCardsVisible(false);
+
+        if (hideLegacyHeadsetOverlaysInCleanView)
+        {
+            foreach (var hud in FindObjectsByType<DevicePassthroughCaptureHud>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                hud.enabled = false;
+                SetChildCanvasesVisible(hud.transform, false);
+            }
+
+            foreach (var debugPanel in FindObjectsByType<StylizationDebugPanel>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                debugPanel.enabled = false;
+                SetChildCanvasesVisible(debugPanel.transform, false);
+            }
+        }
+
+        if (hideRuntimeButtonInCleanView)
+        {
+            SetButtonVisible(false);
+        }
+    }
+
+    private void SetObjectStatusCardsVisible(bool visible)
+    {
+        if (!hideObjectStatusCardsInCleanView)
+        {
+            return;
+        }
+
+        foreach (var overlay in FindObjectsByType<GenerationJobWorldStatusOverlay>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            overlay.SetOverlayVisible(visible);
+        }
+    }
+
+    private static void SetChildCanvasesVisible(Transform root, bool visible)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        foreach (var childCanvas in root.GetComponentsInChildren<Canvas>(true))
+        {
+            childCanvas.gameObject.SetActive(visible);
+        }
     }
 
     private void RefreshTrackedRenderers()
@@ -396,6 +504,7 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
         _trackedRenderers.Clear();
         _originalRendererStates.Clear();
         shellsVisible = true;
+        cleanViewActive = false;
         PublishSummary("restored", 0);
     }
 
@@ -445,16 +554,16 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
             return;
         }
 
-        buttonLabel.text = shellsVisible
-            ? "Hide Blue Shells\nB / Controller B"
-            : "Show Blue Shells\nB / Controller B";
+        buttonLabel.text = cleanViewActive
+            ? "Exit Clean View\nB / Controller B"
+            : "Clean View\nB / Controller B";
 
         var buttonImage = toggleButton != null ? toggleButton.targetGraphic as Image : null;
         if (buttonImage != null)
         {
-            buttonImage.color = shellsVisible
-                ? new Color(0.08f, 0.28f, 0.52f, 0.82f)
-                : new Color(0.08f, 0.42f, 0.22f, 0.82f);
+            buttonImage.color = cleanViewActive
+                ? new Color(0.08f, 0.42f, 0.22f, 0.82f)
+                : new Color(0.08f, 0.28f, 0.52f, 0.82f);
         }
     }
 
@@ -463,6 +572,7 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
         _summaryBuilder.Clear();
         _summaryBuilder.AppendLine("[MRUKShellVisibilityToggle]");
         _summaryBuilder.AppendLine($"State: {(shellsVisible ? "visible" : "hidden")} ({reason})");
+        _summaryBuilder.AppendLine($"Clean View: {(cleanViewActive ? "active" : "off")}");
         _summaryBuilder.AppendLine($"Tracked Shell Renderers: {affectedCount}");
         _summaryBuilder.AppendLine($"Input: keyboard {keyboardToggleKey} / controller {ovrToggleButton}");
         _latestSummary = _summaryBuilder.ToString().TrimEnd();

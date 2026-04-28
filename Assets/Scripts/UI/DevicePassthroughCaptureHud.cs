@@ -188,7 +188,7 @@ public class DevicePassthroughCaptureHud : MonoBehaviour
                     : captureService.CurrentState;
 
         _builder.AppendLine($"State: {stateLabel}");
-        _builder.AppendLine($"Target: {captureService.TargetCategory}");
+        _builder.AppendLine($"Target: {captureService.TargetSelectionLabel}");
         _builder.AppendLine($"PCA: supported={captureService.IsPcaSupported} permission={captureService.IsCameraPermissionGranted} playing={captureService.IsPcaPlaying}");
         _builder.AppendLine($"Scoring: {captureService.BestCandidateScoringSource}");
         if (captureService.IsPcaRetryCoolingDown || isPcaBlocked)
@@ -200,7 +200,8 @@ public class DevicePassthroughCaptureHud : MonoBehaviour
         {
             var viewport = captureService.BestCandidateViewportCenter;
             var crop = captureService.BestCandidateCropRect;
-            _builder.AppendLine($"Best Anchor: {captureService.BestAnchorDisplayName}");
+            _builder.AppendLine($"Best Anchor: {captureService.BestAnchorDisplayName} [{captureService.BestCandidateCategory}]");
+            _builder.AppendLine($"Object ID: {captureService.BestAnchorObjectId}");
             _builder.AppendLine($"Score: {captureService.BestCandidateScore:F2} ({captureService.BestCandidateScore * 100f:F0}%)");
             _builder.AppendLine($"Distance: {captureService.BestCandidateDistance:F2}m");
             _builder.AppendLine($"Viewport: {viewport.x:F2}, {viewport.y:F2}");
@@ -213,6 +214,14 @@ public class DevicePassthroughCaptureHud : MonoBehaviour
         }
 
         _builder.AppendLine($"Input: {captureService.CaptureInputHint}");
+        if (captureService.AutoSelectTargetFromGaze)
+        {
+            _builder.AppendLine("Target Mode: auto gaze (no switch needed)");
+        }
+        else
+        {
+            _builder.AppendLine($"Switch Target: {captureService.TargetCycleInputHint}");
+        }
         if (canAttemptCapture && !captureService.IsPcaPlaying)
         {
             _builder.AppendLine("Capture: PCA starts when input is pressed");

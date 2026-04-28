@@ -625,7 +625,13 @@ public static class RuntimeStyleIntentRequestUtility
 {
     public static void ApplyToRequest(RuntimeStyleIntent intent, GeneratedObjectRequest request)
     {
-        if (request == null || intent == null || string.IsNullOrWhiteSpace(intent.UserIntent))
+        if (request == null)
+        {
+            return;
+        }
+
+        request.StyleVariantId = SurfaceTexturePromptBuilder.BuildStyleVariantId(intent);
+        if (intent == null || string.IsNullOrWhiteSpace(intent.UserIntent))
         {
             return;
         }

@@ -12,6 +12,7 @@ public class StylizationDebugPanel : MonoBehaviour
     [SerializeField] private StylizationPlanner stylizationPlanner;
     [SerializeField] private AnchorThemeApplier anchorThemeApplier;
     [SerializeField] private SurfaceTexturePromptBuilder surfaceTexturePromptBuilder;
+    [SerializeField] private ApimartSurfaceTextureBackendAdapter apimartSurfaceTextureBackendAdapter;
     [SerializeField] private SurfaceOverrideApplier surfaceOverrideApplier;
     [SerializeField] private BestViewCaptureService bestViewCaptureService;
     [SerializeField] private DevicePassthroughCaptureService devicePassthroughCaptureService;
@@ -21,6 +22,7 @@ public class StylizationDebugPanel : MonoBehaviour
     [SerializeField] private ApimartImageBackendAdapter apimartImageBackendAdapter;
     [SerializeField] private HostedImageUploadBridge hostedImageUploadBridge;
     [SerializeField] private Seed3DBackendAdapter seed3DBackendAdapter;
+    [SerializeField] private GenerationQueueStatusService generationQueueStatusService;
     [SerializeField] private TMP_Text summaryText;
 
     private void Reset()
@@ -31,6 +33,7 @@ public class StylizationDebugPanel : MonoBehaviour
         stylizationPlanner = FindAnyObjectByType<StylizationPlanner>();
         anchorThemeApplier = FindAnyObjectByType<AnchorThemeApplier>();
         surfaceTexturePromptBuilder = FindAnyObjectByType<SurfaceTexturePromptBuilder>();
+        apimartSurfaceTextureBackendAdapter = FindAnyObjectByType<ApimartSurfaceTextureBackendAdapter>();
         surfaceOverrideApplier = FindAnyObjectByType<SurfaceOverrideApplier>();
         bestViewCaptureService = FindAnyObjectByType<BestViewCaptureService>();
         devicePassthroughCaptureService = FindAnyObjectByType<DevicePassthroughCaptureService>();
@@ -40,6 +43,7 @@ public class StylizationDebugPanel : MonoBehaviour
         apimartImageBackendAdapter = FindAnyObjectByType<ApimartImageBackendAdapter>();
         hostedImageUploadBridge = FindAnyObjectByType<HostedImageUploadBridge>();
         seed3DBackendAdapter = FindAnyObjectByType<Seed3DBackendAdapter>();
+        generationQueueStatusService = FindAnyObjectByType<GenerationQueueStatusService>();
         summaryText = GetComponentInChildren<TMP_Text>(true);
     }
 
@@ -73,6 +77,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (surfaceTexturePromptBuilder == null)
         {
             surfaceTexturePromptBuilder = FindAnyObjectByType<SurfaceTexturePromptBuilder>();
+        }
+
+        if (apimartSurfaceTextureBackendAdapter == null)
+        {
+            apimartSurfaceTextureBackendAdapter = FindAnyObjectByType<ApimartSurfaceTextureBackendAdapter>();
         }
 
         if (surfaceOverrideApplier == null)
@@ -118,6 +127,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (seed3DBackendAdapter == null)
         {
             seed3DBackendAdapter = FindAnyObjectByType<Seed3DBackendAdapter>();
+        }
+
+        if (generationQueueStatusService == null)
+        {
+            generationQueueStatusService = FindAnyObjectByType<GenerationQueueStatusService>();
         }
 
         if (summaryText == null)
@@ -189,6 +203,12 @@ public class StylizationDebugPanel : MonoBehaviour
             builder.Append(surfaceTexturePromptBuilder.LatestSummary);
         }
 
+        if (apimartSurfaceTextureBackendAdapter != null)
+        {
+            builder.AppendLine();
+            builder.Append(apimartSurfaceTextureBackendAdapter.LatestSummary);
+        }
+
         if (surfaceOverrideApplier != null)
         {
             builder.AppendLine();
@@ -243,6 +263,12 @@ public class StylizationDebugPanel : MonoBehaviour
             builder.Append(seed3DBackendAdapter.LatestSummary);
         }
 
+        if (generationQueueStatusService != null)
+        {
+            builder.AppendLine();
+            builder.Append(generationQueueStatusService.LatestSummary);
+        }
+
         summaryText.text = builder.ToString().TrimEnd();
     }
 
@@ -282,6 +308,12 @@ public class StylizationDebugPanel : MonoBehaviour
         {
             surfaceTexturePromptBuilder.SummaryChanged -= Refresh;
             surfaceTexturePromptBuilder.SummaryChanged += Refresh;
+        }
+
+        if (apimartSurfaceTextureBackendAdapter != null)
+        {
+            apimartSurfaceTextureBackendAdapter.SummaryChanged -= Refresh;
+            apimartSurfaceTextureBackendAdapter.SummaryChanged += Refresh;
         }
 
         if (surfaceOverrideApplier != null)
@@ -343,6 +375,12 @@ public class StylizationDebugPanel : MonoBehaviour
             seed3DBackendAdapter.SummaryChanged -= Refresh;
             seed3DBackendAdapter.SummaryChanged += Refresh;
         }
+
+        if (generationQueueStatusService != null)
+        {
+            generationQueueStatusService.SummaryChanged -= Refresh;
+            generationQueueStatusService.SummaryChanged += Refresh;
+        }
     }
 
     private void Unsubscribe()
@@ -370,6 +408,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (surfaceTexturePromptBuilder != null)
         {
             surfaceTexturePromptBuilder.SummaryChanged -= Refresh;
+        }
+
+        if (apimartSurfaceTextureBackendAdapter != null)
+        {
+            apimartSurfaceTextureBackendAdapter.SummaryChanged -= Refresh;
         }
 
         if (surfaceOverrideApplier != null)
@@ -415,6 +458,11 @@ public class StylizationDebugPanel : MonoBehaviour
         if (seed3DBackendAdapter != null)
         {
             seed3DBackendAdapter.SummaryChanged -= Refresh;
+        }
+
+        if (generationQueueStatusService != null)
+        {
+            generationQueueStatusService.SummaryChanged -= Refresh;
         }
     }
 

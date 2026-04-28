@@ -105,6 +105,9 @@ public class GenerativeObjectCoordinator : MonoBehaviour
             RequestId = request.RequestId,
             ObjectId = request.ObjectId,
             ThemeId = request.ThemeId,
+            StyleVariantId = string.IsNullOrWhiteSpace(request.StyleVariantId)
+                ? SurfaceTexturePromptBuilder.PresetStyleVariantId
+                : request.StyleVariantId,
             CaptureSourceMode = request.CaptureSourceMode,
             State = GeneratedObjectJobState.CaptureReady,
             SourceInputImagePath = request.SourceImagePath,

@@ -13,10 +13,16 @@ public class RoomSemanticBootstrap : MonoBehaviour
         MRUKAnchor.SceneLabels.CEILING,
         MRUKAnchor.SceneLabels.WALL_FACE,
         MRUKAnchor.SceneLabels.INNER_WALL_FACE,
+        MRUKAnchor.SceneLabels.DOOR_FRAME,
+        MRUKAnchor.SceneLabels.WINDOW_FRAME,
         MRUKAnchor.SceneLabels.TABLE,
         MRUKAnchor.SceneLabels.SCREEN,
         MRUKAnchor.SceneLabels.STORAGE,
         MRUKAnchor.SceneLabels.COUCH,
+        MRUKAnchor.SceneLabels.BED,
+        MRUKAnchor.SceneLabels.LAMP,
+        MRUKAnchor.SceneLabels.PLANT,
+        MRUKAnchor.SceneLabels.WALL_ART,
         MRUKAnchor.SceneLabels.OTHER,
         MRUKAnchor.SceneLabels.GLOBAL_MESH,
     };
@@ -35,6 +41,12 @@ public class RoomSemanticBootstrap : MonoBehaviour
     [SerializeField] private float deviceLoadRetryDelaySeconds = 4f;
     [SerializeField] private bool retryRequestSceneCaptureIfNoDataFound;
 
+    [Header("Current Room Tracking")]
+    [SerializeField, Tooltip("In multi-room captures, keep CurrentRoom aligned with the room the headset is actually in.")]
+    private bool refreshCurrentRoomInPlay = true;
+    [SerializeField, Min(0.1f)] private float currentRoomRefreshIntervalSeconds = 0.5f;
+    [SerializeField] private bool logRoomSwitches = true;
+
     public event Action SummaryChanged;
 
     public bool HasMrukReference => mruk != null;
@@ -51,6 +63,7 @@ public class RoomSemanticBootstrap : MonoBehaviour
     private bool _deviceLoadRetryInProgress;
     private Coroutine _startupDiagnosticsRoutine;
     private MRUKRoom _currentRoom;
+    private float _nextCurrentRoomRefreshTime;
     private string _latestReason = "waiting";
     private string _latestPanelSummary = "[RoomSemanticBootstrap]\nRoom status: waiting\nMRUK: unresolved";
     private string _latestDetailedSummary = "[RoomSemanticBootstrap]\nRoom status: waiting\nMRUK: unresolved";
@@ -82,6 +95,22 @@ public class RoomSemanticBootstrap : MonoBehaviour
         StopStartupDiagnostics();
         Unsubscribe();
         _hasLoggedReadyRoom = false;
+    }
+
+    private void Update()
+    {
+        if (!Application.isPlaying || !refreshCurrentRoomInPlay)
+        {
+            return;
+        }
+
+        if (Time.unscaledTime < _nextCurrentRoomRefreshTime)
+        {
+            return;
+        }
+
+        _nextCurrentRoomRefreshTime = Time.unscaledTime + currentRoomRefreshIntervalSeconds;
+        RefreshCurrentRoom("current-room-refresh", onlyIfChanged: true);
     }
 
     [ContextMenu("Log Current Room Summary")]
@@ -125,24 +154,17 @@ public class RoomSemanticBootstrap : MonoBehaviour
 
     private void HandleSceneLoaded()
     {
-        if (!logOnRoomCreated || mruk == null)
+        if (mruk == null)
         {
             return;
         }
 
-        var room = ResolveRoom();
-        if (room != null)
-        {
-            LogRoomSummaryOnce("scene-loaded", room);
-        }
+        RefreshCurrentRoom("scene-loaded", onlyIfChanged: false);
     }
 
     private void HandleRoomCreated(MRUKRoom room)
     {
-        if (logOnRoomCreated)
-        {
-            LogRoomSummaryOnce("room-created", room);
-        }
+        RefreshCurrentRoom("room-created", onlyIfChanged: false);
     }
 
     private void HandleRoomUpdated(MRUKRoom room)
@@ -161,10 +183,37 @@ public class RoomSemanticBootstrap : MonoBehaviour
             return;
         }
 
+        RefreshCurrentRoom(reason, onlyIfChanged: false);
+    }
+
+    private void RefreshCurrentRoom(string reason, bool onlyIfChanged)
+    {
+        if (mruk == null || !mruk.IsInitialized)
+        {
+            return;
+        }
+
         var room = ResolveRoom();
         if (room != null)
         {
-            LogRoomSummaryOnce(reason, room);
+            if (onlyIfChanged && IsSameRoom(_currentRoom, room))
+            {
+                return;
+            }
+
+            _hasLoggedReadyRoom = true;
+            if (!onlyIfChanged || logRoomSwitches)
+            {
+                LogRoomSummary(reason, room);
+            }
+            else
+            {
+                UpdateLatestSummary(
+                    reason,
+                    room,
+                    BuildRoomSummary(reason, room, includePerAnchorDetails: false),
+                    BuildRoomSummary(reason, room, includePerAnchorDetails: false));
+            }
         }
         else
         {
@@ -262,12 +311,20 @@ public class RoomSemanticBootstrap : MonoBehaviour
             // so simulator/prefab iteration still has a debuggable room.
         }
 
-        if (mruk.Rooms.Count > 0)
+        if (mruk.Rooms.Count == 1)
         {
             return mruk.Rooms[0];
         }
 
         return null;
+    }
+
+    private static bool IsSameRoom(MRUKRoom a, MRUKRoom b)
+    {
+        return ReferenceEquals(a, b) ||
+               (a != null &&
+                b != null &&
+                string.Equals(a.name, b.name, StringComparison.Ordinal));
     }
 
     private void LogRoomSummaryOnce(string reason, MRUKRoom room)
@@ -375,6 +432,11 @@ public class RoomSemanticBootstrap : MonoBehaviour
         builder.AppendLine($"MRUK reference: {(HasMrukReference ? "present" : "missing")}");
         builder.AppendLine($"MRUK initialized: {IsMrukInitialized}");
         builder.AppendLine(BuildMrukStateLine());
+        if (mruk != null && mruk.Rooms.Count > 1)
+        {
+            builder.AppendLine("Hint: multiple MRUK rooms are loaded; waiting for MRUK.GetCurrentRoom() instead of falling back to Rooms[0].");
+        }
+
         builder.Append("Hint: on Quest, keep the app focused and confirm any Guardian or spatial data prompt.");
         return builder.ToString();
     }

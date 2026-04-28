@@ -51,10 +51,15 @@ public class ThemeSurfaceMaterials
     public Material WallMaterial;
     public Material FloorMaterial;
     public Material CeilingMaterial;
+    public Material DoorFrameMaterial;
+    public Material WindowFrameMaterial;
     public ThemeSurfacePatternFamily PatternFamily = ThemeSurfacePatternFamily.FutureLab;
     public Color WallColor = new(0.32f, 0.72f, 0.92f, 0.78f);
     public Color FloorColor = new(0.18f, 0.52f, 0.66f, 0.7f);
     public Color CeilingColor = new(0.78f, 0.9f, 0.98f, 0.6f);
+    public Color DoorFrameColor = new(0.34f, 0.86f, 0.94f, 0.82f);
+    public Color WindowFrameColor = new(0.68f, 0.9f, 0.98f, 0.72f);
+    public Color WindowVistaColor = new(0.38f, 0.78f, 1f, 0.78f);
     [Range(0f, 1f)] public float SurfaceOpacity = 0.78f;
     [Range(0f, 4f)] public float EmissionIntensity = 0.18f;
     [Range(1f, 12f)] public float TextureTiling = 4f;
@@ -64,6 +69,9 @@ public class ThemeSurfaceMaterials
     [TextArea(2, 4)] public string WallTexturePromptHint = "Subtle seamless wall material that supports the theme without overpowering room readability.";
     [TextArea(2, 4)] public string FloorTexturePromptHint = "Durable seamless floor material that keeps walkable space legible.";
     [TextArea(2, 4)] public string CeilingTreatmentPromptHint = "Lightweight ceiling or ambient overhead treatment that supports the room mood without hiding real boundaries.";
+    [TextArea(2, 4)] public string DoorFramePromptHint = "Stylized door frame trim treatment that preserves the open passage and does not block real-world affordances.";
+    [TextArea(2, 4)] public string WindowFramePromptHint = "Stylized window frame trim or translucent glass-edge treatment that preserves the view and does not cover the opening.";
+    [TextArea(2, 4)] public string WindowVistaPromptHint = "Wide stylized exterior vista seen beyond a real room window; distant scenery only, no window frame, no room interior.";
 
     public Material GetMaterialOverride(ThemeSurfaceKind surfaceKind)
     {
@@ -72,6 +80,9 @@ public class ThemeSurfaceMaterials
             ThemeSurfaceKind.Wall => WallMaterial,
             ThemeSurfaceKind.Floor => FloorMaterial,
             ThemeSurfaceKind.Ceiling => CeilingMaterial,
+            ThemeSurfaceKind.DoorFrame => DoorFrameMaterial,
+            ThemeSurfaceKind.WindowFrame => WindowFrameMaterial,
+            ThemeSurfaceKind.WindowVista => null,
             _ => null,
         };
     }
@@ -83,6 +94,9 @@ public class ThemeSurfaceMaterials
             ThemeSurfaceKind.Wall => ApplyOpacity(WallColor),
             ThemeSurfaceKind.Floor => ApplyOpacity(FloorColor),
             ThemeSurfaceKind.Ceiling => ApplyOpacity(CeilingColor),
+            ThemeSurfaceKind.DoorFrame => ApplyOpacity(DoorFrameColor),
+            ThemeSurfaceKind.WindowFrame => ApplyOpacity(WindowFrameColor),
+            ThemeSurfaceKind.WindowVista => ApplyOpacity(WindowVistaColor),
             _ => Color.white,
         };
     }
@@ -154,6 +168,9 @@ public enum ThemeSurfaceKind
     Wall,
     Floor,
     Ceiling,
+    DoorFrame,
+    WindowFrame,
+    WindowVista,
 }
 
 public enum ThemeSurfacePatternFamily

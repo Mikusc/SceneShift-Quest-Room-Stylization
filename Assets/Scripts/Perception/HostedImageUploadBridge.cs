@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using UnityEngine;
@@ -18,6 +19,7 @@ public class HostedImageUploadBridge : MonoBehaviour
 
     [Header("Processing")]
     [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField, Min(1)] private int maxConcurrentUploadJobs = 3;
     [SerializeField, Min(1f)] private float pollIntervalSeconds = 3f;
     [SerializeField] private string jobFolderName = "GeneratedObjectJobs";
 
@@ -27,6 +29,7 @@ public class HostedImageUploadBridge : MonoBehaviour
     public GeneratedAssetRecord LastProcessedRecord => _lastProcessedRecord;
 
     private GeneratedAssetRecord _lastProcessedRecord = new();
+    private readonly HashSet<string> _activeJobPaths = new(StringComparer.OrdinalIgnoreCase);
     private bool _isProcessing;
     private float _nextPollTime;
     private string _latestSummary =
@@ -39,7 +42,7 @@ public class HostedImageUploadBridge : MonoBehaviour
 
     private void Update()
     {
-        if (!Application.isPlaying || !autoProcessJobsInPlay || _isProcessing)
+        if (!Application.isPlaying || !autoProcessJobsInPlay)
         {
             return;
         }
@@ -56,9 +59,9 @@ public class HostedImageUploadBridge : MonoBehaviour
     [ContextMenu("Process Next Local Stylized Image")]
     public void ProcessNextLocalStylizedImage()
     {
-        if (_isProcessing)
+        if (!HasUploadCapacity())
         {
-            PublishSummary("already-processing");
+            PublishSummary("at-upload-capacity");
             return;
         }
 
@@ -82,25 +85,63 @@ public class HostedImageUploadBridge : MonoBehaviour
             return;
         }
 
+        var startedCount = 0;
         var jobPaths = Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly);
         for (var index = 0; index < jobPaths.Length; index++)
         {
             var jobPath = jobPaths[index];
+            if (IsJobActive(jobPath))
+            {
+                continue;
+            }
+
             if (!TryLoadJob(jobPath, out var record) || !NeedsHostedImage(record))
             {
                 continue;
             }
 
-            StartCoroutine(UploadStylizedImage(jobPath, record, authToken));
-            return;
+            StartCoroutine(RunTrackedUpload(jobPath, record, authToken));
+            startedCount++;
+            if (!HasUploadCapacity())
+            {
+                break;
+            }
         }
 
-        PublishSummary("waiting-for-local-stylized-image");
+        PublishSummary(startedCount > 0 ? "uploading-batch" : "waiting-for-local-stylized-image");
     }
 
     public string GetDebugSummary()
     {
         return _latestSummary;
+    }
+
+    private IEnumerator RunTrackedUpload(string jobPath, GeneratedAssetRecord record, string authToken)
+    {
+        var key = NormalizeJobPath(jobPath);
+        _activeJobPaths.Add(key);
+        _isProcessing = true;
+
+        yield return UploadStylizedImage(jobPath, record, authToken);
+
+        _activeJobPaths.Remove(key);
+        _isProcessing = _activeJobPaths.Count > 0;
+        PublishSummary(_isProcessing ? "uploading-batch" : "idle");
+    }
+
+    private bool HasUploadCapacity()
+    {
+        return _activeJobPaths.Count < Mathf.Max(1, maxConcurrentUploadJobs);
+    }
+
+    private bool IsJobActive(string jobPath)
+    {
+        return _activeJobPaths.Contains(NormalizeJobPath(jobPath));
+    }
+
+    private static string NormalizeJobPath(string jobPath)
+    {
+        return string.IsNullOrWhiteSpace(jobPath) ? string.Empty : Path.GetFullPath(jobPath);
     }
 
     private IEnumerator UploadStylizedImage(string jobPath, GeneratedAssetRecord record, string authToken)
@@ -254,6 +295,7 @@ public class HostedImageUploadBridge : MonoBehaviour
         builder.AppendLine("[HostedImageUploadBridge]");
         builder.AppendLine($"State: {state}");
         builder.AppendLine($"Auto Process: {autoProcessJobsInPlay}");
+        builder.AppendLine($"Active Jobs: {_activeJobPaths.Count}/{Mathf.Max(1, maxConcurrentUploadJobs)}");
         builder.AppendLine($"Endpoint Configured: {IsHttpUrl(uploadEndpoint)}");
         builder.AppendLine($"Auth Env: {(string.IsNullOrWhiteSpace(authTokenEnvironmentVariable) ? "none" : authTokenEnvironmentVariable)}");
         builder.AppendLine($"Upload Body: {(uploadRawPngBody ? "raw image/png" : $"multipart field '{formFileFieldName}'")}");

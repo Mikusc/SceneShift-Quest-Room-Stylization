@@ -253,7 +253,7 @@ public enum ThemeCategory
 # 10. SurfaceTexturePromptSet
 
 ## Purpose
-Tracks the Roomify-style prompt handoff for room boundary surfaces.
+Tracks the Roomify-style prompt handoff for room boundary surfaces, opening-frame overlays, and window-vista backdrops.
 
 The script source of truth is:
 - `Assets/Scripts/Stylization/SurfaceTextureContracts.cs`
@@ -263,6 +263,9 @@ The script source of truth is:
 string ThemeId;
 string ThemeDisplayName;
 string ThemeDescription;
+string StyleVariantId;
+string UserStyleIntent;
+string StyleIntentSource;
 string CreatedAtIsoUtc;
 string JobFolder;
 List<SurfaceTexturePromptEntry> Entries;
@@ -270,22 +273,31 @@ List<SurfaceTexturePromptEntry> Entries;
 
 ## Notes
 - Written by `SurfaceTexturePromptBuilder` under `Library/SurfaceTextureJobs/`.
-- This is an offline/manual-worker boundary for future seamless PBR wall/floor texture generation.
+- `StyleVariantId` is `preset` when no runtime style text is active. Arbitrary user style text creates a stable style-specific variant id, so cyberpunk / solarpunk / underwater requests do not reuse each other's cached textures.
+- This is now the first automated surface-generation boundary. APIMart can consume matching `.surface.job.json` files, while runtime procedural textures remain the fallback.
 - Runtime procedural textures remain the deterministic fallback.
 
 # 11. SurfaceTexturePromptEntry
 
 ## Purpose
-Describes one wall, floor, or ceiling prompt request.
+Describes one wall, floor, ceiling, door-frame, window-frame, or window-vista prompt request.
 
 ## Current fields
 ```csharp
+string RequestId;
+string StyleVariantId;
+string UserStyleIntent;
+string StyleIntentSource;
 string SemanticLabel;
 ThemeSurfaceKind SurfaceKind;
 string OutputRole;
+string PromptVersion;
 string Prompt;
 string NegativePrompt;
+string ImageSize;
 string PromptPath;
+string JobPath;
+string OutputImagePath;
 bool SeamlessTileable;
 bool PbrMaterial;
 bool RuntimeFallbackAvailable;
@@ -294,6 +306,61 @@ bool RuntimeFallbackAvailable;
 ## Notes
 - Wall and floor entries request seamless tileable PBR-style materials.
 - Ceiling is treated as a lightweight ceiling treatment / optional skybox concept, not a hard Phase 1 dynamic skybox dependency.
+- Door and window entries request trim/frame/decal treatments with open centers. They must not block passage, view, or real-world affordances.
+- Window-vista entries request wide exterior backdrops with `ImageSize = "16:9"`. They are placed behind `WINDOW_FRAME` anchors and must not include window frames, room interiors, people, or text.
+
+# 12. SurfaceTextureJobRecord
+
+## Purpose
+Tracks the async state for one generated surface texture, frame/trim overlay texture, or window-vista backdrop.
+
+The script source of truth is:
+- `Assets/Scripts/Stylization/SurfaceTextureContracts.cs`
+
+## Current fields
+```csharp
+string RequestId;
+string ThemeId;
+string ThemeDisplayName;
+string StyleVariantId;
+string UserStyleIntent;
+string StyleIntentSource;
+string SemanticLabel;
+ThemeSurfaceKind SurfaceKind;
+string OutputRole;
+SurfaceTextureJobState State;
+string PromptVersion;
+string ImageSize;
+string PromptArtifactPath;
+string JobPath;
+string BackendAdapterName;
+string BackendRequestPath;
+string BackendResultPath;
+string BackendTransformId;
+string OutputImagePath;
+string OutputImageUrl;
+string StatusNote;
+string FailureReason;
+string UpdatedAtIsoUtc;
+```
+
+## Current states
+```csharp
+public enum SurfaceTextureJobState
+{
+    PromptReady,
+    BackendSubmitted,
+    TextureReady,
+    MaterialReady,
+    Failed,
+}
+```
+
+## Notes
+- `PromptReady` jobs are written by `SurfaceTexturePromptBuilder` under `Library/SurfaceTextureJobs/`.
+- `ApimartSurfaceTextureBackendAdapter` submits `PromptReady` jobs to APIMart `gpt-image-2`, polls task status, downloads a PNG under `Library/SurfaceTextureOutputs/`, and advances the job to `TextureReady`.
+- `ImageSize` lets material jobs stay square while `window_vista` jobs request a wide image.
+- `SurfaceOverrideApplier` can consume `TextureReady` PNGs directly at runtime. If no generated texture exists, it falls back to theme materials or procedural textures.
 
 ---
 
@@ -312,7 +379,7 @@ Use these contracts only for:
 
 ---
 
-# 12. GeneratedObjectRequest
+# 13. GeneratedObjectRequest
 
 ## Purpose
 Captures the complete request needed to turn one room object into a stylized generated asset candidate.
@@ -386,7 +453,7 @@ string CreatedAtIsoUtc;
 
 ---
 
-# 13. GeneratedAssetRecord
+# 14. GeneratedAssetRecord
 
 ## Purpose
 Tracks the state of one generated-object job from capture through future model import.
@@ -475,7 +542,7 @@ public enum GeneratedObjectVerticalFitMode
 
 ---
 
-# 14. GeneratedImageBackendSubmission
+# 15. GeneratedImageBackendSubmission
 
 ## Purpose
 Defines the file-based request consumed by an external/manual image worker.
@@ -508,7 +575,7 @@ string CreatedAtIsoUtc;
 
 ---
 
-# 15. GeneratedImageBackendResult
+# 16. GeneratedImageBackendResult
 
 ## Purpose
 Defines the result file dropped back by the local mock backend or external/manual worker.
@@ -540,7 +607,7 @@ string CreatedAtIsoUtc;
 
 ---
 
-# 16. Generated-object enums
+# 17. Generated-object enums
 
 ## `GeneratedObjectJobState`
 ```csharp
@@ -575,7 +642,7 @@ public enum BestViewCaptureSourceMode
 
 ---
 
-# 17. JSON export shape recommendation
+# 18. JSON export shape recommendation
 
 For exported debug snapshots, prefer readable JSON like:
 
@@ -608,7 +675,7 @@ For exported debug snapshots, prefer readable JSON like:
 
 ---
 
-# 18. Strong rules for data ownership
+# 19. Strong rules for data ownership
 
 ## ThemeProfile owns
 - artistic intent
@@ -646,7 +713,7 @@ For exported debug snapshots, prefer readable JSON like:
 
 ---
 
-# 19. Debugging recommendations
+# 20. Debugging recommendations
 For every `StylizationPlanEntry`, be able to answer:
 - what did the system think this object was?
 - which rule matched?
@@ -664,7 +731,7 @@ For every `GeneratedAssetRecord`, be able to answer:
 
 ---
 
-# 20. First assets that should exist
+# 21. First assets that should exist
 Recommended first data assets:
 - `ThemeProfile_FutureResearchLab.asset`
 - `ThemeProfile_ArcaneKnowledgeChamber.asset`
@@ -673,7 +740,7 @@ Recommended first data assets:
 
 ---
 
-# 21. Minimum viable data contracts
+# 22. Minimum viable data contracts
 If time is tight, implement at least these first:
 - `ThemeProfile`
 - `RoomObjectRecord`

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -10,6 +11,8 @@ using UnityEngine.Networking;
 [DisallowMultipleComponent]
 public class Seed3DBackendAdapter : MonoBehaviour
 {
+    private const string LongRunningStatusMarker = "background polling";
+
     [Header("Ark Authentication")]
     [SerializeField] private string apiKeyEnvironmentVariable = "ARK_API_KEY";
 
@@ -23,8 +26,12 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
     [Header("Polling")]
     [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField, Min(1)] private int maxConcurrentSeed3DJobs = 2;
     [SerializeField, Min(1f)] private float pollIntervalSeconds = 5f;
     [SerializeField, Min(15f)] private float timeoutSeconds = 900f;
+    [SerializeField, Tooltip("After the normal timeout, keep checking long-running Seed3D tasks with one lightweight poll per interval instead of blocking a slot indefinitely.")]
+    private bool useBackgroundPollingAfterTimeout = true;
+    [SerializeField, Min(10f)] private float backgroundPollIntervalSeconds = 60f;
 
     [Header("Folders")]
     [SerializeField] private string jobFolderName = "GeneratedObjectJobs";
@@ -37,7 +44,9 @@ public class Seed3DBackendAdapter : MonoBehaviour
     public GeneratedAssetRecord LastProcessedRecord => _lastProcessedRecord;
 
     private GeneratedAssetRecord _lastProcessedRecord = new();
+    private readonly HashSet<string> _activeJobPaths = new(StringComparer.OrdinalIgnoreCase);
     private bool _isProcessing;
+    private float _nextProcessTime;
     private string _latestSummary =
         "[Seed3DBackendAdapter]\nState: waiting\nHint: provide ARK_API_KEY in the environment and a StylizedImageReady job with a public image_url.";
 
@@ -48,20 +57,26 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
     private void Update()
     {
-        if (!Application.isPlaying || !autoProcessJobsInPlay || _isProcessing)
+        if (!Application.isPlaying || !autoProcessJobsInPlay)
         {
             return;
         }
 
+        if (Time.unscaledTime < _nextProcessTime)
+        {
+            return;
+        }
+
+        _nextProcessTime = Time.unscaledTime + pollIntervalSeconds;
         ProcessNextReadyJob();
     }
 
     [ContextMenu("Process Next Seed3D Job")]
     public void ProcessNextReadyJob()
     {
-        if (_isProcessing)
+        if (!HasSeed3DCapacity())
         {
-            PublishSummary("already-processing");
+            PublishSummary("at-seed3d-capacity");
             return;
         }
 
@@ -72,25 +87,74 @@ public class Seed3DBackendAdapter : MonoBehaviour
             return;
         }
 
+        var startedCount = 0;
+        var deferredLongRunningCount = 0;
         var jobPaths = Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly);
         for (var index = 0; index < jobPaths.Length; index++)
         {
             var jobPath = jobPaths[index];
+            if (IsJobActive(jobPath))
+            {
+                continue;
+            }
+
             if (!TryLoadJob(jobPath, out var record) || !IsSeed3DProcessableState(record.State))
             {
                 continue;
             }
 
-            StartCoroutine(ProcessJob(jobPath, record));
-            return;
+            if (useBackgroundPollingAfterTimeout &&
+                IsBackgroundPollingRecord(record) &&
+                !IsBackgroundPollDue(record))
+            {
+                deferredLongRunningCount++;
+                continue;
+            }
+
+            StartCoroutine(RunTrackedJob(jobPath, record));
+            startedCount++;
+            if (!HasSeed3DCapacity())
+            {
+                break;
+            }
         }
 
-        PublishSummary("waiting-for-seed3d-job");
+        PublishSummary(startedCount > 0
+            ? "processing-batch"
+            : deferredLongRunningCount > 0 ? "waiting-background-seed3d-poll" : "waiting-for-seed3d-job");
     }
 
     public string GetDebugSummary()
     {
         return _latestSummary;
+    }
+
+    private IEnumerator RunTrackedJob(string jobPath, GeneratedAssetRecord record)
+    {
+        var key = NormalizeJobPath(jobPath);
+        _activeJobPaths.Add(key);
+        _isProcessing = true;
+
+        yield return ProcessJob(jobPath, record);
+
+        _activeJobPaths.Remove(key);
+        _isProcessing = _activeJobPaths.Count > 0;
+        PublishSummary(_isProcessing ? "processing-batch" : "idle");
+    }
+
+    private bool HasSeed3DCapacity()
+    {
+        return _activeJobPaths.Count < Mathf.Max(1, maxConcurrentSeed3DJobs);
+    }
+
+    private bool IsJobActive(string jobPath)
+    {
+        return _activeJobPaths.Contains(NormalizeJobPath(jobPath));
+    }
+
+    private static string NormalizeJobPath(string jobPath)
+    {
+        return string.IsNullOrWhiteSpace(jobPath) ? string.Empty : Path.GetFullPath(jobPath);
     }
 
     private IEnumerator ProcessJob(string jobPath, GeneratedAssetRecord record)
@@ -119,7 +183,15 @@ public class Seed3DBackendAdapter : MonoBehaviour
                 yield break;
             }
 
-            yield return PollSubmittedTask(jobPath, record, apiKey);
+            if (useBackgroundPollingAfterTimeout && IsBackgroundPollingRecord(record))
+            {
+                yield return PollSubmittedTaskOnce(jobPath, record, apiKey, "background-poll");
+            }
+            else
+            {
+                yield return PollSubmittedTask(jobPath, record, apiKey);
+            }
+
             _isProcessing = false;
             yield break;
         }
@@ -190,14 +262,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
             yield break;
         }
 
-        var resultPath = record.ModelGenerationResultPath;
-        if (string.IsNullOrWhiteSpace(resultPath))
-        {
-            var metadataDirectory = Path.Combine(GetLibraryDirectory(backendModelFolderName), record.RequestId);
-            Directory.CreateDirectory(metadataDirectory);
-            resultPath = Path.Combine(metadataDirectory, $"{record.RequestId}.seed3d.result.json");
-            record.ModelGenerationResultPath = resultPath;
-        }
+        var resultPath = EnsureModelResultPath(record);
 
         var startedAt = Time.realtimeSinceStartup;
         var queryUrl = $"{taskEndpoint.TrimEnd('/')}/{UnityWebRequest.EscapeURL(record.ModelGenerationTaskId)}";
@@ -230,6 +295,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
             if (!IsSuccessStatus(pollResponse))
             {
+                UpdateRunningPollStatus(jobPath, record, Time.realtimeSinceStartup - startedAt);
                 PublishSummary("polling");
                 continue;
             }
@@ -246,11 +312,67 @@ public class Seed3DBackendAdapter : MonoBehaviour
         }
 
         record.State = GeneratedObjectJobState.ModelGenerationSubmitted;
-        record.StatusNote = $"Seed3D polling paused after {timeoutSeconds:0}s without a terminal result. Re-run polling to resume task {record.ModelGenerationTaskId}.";
+        record.StatusNote = useBackgroundPollingAfterTimeout
+            ? $"Seed3D still running after {timeoutSeconds:0}s; {LongRunningStatusMarker} will resume every {backgroundPollIntervalSeconds:0}s for task {record.ModelGenerationTaskId}."
+            : $"Seed3D polling paused after {timeoutSeconds:0}s without a terminal result. Re-run polling to resume task {record.ModelGenerationTaskId}.";
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
         File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
         _lastProcessedRecord = record;
-        PublishSummary("poll-timeout-paused");
+        PublishSummary(useBackgroundPollingAfterTimeout ? "poll-timeout-background" : "poll-timeout-paused");
+    }
+
+    private IEnumerator PollSubmittedTaskOnce(string jobPath, GeneratedAssetRecord record, string apiKey, string summaryState)
+    {
+        if (record == null || string.IsNullOrWhiteSpace(record.ModelGenerationTaskId))
+        {
+            yield break;
+        }
+
+        var resultPath = EnsureModelResultPath(record);
+        var queryUrl = $"{taskEndpoint.TrimEnd('/')}/{UnityWebRequest.EscapeURL(record.ModelGenerationTaskId)}";
+
+        string pollResponse;
+        using (var pollRequest = UnityWebRequest.Get(queryUrl))
+        {
+            pollRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
+            yield return pollRequest.SendWebRequest();
+
+            pollResponse = pollRequest.downloadHandler != null ? pollRequest.downloadHandler.text : string.Empty;
+            File.WriteAllText(resultPath, pollResponse ?? string.Empty);
+            if (pollRequest.result != UnityWebRequest.Result.Success)
+            {
+                FailJob(jobPath, record, $"Seed3D poll request failed: {pollRequest.responseCode} {pollRequest.error}");
+                _isProcessing = false;
+                yield break;
+            }
+        }
+
+        if (IsFailureStatus(pollResponse, out var failedStatus))
+        {
+            FailJob(jobPath, record, $"Seed3D task failed with status '{failedStatus}'.");
+            _isProcessing = false;
+            yield break;
+        }
+
+        if (!IsSuccessStatus(pollResponse))
+        {
+            record.State = GeneratedObjectJobState.ModelGenerationSubmitted;
+            record.StatusNote = $"Seed3D still running; {LongRunningStatusMarker} checked task {record.ModelGenerationTaskId}. Next check after about {backgroundPollIntervalSeconds:0}s.";
+            record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+            File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+            _lastProcessedRecord = record;
+            PublishSummary(summaryState);
+            yield break;
+        }
+
+        if (!TryExtractModelUrl(pollResponse, out var modelUrl))
+        {
+            FailJob(jobPath, record, "Seed3D task succeeded but no downloadable model URL was found.");
+            _isProcessing = false;
+            yield break;
+        }
+
+        yield return DownloadModel(jobPath, record, modelUrl, resultPath);
     }
 
     private IEnumerator DownloadModel(string jobPath, GeneratedAssetRecord record, string modelUrl, string resultPath)
@@ -444,6 +566,68 @@ public class Seed3DBackendAdapter : MonoBehaviour
     {
         return state == GeneratedObjectJobState.StylizedImageReady ||
                state == GeneratedObjectJobState.ModelGenerationSubmitted;
+    }
+
+    private string EnsureModelResultPath(GeneratedAssetRecord record)
+    {
+        var resultPath = record.ModelGenerationResultPath;
+        if (!string.IsNullOrWhiteSpace(resultPath))
+        {
+            var existingDirectory = Path.GetDirectoryName(resultPath);
+            if (!string.IsNullOrWhiteSpace(existingDirectory))
+            {
+                Directory.CreateDirectory(existingDirectory);
+            }
+
+            return resultPath;
+        }
+
+        var metadataDirectory = Path.Combine(GetLibraryDirectory(backendModelFolderName), record.RequestId);
+        Directory.CreateDirectory(metadataDirectory);
+        resultPath = Path.Combine(metadataDirectory, $"{record.RequestId}.seed3d.result.json");
+        record.ModelGenerationResultPath = resultPath;
+        return resultPath;
+    }
+
+    private void UpdateRunningPollStatus(string jobPath, GeneratedAssetRecord record, float elapsedSeconds)
+    {
+        record.State = GeneratedObjectJobState.ModelGenerationSubmitted;
+        record.StatusNote = $"Seed3D still running; elapsed {elapsedSeconds:0}s / {timeoutSeconds:0}s before timeout. Task {record.ModelGenerationTaskId}.";
+        record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+        File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+        _lastProcessedRecord = record;
+    }
+
+    private static bool IsBackgroundPollingRecord(GeneratedAssetRecord record)
+    {
+        if (record == null || record.State != GeneratedObjectJobState.ModelGenerationSubmitted)
+        {
+            return false;
+        }
+
+        var statusNote = record.StatusNote ?? string.Empty;
+        return statusNote.IndexOf(LongRunningStatusMarker, StringComparison.OrdinalIgnoreCase) >= 0 ||
+               statusNote.IndexOf("polling paused after", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private bool IsBackgroundPollDue(GeneratedAssetRecord record)
+    {
+        if (!IsBackgroundPollingRecord(record))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(record.UpdatedAtIsoUtc) ||
+            !DateTime.TryParse(
+                record.UpdatedAtIsoUtc,
+                null,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var updatedAt))
+        {
+            return true;
+        }
+
+        return DateTime.UtcNow - updatedAt.ToUniversalTime() >= TimeSpan.FromSeconds(Mathf.Max(10f, backgroundPollIntervalSeconds));
     }
 
     private static void EnrichRecordFromSourceRequest(GeneratedAssetRecord record)
@@ -729,6 +913,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
         builder.AppendLine("[Seed3DBackendAdapter]");
         builder.AppendLine($"State: {state}");
         builder.AppendLine($"Auto Process: {autoProcessJobsInPlay}");
+        builder.AppendLine($"Active Jobs: {_activeJobPaths.Count}/{Mathf.Max(1, maxConcurrentSeed3DJobs)}");
         builder.AppendLine($"Endpoint: {taskEndpoint}");
         builder.AppendLine($"Model: {model}");
         builder.AppendLine($"Subdivision: {subdivisionLevel}");

@@ -8,43 +8,59 @@ using UnityEngine;
 using UnityEngine.Networking;
 
 [DisallowMultipleComponent]
-public class ApimartImageBackendAdapter : MonoBehaviour
+public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
 {
+    [Header("References")]
+    [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
+
     [Header("APIMart Authentication")]
     [SerializeField] private string apiKeyEnvironmentVariable = "APIMART_API_KEY";
 
     [Header("Image Generation")]
     [SerializeField] private bool autoProcessJobsInPlay = true;
-    [SerializeField, Min(1)] private int maxConcurrentImageJobs = 2;
+    [SerializeField, Min(1)] private int maxConcurrentSurfaceImageJobs = 2;
+    [SerializeField] private bool processActiveThemeOnly = true;
+    [SerializeField] private bool processActiveStyleOnly = true;
     [SerializeField] private string generationEndpoint = "https://api.apimart.ai/v1/images/generations";
     [SerializeField] private string taskEndpointBase = "https://api.apimart.ai/v1/tasks";
     [SerializeField] private string model = "gpt-image-2";
     [SerializeField] private string size = "1:1";
     [SerializeField, Min(1)] private int imageCount = 1;
-    [SerializeField] private bool includeReferenceImage = true;
 
     [Header("Polling")]
     [SerializeField, Min(1f)] private float pollIntervalSeconds = 5f;
     [SerializeField, Min(15f)] private float timeoutSeconds = 300f;
 
     [Header("Folders")]
-    [SerializeField] private string jobFolderName = "GeneratedObjectJobs";
-    [SerializeField] private string outputFolderName = "GeneratedObjectOutputs";
+    [SerializeField] private string jobFolderName = "SurfaceTextureJobs";
+    [SerializeField] private string outputFolderName = "SurfaceTextureOutputs";
 
     public event Action SummaryChanged;
 
     public string LatestSummary => _latestSummary;
-    public GeneratedAssetRecord LastProcessedRecord => _lastProcessedRecord;
+    public SurfaceTextureJobRecord LastProcessedRecord => _lastProcessedRecord;
 
-    private GeneratedAssetRecord _lastProcessedRecord = new();
+    private SurfaceTextureJobRecord _lastProcessedRecord = new SurfaceTextureJobRecord();
     private readonly HashSet<string> _activeJobPaths = new(StringComparer.OrdinalIgnoreCase);
     private bool _isProcessing;
     private float _nextPollTime;
     private string _latestSummary =
-        "[ApimartImageBackendAdapter]\nState: waiting\nHint: set APIMART_API_KEY, queue a CaptureReady job, then this adapter will request gpt-image-2.";
+        "[ApimartSurfaceTextureBackendAdapter]\nState: waiting\nHint: select a theme to write surface jobs, then APIMart can generate wall/floor/ceiling/frame textures.";
+
+    private void Reset()
+    {
+        ResolveReferences();
+    }
+
+    private void Awake()
+    {
+        ResolveReferences();
+    }
 
     private void OnEnable()
     {
+        ResolveReferences();
         PublishSummary("enabled");
     }
 
@@ -64,12 +80,21 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         ProcessNextJob();
     }
 
-    [ContextMenu("Process Next APIMart Image Job")]
+    [ContextMenu("Process Next Surface Texture Job")]
     public void ProcessNextJob()
     {
-        if (!HasImageJobCapacity())
+        if (!HasSurfaceImageCapacity())
         {
-            PublishSummary("at-image-capacity");
+            PublishSummary("at-surface-image-capacity");
+            return;
+        }
+
+        ResolveReferences();
+        var activeThemeId = GetActiveThemeId();
+        var activeStyleVariantId = GetActiveStyleVariantId();
+        if (processActiveThemeOnly && string.IsNullOrWhiteSpace(activeThemeId))
+        {
+            PublishSummary("waiting-for-active-theme");
             return;
         }
 
@@ -81,25 +106,29 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         }
 
         var startedCount = 0;
-        var jobPaths = Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly);
+        var jobPaths = Directory.GetFiles(jobDirectory, "*.surface.job.json", SearchOption.TopDirectoryOnly);
         for (var index = 0; index < jobPaths.Length; index++)
         {
-            var jobPath = jobPaths[index];
-            if (IsJobActive(jobPath))
+            if (IsJobActive(jobPaths[index]))
             {
                 continue;
             }
 
-            if (!TryLoadJob(jobPath, out var record))
+            if (!TryLoadJob(jobPaths[index], out var record))
             {
                 continue;
             }
 
-            if (record.State == GeneratedObjectJobState.CaptureReady)
+            if (!ShouldProcessJob(record, activeThemeId, activeStyleVariantId))
             {
-                StartCoroutine(RunTrackedJob(jobPath, record, submitNewTask: true));
+                continue;
+            }
+
+            if (record.State == SurfaceTextureJobState.PromptReady)
+            {
+                StartCoroutine(RunTrackedJob(jobPaths[index], record, submitNewTask: true));
                 startedCount++;
-                if (!HasImageJobCapacity())
+                if (!HasSurfaceImageCapacity())
                 {
                     break;
                 }
@@ -107,27 +136,22 @@ public class ApimartImageBackendAdapter : MonoBehaviour
                 continue;
             }
 
-            if (record.State == GeneratedObjectJobState.BackendSubmitted &&
-                string.Equals(record.BackendAdapterName, nameof(ApimartImageBackendAdapter), StringComparison.Ordinal))
+            if (record.State == SurfaceTextureJobState.BackendSubmitted &&
+                string.Equals(record.BackendAdapterName, nameof(ApimartSurfaceTextureBackendAdapter), StringComparison.Ordinal))
             {
-                StartCoroutine(RunTrackedJob(jobPath, record, submitNewTask: false));
+                StartCoroutine(RunTrackedJob(jobPaths[index], record, submitNewTask: false));
                 startedCount++;
-                if (!HasImageJobCapacity())
+                if (!HasSurfaceImageCapacity())
                 {
                     break;
                 }
             }
         }
 
-        PublishSummary(startedCount > 0 ? "processing-batch" : "waiting-for-capture-ready-job");
+        PublishSummary(startedCount > 0 ? "processing-batch" : "waiting-for-prompt-ready-job");
     }
 
-    public string GetDebugSummary()
-    {
-        return _latestSummary;
-    }
-
-    private IEnumerator RunTrackedJob(string jobPath, GeneratedAssetRecord record, bool submitNewTask)
+    private IEnumerator RunTrackedJob(string jobPath, SurfaceTextureJobRecord record, bool submitNewTask)
     {
         var key = NormalizeJobPath(jobPath);
         _activeJobPaths.Add(key);
@@ -142,9 +166,9 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         PublishSummary(_isProcessing ? "processing-batch" : "idle");
     }
 
-    private bool HasImageJobCapacity()
+    private bool HasSurfaceImageCapacity()
     {
-        return _activeJobPaths.Count < Mathf.Max(1, maxConcurrentImageJobs);
+        return _activeJobPaths.Count < Mathf.Max(1, maxConcurrentSurfaceImageJobs);
     }
 
     private bool IsJobActive(string jobPath)
@@ -157,7 +181,58 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         return string.IsNullOrWhiteSpace(jobPath) ? string.Empty : Path.GetFullPath(jobPath);
     }
 
-    private IEnumerator SubmitJob(string jobPath, GeneratedAssetRecord record)
+    private void ResolveReferences()
+    {
+        if (themeIntentController == null)
+        {
+            themeIntentController = FindAnyObjectByType<ThemeIntentController>();
+        }
+
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
+        }
+    }
+
+    private string GetActiveThemeId()
+    {
+        return themeIntentController != null && themeIntentController.ActiveTheme != null
+            ? themeIntentController.ActiveTheme.ThemeId
+            : string.Empty;
+    }
+
+    private string GetActiveStyleVariantId()
+    {
+        return SurfaceTexturePromptBuilder.BuildStyleVariantId(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
+    }
+
+    private bool ShouldProcessJob(SurfaceTextureJobRecord record, string activeThemeId, string activeStyleVariantId)
+    {
+        if (record == null)
+        {
+            return false;
+        }
+
+        if (processActiveThemeOnly &&
+            !string.IsNullOrWhiteSpace(activeThemeId) &&
+            !string.Equals(record.ThemeId, activeThemeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!processActiveStyleOnly)
+        {
+            return true;
+        }
+
+        var recordStyleVariantId = string.IsNullOrWhiteSpace(record.StyleVariantId)
+            ? SurfaceTexturePromptBuilder.PresetStyleVariantId
+            : record.StyleVariantId;
+        return string.Equals(recordStyleVariantId, activeStyleVariantId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private IEnumerator SubmitJob(string jobPath, SurfaceTextureJobRecord record)
     {
         _isProcessing = true;
         _lastProcessedRecord = record;
@@ -176,23 +251,15 @@ public class ApimartImageBackendAdapter : MonoBehaviour
 
         if (string.IsNullOrWhiteSpace(record.PromptArtifactPath) || !File.Exists(record.PromptArtifactPath))
         {
-            FailJob(jobPath, record, "APIMart image job is missing its prompt artifact.");
-            _isProcessing = false;
-            yield break;
-        }
-
-        if (includeReferenceImage &&
-            (string.IsNullOrWhiteSpace(record.SourceInputImagePath) || !File.Exists(record.SourceInputImagePath)))
-        {
-            FailJob(jobPath, record, "APIMart image job is missing its source reference image.");
+            FailJob(jobPath, record, "Surface texture job is missing its prompt artifact.");
             _isProcessing = false;
             yield break;
         }
 
         var outputDirectory = GetOutputDirectory();
         Directory.CreateDirectory(outputDirectory);
-        var requestPath = Path.Combine(outputDirectory, $"{record.RequestId}.apimart.request.json");
-        var resultPath = Path.Combine(outputDirectory, $"{record.RequestId}.apimart.result.json");
+        var requestPath = Path.Combine(outputDirectory, $"{record.RequestId}.apimart.surface.request.json");
+        var resultPath = Path.Combine(outputDirectory, $"{record.RequestId}.apimart.surface.result.json");
         var requestJson = BuildCreateTaskJson(record);
         File.WriteAllText(requestPath, requestJson);
 
@@ -210,7 +277,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
             File.WriteAllText(resultPath, responseJson ?? string.Empty);
             if (request.result != UnityWebRequest.Result.Success)
             {
-                FailJob(jobPath, record, $"APIMart image generation request failed: {request.responseCode} {request.error} {Shorten(responseJson, 240)}");
+                FailJob(jobPath, record, $"APIMart surface request failed: {request.responseCode} {request.error} {Shorten(responseJson, 240)}");
                 _isProcessing = false;
                 yield break;
             }
@@ -218,17 +285,17 @@ public class ApimartImageBackendAdapter : MonoBehaviour
 
         if (!TryExtractTaskId(responseJson, out var taskId))
         {
-            FailJob(jobPath, record, $"APIMart image generation response did not include task_id: {Shorten(responseJson, 240)}");
+            FailJob(jobPath, record, $"APIMart surface response did not include task_id: {Shorten(responseJson, 240)}");
             _isProcessing = false;
             yield break;
         }
 
-        record.State = GeneratedObjectJobState.BackendSubmitted;
-        record.BackendAdapterName = nameof(ApimartImageBackendAdapter);
+        record.State = SurfaceTextureJobState.BackendSubmitted;
+        record.BackendAdapterName = nameof(ApimartSurfaceTextureBackendAdapter);
         record.BackendRequestPath = requestPath;
         record.BackendResultPath = resultPath;
         record.BackendTransformId = taskId;
-        record.StatusNote = $"APIMart {model} task submitted; polling task {taskId}.";
+        record.StatusNote = $"APIMart {model} surface texture task submitted; polling task {taskId}.";
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
         File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
 
@@ -236,7 +303,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         _isProcessing = false;
     }
 
-    private IEnumerator PollSubmittedJob(string jobPath, GeneratedAssetRecord record)
+    private IEnumerator PollSubmittedJob(string jobPath, SurfaceTextureJobRecord record)
     {
         if (record == null || string.IsNullOrWhiteSpace(record.BackendTransformId))
         {
@@ -261,9 +328,8 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         var resultPath = record.BackendResultPath;
         if (string.IsNullOrWhiteSpace(resultPath))
         {
-            var outputDirectory = GetOutputDirectory();
-            Directory.CreateDirectory(outputDirectory);
-            resultPath = Path.Combine(outputDirectory, $"{record.RequestId}.apimart.result.json");
+            Directory.CreateDirectory(GetOutputDirectory());
+            resultPath = Path.Combine(GetOutputDirectory(), $"{record.RequestId}.apimart.surface.result.json");
             record.BackendResultPath = resultPath;
         }
 
@@ -284,7 +350,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
                 {
                     if (pollRequest.responseCode == 0)
                     {
-                        record.StatusNote = $"APIMart task poll had a transient network error and will retry: {pollRequest.error}";
+                        record.StatusNote = $"APIMart surface poll had a transient network error and will retry: {pollRequest.error}";
                         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
                         File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
                         PublishSummary("polling-retry");
@@ -292,7 +358,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
                     }
 
                     File.WriteAllText(resultPath, pollResponse ?? string.Empty);
-                    FailJob(jobPath, record, $"APIMart task poll failed: {pollRequest.responseCode} {pollRequest.error} {Shorten(pollResponse, 240)}");
+                    FailJob(jobPath, record, $"APIMart surface poll failed: {pollRequest.responseCode} {pollRequest.error} {Shorten(pollResponse, 240)}");
                     _isProcessing = false;
                     yield break;
                 }
@@ -302,14 +368,14 @@ public class ApimartImageBackendAdapter : MonoBehaviour
 
             if (IsFailureStatus(pollResponse, out var failureStatus))
             {
-                FailJob(jobPath, record, $"APIMart task failed with status '{failureStatus}'.");
+                FailJob(jobPath, record, $"APIMart surface task failed with status '{failureStatus}'.");
                 _isProcessing = false;
                 yield break;
             }
 
             if (!IsSuccessStatus(pollResponse))
             {
-                record.StatusNote = $"APIMart task {record.BackendTransformId} is still running.";
+                record.StatusNote = $"APIMart surface task {record.BackendTransformId} is still running.";
                 record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
                 File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
                 PublishSummary("polling");
@@ -318,28 +384,31 @@ public class ApimartImageBackendAdapter : MonoBehaviour
 
             if (!TryExtractImageUrl(pollResponse, out var imageUrl))
             {
-                FailJob(jobPath, record, $"APIMart task succeeded but no image URL was found: {Shorten(pollResponse, 240)}");
+                FailJob(jobPath, record, $"APIMart surface task succeeded but no image URL was found: {Shorten(pollResponse, 240)}");
                 _isProcessing = false;
                 yield break;
             }
 
-            yield return DownloadStylizedImage(jobPath, record, imageUrl, resultPath);
+            yield return DownloadTexture(jobPath, record, imageUrl);
             _isProcessing = false;
             yield break;
         }
 
-        record.StatusNote = $"APIMart polling paused after {timeoutSeconds:0}s. Re-run polling to resume task {record.BackendTransformId}.";
+        record.StatusNote = $"APIMart surface polling paused after {timeoutSeconds:0}s. Re-run polling to resume task {record.BackendTransformId}.";
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
         File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
         PublishSummary("poll-timeout-paused");
         _isProcessing = false;
     }
 
-    private IEnumerator DownloadStylizedImage(string jobPath, GeneratedAssetRecord record, string imageUrl, string resultPath)
+    private IEnumerator DownloadTexture(string jobPath, SurfaceTextureJobRecord record, string imageUrl)
     {
         var outputDirectory = GetOutputDirectory();
         Directory.CreateDirectory(outputDirectory);
-        var outputPath = Path.Combine(outputDirectory, $"{record.RequestId}.stylized.png");
+        var outputPath = !string.IsNullOrWhiteSpace(record.OutputImagePath)
+            ? record.OutputImagePath
+            : Path.Combine(outputDirectory, $"{record.RequestId}.surface.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? outputDirectory);
 
         using (var downloadRequest = UnityWebRequest.Get(imageUrl))
         {
@@ -348,29 +417,32 @@ public class ApimartImageBackendAdapter : MonoBehaviour
 
             if (downloadRequest.result != UnityWebRequest.Result.Success)
             {
-                FailJob(jobPath, record, $"APIMart generated image download failed: {downloadRequest.responseCode} {downloadRequest.error}");
+                FailJob(jobPath, record, $"APIMart surface image download failed: {downloadRequest.responseCode} {downloadRequest.error}");
                 yield break;
             }
         }
 
-        WriteBackendResult(resultPath, record, outputPath, imageUrl);
+        if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
+        {
+            FailJob(jobPath, record, $"APIMart surface image download produced an empty PNG: {outputPath}");
+            yield break;
+        }
 
-        record.State = GeneratedObjectJobState.StylizedImageReady;
-        record.BackendAdapterName = nameof(ApimartImageBackendAdapter);
-        record.StylizedImagePath = outputPath;
-        record.StylizedImageUrl = string.Empty;
-        record.PreviewImagePath = outputPath;
-        record.StatusNote = "APIMart generated stylized PNG downloaded locally; hosted upload bridge can now publish a stable image_url for Seed3D.";
+        record.State = SurfaceTextureJobState.TextureReady;
+        record.BackendAdapterName = nameof(ApimartSurfaceTextureBackendAdapter);
+        record.OutputImagePath = outputPath;
+        record.OutputImageUrl = imageUrl;
+        record.StatusNote = "APIMart generated surface texture PNG downloaded locally; SurfaceOverrideApplier can use it at runtime.";
         record.FailureReason = string.Empty;
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
         File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
 
         _lastProcessedRecord = record;
-        PublishSummary("stylized-image-ready");
-        Debug.Log($"[ApimartImageBackendAdapter] Stylized image ready for request {record.RequestId} -> {outputPath}", this);
+        PublishSummary("texture-ready");
+        Debug.Log($"[ApimartSurfaceTextureBackendAdapter] Surface texture ready for {record.RequestId} -> {outputPath}", this);
     }
 
-    private string BuildCreateTaskJson(GeneratedAssetRecord record)
+    private string BuildCreateTaskJson(SurfaceTextureJobRecord record)
     {
         var prompt = File.ReadAllText(record.PromptArtifactPath);
         var builder = new StringBuilder(4096);
@@ -381,32 +453,15 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         builder.Append(',');
         builder.Append("\"n\":").Append(Mathf.Max(1, imageCount));
         builder.Append(',');
-        AppendJsonProperty(builder, "size", size);
-
-        if (includeReferenceImage)
-        {
-            builder.Append(',');
-            builder.Append("\"image_urls\":[");
-            AppendJsonString(builder, BuildDataUri(record.SourceInputImagePath));
-            builder.Append(']');
-        }
-
+        AppendJsonProperty(builder, "size", string.IsNullOrWhiteSpace(record.ImageSize) ? size : record.ImageSize);
         builder.Append('}');
         return builder.ToString();
     }
 
-    private static string BuildDataUri(string imagePath)
+    private void FailJob(string jobPath, SurfaceTextureJobRecord record, string reason)
     {
-        var extension = Path.GetExtension(imagePath)?.TrimStart('.').ToLowerInvariant();
-        var mime = extension == "jpg" || extension == "jpeg" ? "image/jpeg" : "image/png";
-        var base64 = Convert.ToBase64String(File.ReadAllBytes(imagePath));
-        return $"data:{mime};base64,{base64}";
-    }
-
-    private void FailJob(string jobPath, GeneratedAssetRecord record, string reason)
-    {
-        record.State = GeneratedObjectJobState.Failed;
-        record.BackendAdapterName = nameof(ApimartImageBackendAdapter);
+        record.State = SurfaceTextureJobState.Failed;
+        record.BackendAdapterName = nameof(ApimartSurfaceTextureBackendAdapter);
         record.FailureReason = reason;
         record.StatusNote = reason;
         record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
@@ -414,10 +469,10 @@ public class ApimartImageBackendAdapter : MonoBehaviour
 
         _lastProcessedRecord = record;
         PublishSummary("failed");
-        Debug.LogWarning($"[ApimartImageBackendAdapter] Job failed for request {record.RequestId}: {reason}", this);
+        Debug.LogWarning($"[ApimartSurfaceTextureBackendAdapter] Job failed for request {record.RequestId}: {reason}", this);
     }
 
-    private bool TryLoadJob(string jobPath, out GeneratedAssetRecord record)
+    private bool TryLoadJob(string jobPath, out SurfaceTextureJobRecord record)
     {
         record = null;
         if (string.IsNullOrWhiteSpace(jobPath) || !File.Exists(jobPath))
@@ -431,32 +486,8 @@ public class ApimartImageBackendAdapter : MonoBehaviour
             return false;
         }
 
-        record = JsonUtility.FromJson<GeneratedAssetRecord>(json);
+        record = JsonUtility.FromJson<SurfaceTextureJobRecord>(json);
         return record != null && !string.IsNullOrWhiteSpace(record.RequestId);
-    }
-
-    private static void WriteBackendResult(string resultPath, GeneratedAssetRecord record, string outputImagePath, string sourceImageUrl)
-    {
-        var result = new GeneratedImageBackendResult
-        {
-            RequestId = record.RequestId,
-            ObjectId = record.ObjectId,
-            ThemeId = record.ThemeId,
-            PromptVersion = record.PromptVersion,
-            PromptArtifactPath = record.PromptArtifactPath,
-            SourceInputImagePath = record.SourceInputImagePath,
-            SourceRequestPath = record.SourceRequestPath,
-            OutputImagePath = outputImagePath,
-            OutputImageUrl = string.Empty,
-            BackendAdapterName = nameof(ApimartImageBackendAdapter),
-            AppliedTransformId = $"apimart_gpt_image_2:{record.BackendTransformId}",
-            PromptArtifactConsumed = true,
-            OutputState = GeneratedObjectJobState.StylizedImageReady,
-            StatusNote = $"APIMart generated image downloaded from transient backend URL: {sourceImageUrl}",
-            CreatedAtIsoUtc = DateTime.UtcNow.ToString("O"),
-        };
-
-        File.WriteAllText(resultPath, JsonUtility.ToJson(result, true));
     }
 
     private string GetJobDirectory()
@@ -591,20 +622,23 @@ public class ApimartImageBackendAdapter : MonoBehaviour
     private void PublishSummary(string state)
     {
         var builder = new StringBuilder(512);
-        builder.AppendLine("[ApimartImageBackendAdapter]");
+        builder.AppendLine("[ApimartSurfaceTextureBackendAdapter]");
         builder.AppendLine($"State: {state}");
         builder.AppendLine($"Auto Process: {autoProcessJobsInPlay}");
-        builder.AppendLine($"Active Jobs: {_activeJobPaths.Count}/{Mathf.Max(1, maxConcurrentImageJobs)}");
-        builder.AppendLine($"Endpoint: {generationEndpoint}");
+        builder.AppendLine($"Active Jobs: {_activeJobPaths.Count}/{Mathf.Max(1, maxConcurrentSurfaceImageJobs)}");
+        builder.AppendLine($"Active Theme Only: {processActiveThemeOnly}");
+        builder.AppendLine($"Active Theme: {GetActiveThemeId()}");
+        builder.AppendLine($"Active Style Only: {processActiveStyleOnly}");
+        builder.AppendLine($"Active Style: {GetActiveStyleVariantId()}");
         builder.AppendLine($"Model: {model}");
-        builder.AppendLine($"Reference Image: {includeReferenceImage}");
 
         if (!string.IsNullOrWhiteSpace(_lastProcessedRecord.RequestId))
         {
             builder.AppendLine($"Last Request: {_lastProcessedRecord.RequestId}");
             builder.AppendLine($"Last State: {_lastProcessedRecord.State}");
+            builder.AppendLine($"Image Size: {_lastProcessedRecord.ImageSize}");
             builder.AppendLine($"Task Id: {_lastProcessedRecord.BackendTransformId}");
-            builder.AppendLine($"Stylized Image: {_lastProcessedRecord.StylizedImagePath}");
+            builder.AppendLine($"Texture: {_lastProcessedRecord.OutputImagePath}");
             builder.AppendLine($"Status Note: {_lastProcessedRecord.StatusNote}");
         }
         else
