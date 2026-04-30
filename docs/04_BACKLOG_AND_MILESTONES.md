@@ -66,7 +66,7 @@ Deliverables:
 
 Acceptance:
 - room loads on device or a `MetaXRSimulator` simulated room path works
-- simulator-based validation is acceptable for Phase 1A development, but it does not replace later validation in the canonical real room
+- simulator-based validation is acceptable for Phase 1A development, but it does not replace later validation in the canonical UNNC IEB office room
 - no blocking console errors
 
 ### M1.2 Build `RoomSemanticBootstrap`
@@ -157,15 +157,16 @@ Acceptance:
 Create a deterministic mapping from room semantics to themed replacements.
 
 ## Tasks
-### M3.1 Create `ThemeProfile` data model
+### M3.1 Create `ThemeProfile` scaffold and user `Style` data model
 Deliverables:
-- `ThemeProfile` ScriptableObject or equivalent
-- starter assets for:
+- `ThemeProfile` ScriptableObject or equivalent for `GenericRoomStyleScaffold`
+- starter user Style entries for:
   - `FutureResearchLab`
   - `ArcaneKnowledgeChamber`
 
 Acceptance:
-- theme asset contains surface/material/proxy/mood fields
+- generic scaffold contains surface/material/proxy/mood fallback fields
+- built-in Style entries are the user-facing visual identities
 
 ### M3.2 Create `StylizationPlan` data model
 Deliverables:
@@ -332,24 +333,27 @@ Acceptance:
 # Optional Milestone 8 — Generated object enrichment
 
 ## Goal
-Keep the Roomify-like object-generation experiment as a side branch behind the deterministic stylization path.
+Keep the Roomify-like generated-furniture experiment as a side branch behind the deterministic stylization path.
 
 This milestone must not block the Phase 1 room-stylization demo.
-It exists to enrich one collision-sensitive object after the stable proxy/material flow already works.
+It exists to enrich selected furniture anchors after the stable proxy/material flow already works.
 
 ## Tasks
-### M8.1 Capture a `TABLE` reference request
+### M8.1 Capture generated-furniture reference requests
 Deliverables:
+- `DevicePassthroughCaptureService`
 - `BestViewCaptureService`
 - `GeneratedObjectRequest`
 - source image path, request JSON, crop metadata, camera pose, object scaffold metadata
 
 Acceptance:
-- pressing `C` in Play mode can create a request for one `TABLE`
-- deterministic table proxy still works if capture fails
+- a headset/Quest Link user can target a supported MRUK furniture anchor from gaze and create one request
+- simulator/external-screenshot fallback remains available
+- deterministic/proxy room stylization still works if capture fails
 
 Current status:
-- implemented for a `TABLE`-first path using `ExternalScreenshot` as the practical Simulator source mode
+- implemented for supported categories including `TABLE`, `STORAGE`, `SCREEN`, `COUCH` mapped to `Seating`, `BED`, `LAMP`, `PLANT`, and `OTHER`
+- request-locked capture prevents old object captures from silently replacing a different target
 
 ### M8.2 Create a file-based backend boundary
 Deliverables:
@@ -365,24 +369,24 @@ Acceptance:
 
 Current status:
 - implemented
-- manual/imagegen worker outputs exist for multiple `TABLE_18` candidates, with `table_18_20260425025836` preferred for current validation
-- future generated-image requests should use the stricter transparent-object prompt version and preserve the target table aspect ratio as strongly as possible
+- automated APIMart `gpt-image-2` image jobs, hosted upload, and Seed3D submission are wired
+- manual/external-worker mode remains useful for replay and debugging
+- generated-image requests should use the stricter transparent-object prompt version and preserve target object role, footprint, aspect ratio, and yaw
 
-### M8.3 Import and register a generated table proxy
+### M8.3 Import and register generated furniture proxies
 Deliverables:
 - generated-model import path
 - generated asset registry/cache
 - registration using scaffold size, best-view yaw, bottom-face alignment, and bounded scale
 
 Acceptance:
-- generated table candidate can be placed in the same scaffold as the deterministic proxy
+- generated furniture candidate can be placed in the same scaffold as the deterministic proxy
 - failed registration falls back to deterministic proxy
 
 Current status:
 - partially implemented
-- one Seed3D 2.0 GLB has been copied into `Assets/Generated/ThemeAssets/`
-- `GeneratedObjectModelImporter` can import `ModelReady` jobs into generated table prefabs
-- `AnchorThemeApplier` can prefer imported generated table prefabs in Editor/Simulator
+- `GeneratedObjectModelImporter` can import `ModelReady` jobs into generated furniture prefabs
+- `AnchorThemeApplier` can prefer imported generated furniture prefabs when they match the active request/object/style
 - current fitting uses transformed MRUK `VolumeBounds` corners, exact scaffold scale, and bottom-face alignment
 - full Roomify-style OBB/IoU registration search is not implemented yet
 
@@ -397,12 +401,14 @@ Acceptance:
 - collision-sensitive generated furniture is never silently finalized without an easy revert path
 
 Current status:
-- not implemented
-- this is the next blocker before treating generated furniture as demo-ready rather than an optional artifact preview
+- partially implemented
+- runtime `Rotate 90` correction exists for selected generated furniture
+- accept/reject/reset and persistent correction records are still missing
+- this remains the next blocker before treating generated furniture as demo-final rather than optional enrichment
 
 ### M8.5 Spike true-device passthrough capture for generated requests
 Deliverables:
-- `DevicePassthroughCaptureService` or equivalent device-only capture component
+- `DevicePassthroughCaptureService` validation on the target headset/runtime
 - headset RGB frame saved to `Application.persistentDataPath`
 - metadata JSON containing camera pose, intrinsics if available, selected MRUK anchor, bounds, and projected crop rect
 - Immersive Debugger button or debug UI trigger for capture
@@ -412,6 +418,10 @@ Acceptance:
 - artifacts can be pulled through MQDH/ADB for offline image stylization and Seed3D testing
 - deterministic stylization remains usable when device capture fails or permissions are missing
 
+Current status:
+- compile/scene-wired and useful in Quest Link / Editor Play workflows
+- still needs explicit true-device PCA pass/fail evidence on the target headset/runtime
+
 ---
 
 # Fallback plan if AI perception is unstable
@@ -419,7 +429,7 @@ Acceptance:
 If Image Segmentation or detection blocks progress:
 1. keep MRUK as the backbone,
 2. stylize only room-scale surfaces and known anchors,
-3. manually tag one table and one screen if needed,
+3. manually tag one key table/screen/storage/seating object if needed,
 4. continue building planner/applier/correction flow.
 
 That still produces a valid Phase 1 prototype.
@@ -432,8 +442,8 @@ Do not restart from M1 unless the project has been reset.
 For the current repository state, use `docs/08_PROGRESS_STATUS.md` as the rolling source of truth.
 
 The smallest safe next task depends on the current demo goal:
-- for the generated-object branch, visually review the current imported Seed3D table from the intended Simulator/user camera and add a reset-to-deterministic control
-- for the core Phase 1 slice, continue table proxy alignment/readability and then move into M5 correction mode
+- for the generated-object branch, add accept/reject/reset controls and persistence for generated-furniture corrections
+- for the core Phase 1 slice, validate the current surface/opening aesthetic in the UNNC IEB office and document remaining visual issues
 - before recording or committing a demo build, run the checklist in `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`
 
 If starting from a fresh clone or a broken scene, then fall back to:

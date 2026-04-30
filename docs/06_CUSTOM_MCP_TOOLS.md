@@ -91,7 +91,7 @@ public class ExportRoomSemanticsParams
 ```json
 {
   "ok": true,
-  "roomId": "library_discussion_room_a",
+  "roomId": "unnc_ieb_office_a",
   "objectCount": 18,
   "categories": {
     "wall": 4,
@@ -291,7 +291,7 @@ This is the recommended style for this repository.
 ```csharp
 using Unity.AI.MCP.Editor.ToolRegistry;
 
-[McpTool("edr_validate_setup", "Validate the Echo Discussion Room project setup")]
+[McpTool("edr_validate_setup", "Validate the SceneShift office room project setup")]
 public static object ValidateSetup(ValidateSetupParams parameters)
 {
     return new

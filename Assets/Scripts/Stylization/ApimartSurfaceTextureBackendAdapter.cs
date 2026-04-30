@@ -197,7 +197,9 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
     private string GetActiveThemeId()
     {
         return themeIntentController != null && themeIntentController.ActiveTheme != null
-            ? themeIntentController.ActiveTheme.ThemeId
+            ? RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(
+                themeIntentController.ActiveTheme,
+                runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null)
             : string.Empty;
     }
 

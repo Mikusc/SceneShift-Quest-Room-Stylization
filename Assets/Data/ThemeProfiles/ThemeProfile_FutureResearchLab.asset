@@ -36,20 +36,21 @@ MonoBehaviour:
     TextureTiling: 4.5
     PatternStrength: 0.82
     WallTexturePromptHint: Seamless cool-white and cyan laboratory wall panel material
-      with subtle luminous seams, brushed composite panels, and restrained research-room
-      readability.
+      with broad room-scale composite panels, sparse luminous seams, and restrained
+      research-room readability. Avoid tiny wallpaper-like repeats.
     FloorTexturePromptHint: Seamless dark graphite laboratory floor material with
-      fine cyan grid traces, low-glare anti-slip panels, and clear walkable-space
-      readability.
+      broad low-glare anti-slip panels, sparse cyan guide traces, and clear walkable-space
+      readability. Avoid dense micro grids.
     CeilingTreatmentPromptHint: Soft overhead research-lab light panel treatment
-      with pale cyan glow, subtle modular ceiling panels, and no heavy geometry that
-      hides the real ceiling.
-    DoorFramePromptHint: Reusable cyan-lit laboratory door trim with thin emissive
-      edge lines, brushed composite frame panels, and a fully open center so passage
-      remains unobstructed.
+      with broad pale cyan light fields, sparse modular ceiling panels, and no heavy
+      geometry that hides the real ceiling.
+    DoorFramePromptHint: Full cyan-lit laboratory door or portal panel with brushed
+      composite surface, inset technical paneling, subtle edge glow, and flat doorway-aligned
+      placement. It should read as a complete door, not only a frame.
     WindowFramePromptHint: Reusable translucent research-lab window trim with pale
-      cyan edge glow, subtle data-line etching, and a fully open center so the real
-      view remains visible.
+      cyan edge glow, subtle data-line etching, and an open center so the real view
+      remains visible. The silhouette can be rounded or sci-fi rather than strictly
+      square.
     WindowVistaPromptHint: Wide exterior vista beyond a research-lab window, showing
       a distant cyan-lit night campus or clean futuristic skyline with atmospheric
       depth. No window frame, no room interior, no people, no readable text.

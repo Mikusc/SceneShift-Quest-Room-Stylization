@@ -86,7 +86,7 @@ public class RoomStyleCacheService : MonoBehaviour
             return "missing";
         }
 
-        var counts = GetCounts(theme.ThemeId, ResolveCurrentStyleVariantId());
+        var counts = GetCounts(ResolveEffectiveThemeId(theme), ResolveCurrentStyleVariantId());
         if (counts.SurfaceReady >= ExpectedSurfaceKinds && counts.FurnitureReady > 0)
         {
             return "cached";
@@ -112,8 +112,9 @@ public class RoomStyleCacheService : MonoBehaviour
             return "Theme cache: missing theme";
         }
 
-        var counts = GetCounts(theme.ThemeId, ResolveCurrentStyleVariantId());
-        return $"{theme.DisplayName}: {GetThemeCacheStatus(theme)} | surfaces {counts.SurfaceReady}/{ExpectedSurfaceKinds} ready | furniture ready={counts.FurnitureReady}, running={counts.FurnitureGenerating}, queued={counts.FurnitureQueued}";
+        var effectiveDisplayName = ResolveEffectiveThemeDisplayName(theme);
+        var counts = GetCounts(ResolveEffectiveThemeId(theme), ResolveCurrentStyleVariantId());
+        return $"{effectiveDisplayName}: {GetThemeCacheStatus(theme)} | surfaces {counts.SurfaceReady}/{ExpectedSurfaceKinds} ready | furniture ready={counts.FurnitureReady}, running={counts.FurnitureGenerating}, queued={counts.FurnitureQueued}";
     }
 
     private void ResolveReferences()
@@ -332,7 +333,7 @@ public class RoomStyleCacheService : MonoBehaviour
                 }
 
                 _builder.Append(' ');
-                _builder.Append(theme.DisplayName);
+                _builder.Append(ResolveEffectiveThemeDisplayName(theme));
                 _builder.Append('=');
                 _builder.Append(GetThemeCacheStatus(theme));
                 _builder.Append(';');
@@ -357,6 +358,20 @@ public class RoomStyleCacheService : MonoBehaviour
     private string ResolveCurrentStyleVariantId()
     {
         return SurfaceTexturePromptBuilder.BuildStyleVariantId(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
+    }
+
+    private string ResolveEffectiveThemeId(ThemeProfile theme)
+    {
+        return RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(
+            theme,
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
+    }
+
+    private string ResolveEffectiveThemeDisplayName(ThemeProfile theme)
+    {
+        return RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(
+            theme,
             runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
     }
 

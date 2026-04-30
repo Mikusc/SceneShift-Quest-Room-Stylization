@@ -13,9 +13,9 @@ Before doing any work in this repository, read these files in order:
 9. `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md` before Quest headset validation
 
 ## Project identity
-This project builds a **scene-aware mixed-reality discussion room** for Meta Quest.
+This project builds a **scene-aware mixed-reality office room stylization prototype** for Meta Quest.
 
-The canonical setting is **one real library discussion room**. The architecture may generalize later, but every implementation decision must remain testable in one known room.
+The canonical setting is **one real office room at UNNC IEB**. The architecture may generalize later, but every implementation decision must remain testable in one known physical office room.
 
 The product vision has two phases:
 - **Phase 1 (current priority):** room stylization only
@@ -175,7 +175,7 @@ A task is not done unless all are true:
 
 ## If you are unsure
 When uncertain, choose the option that is:
-1. more testable in one real discussion room,
+1. more testable in one real UNNC IEB office room,
 2. more aligned with official Meta tooling,
 3. easier to explain in coursework research/prototype/testing sections,
 4. less likely to break spatial alignment.

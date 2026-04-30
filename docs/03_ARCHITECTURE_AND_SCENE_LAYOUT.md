@@ -23,11 +23,11 @@ Image Segmentation / Object Detection proposals
 Optional generated-object side branch:
 
 ```text
-TABLE MRUK anchor
-    -> BestViewCaptureService
+MRUK furniture anchor
+    -> DevicePassthroughCaptureService or BestViewCaptureService
     -> GeneratedObjectRequest
     -> GenerativeObjectCoordinator
-    -> LocalGeneratedObjectBackendAdapter
+    -> ApimartImageBackendAdapter or LocalGeneratedObjectBackendAdapter
     -> stylized image / external worker result
     -> HostedImageUploadBridge / public image URL
     -> Seed3DBackendAdapter or manual Seed3D worker
@@ -142,10 +142,10 @@ Responsibility:
 Responsibility:
 - spawn MRUK-scaffold-aligned surface override planes under `StylizedContentRoot/SurfaceOverrides`
 - apply ThemeProfile wall/floor/ceiling materials without changing room geometry
-- apply lightweight door/window frame overlays with open centers
-- apply optional window-vista backdrop planes behind `WINDOW_FRAME` anchors, using generated `window_vista` images or deterministic procedural fallback textures
-- offset wall planes outward by 5cm to avoid occlusion conflicts, matching the Roomify scene-composition rule
-- expose `Off`, `Background`, and `DemoStrong` visibility modes so wall/floor/ceiling can remain low-opacity while furniture replacement is still incomplete
+- keep wall/floor/ceiling overrides opaque for clean stylized-room presentation
+- apply full door/portal panels on continuous wall material
+- apply open-center window frame overlays and optional exterior vista planes slightly outside the room
+- use wall overlap and trim strips to reduce MRUK plane seams without relying on bright debug borders
 
 Outputs:
 - live surface override planes
@@ -178,23 +178,23 @@ Responsibility:
 
 ### 3.11b `SceneShiftUISetDashboard`
 Responsibility:
-- provide the headset-facing main control panel using Meta Interaction SDK UISet prefabs
-- use the official `EmptyUIBackplateWithCanvas` prefab as the panel base, preserving Meta ray/poke interactable setup
-- expose demo-critical controls: capture current target, auto gaze target, UISet-style theme dropdown, reapply room surfaces, toggle MRUK shells, and toggle per-object status cards
+- provide the headset-facing main control panel through the current stable SceneShift dashboard
+- preserve official Interaction SDK ray/poke interaction where available, but avoid dynamic official UISet sample controls that have caused layout problems
+- expose demo-critical controls: capture current target, auto gaze target, style selection, reapply room surfaces, clean view, object status cards, and generated-furniture `Rotate 90`
 - keep the old debug panel available for dense developer diagnostics while this panel serves as the cleaner user-facing entry point
 
 ### 3.11c `RoomStyleCacheService`
 Responsibility:
-- summarize reusable generated content by `roomId + themeId + styleVariantId`
+- summarize reusable generated content by active Style/theme and room context when available
 - count active-theme surface texture cache readiness and generated-furniture readiness
 - report `cached / partial / generating / missing` status for each theme
 - give the UISet dashboard a stable cache status line before users switch styles
 
 ### 3.12 `BestViewCaptureService`
 Responsibility:
-- select a best visible target anchor, currently `TABLE`
+- provide simulator/external-screenshot capture fallback for generated-object requests
 - write reference image metadata and `GeneratedObjectRequest` files
-- support `ExternalScreenshot`, `UnityFramebufferDebug`, and future device capture modes
+- support `ExternalScreenshot`, `UnityFramebufferDebug`, and the shared `DevicePassthroughReserved` request contract
 
 ### 3.13 `GenerativeObjectCoordinator`
 Responsibility:
@@ -226,15 +226,15 @@ Responsibility:
 - editor-only import of `ModelReady` generated assets
 - normalize generated model wrappers to a centered bottom pivot
 - remove untrusted imported colliders
-- save generated table proxy prefabs under `Assets/Generated/ThemeAssets/<requestId>/`
+- save generated furniture prefabs under `Assets/Generated/ThemeAssets/<requestId>/`
 
-### 3.18 Future `DevicePassthroughCaptureService`
+### 3.18 `DevicePassthroughCaptureService`
 Responsibility:
-- on Quest builds, capture a real headset-supported RGB frame for the generated-object request path
+- on Quest Link/headset runs, capture a headset-supported RGB frame for the generated-object request path when PCA is available
 - save PNG and metadata under `Application.persistentDataPath`
 - preserve camera pose, selected MRUK anchor, bounds, and crop metadata for offline/async generation
 
-This future service should feed the existing generated-object request contract rather than creating a second pipeline.
+This service feeds the existing generated-object request contract rather than creating a second pipeline.
 
 ## 4. Recommended C# data flow objects
 Use these serializable types or ScriptableObjects:
@@ -339,15 +339,16 @@ Avoid:
 
 Wall overrides should be offset outward by about 5cm when using MRUK wall planes so they do not fight with door/window semantics or the underlying debug mesh.
 
-### 8.1b Openings: door frame / window frame
+### 8.1b Openings: door / window frame / window vista
 Use:
-- trim/frame overlay meshes
-- edge glow or decal-like generated textures
-- transparent/open centers
+- full door or portal panel overlays on the room-facing side
+- open-center window frame overlays
+- exterior vista planes slightly outside valid windows
+- edge glow or decal-like generated textures when they match the Style
 
 Avoid:
-- full door/window replacement models
-- opaque center fills
+- cutting large holes for doors unless a later interaction explicitly needs pass-through
+- opaque window center fills
 - anything that blocks passage, view, or real-world affordances
 
 ### 8.2 Table / desk

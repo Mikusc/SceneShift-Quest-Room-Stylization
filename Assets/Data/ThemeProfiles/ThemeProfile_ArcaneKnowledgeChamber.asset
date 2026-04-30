@@ -35,19 +35,22 @@ MonoBehaviour:
     EmissionIntensity: 0.18
     TextureTiling: 3.8
     PatternStrength: 0.78
-    WallTexturePromptHint: Seamless warm archive wall material with carved stone
-      or aged plaster panels, faint gold linework, and quiet scholarly atmosphere.
+    WallTexturePromptHint: Seamless warm archive wall material with broad carved
+      stone or aged plaster panels, sparse gold linework, and quiet scholarly atmosphere.
+      Avoid tiny wallpaper-like repeats.
     FloorTexturePromptHint: Seamless worn stone or dark wood study-room floor material
-      with subtle inlaid arcane geometry, readable paths, and low visual noise.
+      with broad planks or slabs, subtle inlaid arcane geometry, readable paths,
+      and low visual noise. Avoid dense small tiles.
     CeilingTreatmentPromptHint: Warm candlelit overhead treatment with muted plaster,
-      soft ornament rings, and ambient library-chamber mood without obscuring real
-      boundaries.
-    DoorFramePromptHint: Reusable brass-and-carved-wood archive door trim with warm
-      amber linework, ceremonial edging, and a fully open center so passage remains
-      unobstructed.
+      large soft ornament rings, and ambient library-chamber mood without obscuring
+      real boundaries.
+    DoorFramePromptHint: Full brass-and-carved-wood archive door or portal panel
+      with warm amber linework, ceremonial edging, inset panels, and flat doorway-aligned
+      placement. It should read as a complete door, not only a frame.
     WindowFramePromptHint: Reusable warm brass archive window trim with faint glyph
-      edge etching, parchment-like glow accents, and a fully open center so the real
-      view remains visible.
+      edge etching, parchment-like glow accents, and an open center so the real view
+      remains visible. The silhouette can be arched or ceremonial rather than strictly
+      square.
     WindowVistaPromptHint: Wide exterior vista beyond an archive window, showing distant
       floating book towers, amber mist, and a calm star-lit magical horizon. No window
       frame, no room interior, no people, no readable text.

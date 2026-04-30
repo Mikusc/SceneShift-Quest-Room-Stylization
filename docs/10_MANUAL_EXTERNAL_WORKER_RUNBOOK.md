@@ -1,297 +1,269 @@
-# 10 Manual External Worker Runbook
+# 10 Manual And External Worker Runbook
 
 ## Purpose
-This runbook explains how to use the current `ExternalFileProtocol` flow without a real backend service.
+This runbook explains how to operate the current generated furniture worker flow.
 
-The goal is to manually simulate this generated-object branch:
+The default automated chain is:
 
-`GeneratedObjectRequest -> prompt + submission JSON -> external image worker -> stylized image + result JSON -> StylizedImageReady -> Seed3D model -> Imported prefab -> runtime generated table proxy`
+```text
+GeneratedObjectRequest
+-> prompt/job JSON
+-> APIMart gpt-image-2
+-> optional www.mikusc.top upload
+-> Ark Seed3D
+-> Unity generated model importer
+-> request-locked runtime placement
+```
 
-This is only for the optional generated-object side branch.
-The deterministic room stylization and table proxy path must remain the visible fallback.
+Manual/external-worker steps are still useful when:
+- APIMart is unavailable
+- Seed3D is unavailable
+- a specific generated image needs manual cleanup
+- a failed job needs to be replayed without repeating capture
 
-Current preferred validated request:
-- `table_18_20260425025836`
-- source category: `TABLE_18`
-- theme: `future_research_lab`
-- current stylized image: `Library/GeneratedObjectOutputs/table_18_20260425025836.stylized.png`
-- current hosted image: `https://www.mikusc.top/scene-shift/seed3d/table_18_20260425025836.stylized.png`
-- current generated GLB: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
-- current generated prefab: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
+Generated furniture is optional. The room must remain usable with deterministic or cached fallback styling.
 
-Earlier validated candidates such as `table_18_20260424071758` and `table_18_20260424173938` may remain in the workspace for comparison, but new placement checks should prefer the newest `Imported` job that passed quality review.
-
----
-
-# 1. Preconditions
-
-Before testing, confirm:
+## Preconditions
+Before testing:
 - active scene is `Assets/Scenes/MR_RoomStylization.unity`
-- `BestViewCaptureService.captureSourceMode` is `ExternalScreenshot`
-- `BestViewCaptureService.externalScreenshotPath` points to a manually captured simulator/room screenshot
-- `LocalGeneratedObjectBackendAdapter.processingMode` is `ExternalFileProtocol`
-- generated table runtime placement is opt-in: the canonical scene may keep `AnchorThemeApplier.applyTableProxies` disabled so the default Play view shows the MRUK shell
-- Unity is not compiling
-- Console has no new blocking errors
+- Unity has no blocking compile errors
+- MRUK room state is ready in Play
+- runtime dashboard/HUD is visible enough to confirm target and job state
+- generated model artifacts under `Assets/Generated/ThemeAssets/` are treated as local cache unless intentionally preserved
 
-For Codex sessions:
-- Codex should not rely on macOS screenshots it takes after Play starts; the headset/simulator operator should capture the intended view and provide or set the resulting path
-- only read Unity Console/logs if runtime validation is needed
+For the automated backend chain, launch Unity from an environment that exposes:
+- `APIMART_API_KEY`
+- `SCENESHIFT_UPLOAD_TOKEN`
+- `ARK_API_KEY`
 
----
+Optional style extraction:
+- `DEEPSEEK_API_KEY`
 
-# 2. Capture one request
+Never commit API keys, signed backend URLs, or generated backend result metadata containing secrets.
 
-In Play mode:
-1. wait until MRUK room state and HUD are stable
-2. move to the intended table generation view
-3. optionally press `V` once to hide virtual/stylized/debug capture objects before taking the external screenshot
-4. take a screenshot of the Game view / simulator view and save it to a stable local path
-5. paste that absolute screenshot path into `BestViewCaptureService.externalScreenshotPath` on the live Play-mode `Perception` object
-6. do not move the camera after taking the screenshot
-7. make sure a `TABLE` candidate is visible/available
-8. press `C` once
-9. wait for the coordinator/backend adapter to process the request
+## Capture Paths
 
-This same-Play-session order matters because MetaXRSimulator can reset the user pose every time Play starts. A screenshot from a previous Play session may not match the current camera pose used for crop and physical metadata.
+### Quest Link / headset-oriented path
+Use `DevicePassthroughCaptureService`.
 
-Expected files:
-- `Library/BestViewCaptures/*.request.json`
-- `Library/GeneratedObjectJobs/*.job.json`
-- `Library/GeneratedObjectJobs/*.prompt.txt`
-- `Library/GeneratedObjectBackendInbox/*.submission.json`
-- `Library/GeneratedObjectBackendInbox/*.result.template.json`
+Expected operator flow:
+1. Enter Play.
+2. Wait for MRUK room ready.
+3. Look at the target object.
+4. Confirm the HUD/dashboard shows a valid target category, id, and score.
+5. Trigger capture from the configured keyboard/controller input or dashboard button.
+6. Do not assume completion until the job status moves beyond `CaptureReady`.
 
-The exact filenames should share the same request id.
+Supported target categories:
+- `TABLE`
+- `STORAGE`
+- `SCREEN`
+- `COUCH` mapped internally to `Seating`
+- `BED`
+- `LAMP`
+- `PLANT`
+- `OTHER`
 
----
+### Simulator / external screenshot fallback
+Use `BestViewCaptureService` only when native headset capture is not available.
 
-# 3. Read the submission file
+Expected operator flow:
+1. Enter Play.
+2. Move to the intended view.
+3. Take an external screenshot from that same Play session.
+4. Set `BestViewCaptureService.externalScreenshotPath`.
+5. Trigger capture before moving the camera.
 
-Open the newest:
-- `Library/GeneratedObjectBackendInbox/*.submission.json`
+This path is useful for backend debugging but does not prove true-device passthrough-camera capture.
 
-Important fields:
-- `PromptArtifactPath`
-- `SourceInputImagePath`
-- `SourceRequestPath`
-- `RequestedOutputImagePath`
-- `RequestedResultPath`
-- `ResultTemplatePath`
+## Expected Artifacts
+After capture and coordinator processing, check:
 
-Meaning:
-- `PromptArtifactPath` is the text prompt to give to the image model.
-- `SourceInputImagePath` is the image to upload as the reference image.
-- `RequestedOutputImagePath` is where the stylized output image must be saved.
-- `RequestedResultPath` is where the completed result JSON must be saved.
-- `ResultTemplatePath` is a prefilled result JSON template to copy/edit.
-- The prompt treats `SourceInputImagePath` as a reference image, not as the final output canvas.
-- The expected stylized output is a single isolated object PNG with alpha, suitable for image-to-3D.
+```text
+Library/BestViewCaptures/
+Library/GeneratedObjectJobs/
+Library/GeneratedObjectOutputs/
+Library/GeneratedObjectBackendInbox/
+Library/GeneratedObjectModels/
+Assets/Generated/ThemeAssets/
+```
 
----
+Important files:
+- `*.request.json`
+- `*.job.json`
+- `*.prompt.txt`
+- `*.stylized.png`
+- backend submission/result JSON when manual mode is used
+- downloaded Seed3D package metadata
+- imported generated prefab
 
-# 4. Automated APIMart image-worker flow
+## Automated Image Worker
+`ApimartImageBackendAdapter` consumes `CaptureReady` jobs.
 
-The canonical scene now includes `ApimartImageBackendAdapter` on `Perception`.
-When `APIMART_API_KEY` is set before launching Unity, the adapter can consume `CaptureReady` jobs directly:
-
+Expected behavior:
 1. read `PromptArtifactPath`
-2. attach `SourceInputImagePath` as a base64 `image_urls` reference
+2. attach the reference image, preferably as base64 input when supported
 3. submit APIMart `gpt-image-2`
-4. poll the returned task id
-5. download the generated PNG into `Library/GeneratedObjectOutputs/<requestId>.stylized.png`
-6. set the job to `StylizedImageReady`
+4. poll the returned progress/task id
+5. download the generated PNG
+6. set job state to `StylizedImageReady`
 
-The existing `HostedImageUploadBridge` then uploads that local PNG to `www.mikusc.top`, and `Seed3DBackendAdapter` can consume the hosted `StylizedImageUrl`.
+The generated image should be:
+- one isolated stylized object
+- no room background
+- no walls/floor/ceiling
+- no extra furniture
+- no text
+- object role and proportions preserved
+- transparent alpha if possible
 
-# 5. Manual image-worker flow
+If the image model cannot produce alpha, use a clean chroma-key background and remove it before continuing.
 
-Use an external image generator manually:
-1. open `PromptArtifactPath`
-2. upload `SourceInputImagePath`
-3. generate a single isolated stylized version of the table/object
-4. preserve object role, rough silhouette, support surface, proportions, and yaw/orientation
-5. remove all room background, chairs, floor, walls, tabletop clutter, and other source-scene objects
-6. save the final transparent PNG exactly to `RequestedOutputImagePath`
-7. if the image model cannot produce native alpha, generate on a flat chroma-key background, remove that key locally, then save the alpha PNG to `RequestedOutputImagePath`
-8. copy `ResultTemplatePath` to `RequestedResultPath`
-9. in the copied result file, confirm:
-   - `OutputImagePath` matches `RequestedOutputImagePath`
-   - `OutputState` is `StylizedImageReady`
-   - `PromptArtifactConsumed` is `true`
-   - `BackendAdapterName` identifies the manual/external worker
+## Upload Bridge
+`HostedImageUploadBridge` is used when the next backend needs a public URL.
 
-Do not save the generated image only into `photos/` or Desktop.
-The adapter watches the paths listed in the submission JSON.
+Current endpoint:
 
----
+```text
+POST https://www.mikusc.top/api/scene-shift/upload
+Header: x-sceneshift-upload-token: <SCENESHIFT_UPLOAD_TOKEN>
+Body: PNG bytes
+Content-Type: image/png
+```
 
-# 6. Expected Unity-side image-worker result
+Success response contains a public URL. The bridge writes that URL to `StylizedImageUrl` on the job.
 
-With Play still running, the adapter should detect `RequestedResultPath`.
+## Automated Seed3D Worker
+`Seed3DBackendAdapter` consumes jobs in `StylizedImageReady` that have a usable `StylizedImageUrl`.
 
-Expected job state:
-- from `BackendSubmitted`
-- to `StylizedImageReady`
+Expected behavior:
+1. submit the stylized image URL to Ark Seed3D 2.0
+2. record `ModelGenerationSubmitted`
+3. poll until completion
+4. download the model package
+5. unpack if needed
+6. copy the Unity-ready GLB to `Assets/Generated/ThemeAssets/<requestId>/`
+7. set job state to `ModelReady`
 
-Expected updated job fields:
-- `BackendResultPath`
-- `StylizedImagePath`
-- `StylizedImageUrl` when the external worker also hosts the image for Seed3D `image_url`
-- `BackendAdapterName`
-- `StatusNote`
-- `UpdatedAtIsoUtc`
+Seed3D can return a zip package even when GLB is requested. Do not place a zip payload into `Assets/` with a `.glb` extension. Extract the package outside `Assets/`, then copy only the real `.glb`.
 
-After this image-worker stage only, the output is still just a candidate image artifact.
-Continue through the Seed3D and Unity import sections below before expecting a generated 3D table in the scene.
-
----
-
-# 7. Troubleshooting
-
-## No `.submission.json`
-Check:
-- adapter is in `ExternalFileProtocol`
-- coordinator has created a `.job.json`
-- request state is `CaptureReady`
-- Console has no compile/runtime errors
-
-## `.submission.json` exists but no state change
-Check:
-- `RequestedResultPath` exists
-- result JSON is valid
-- `OutputImagePath` exists
-- `OutputState` is `StylizedImageReady`
-- request id in result matches request id in job
-
-## Generated image looks like a new room instead of one object
-The prompt or image model ignored the preservation constraint.
-Regenerate with stricter wording:
-- keep the same object,
-- keep the same role,
-- keep the same proportions,
-- do not generate a full room,
-- produce a clean object-centric stylized reference.
-
-The current prompt builder version for new requests is `roomify_image_asset_v3_style_keywords`.
-It explicitly asks for:
-- one isolated object asset,
-- transparent alpha output,
-- no room background,
-- no chairs, floor, walls, shelves, board games, tabletop props, or clutter.
-- optional runtime user style keywords when `RuntimeStyleIntentController.userStyleIntent` is set before capture.
-
-If native alpha is unavailable, generate on a flat `#00ff00` chroma-key background, remove that key locally, and only then save the final alpha PNG to `RequestedOutputImagePath`.
-
-## Crop or screenshot framing is wrong
-For the current simulator-stage path, use the full external screenshot as the backend input.
-Treat `NormalizedCropRect` as metadata, not as a mandatory crop.
-If the screenshot viewpoint does not match the current Play camera, retake the screenshot, update `BestViewCaptureService.externalScreenshotPath`, and press `C` again before moving the camera.
-
----
-
-# 8. Manual image-to-3D worker flow
-
-Use this only after the stylized PNG is an isolated object image.
-
-Current tested backend:
-- Volcengine / Ark Seed3D 2.0
-- model id: `doubao-seed3d-2-0-260328`
-- create task endpoint: `POST https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks`
-- query task endpoint: `GET https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/{id}`
-- tested text command: `--subdivisionlevel medium --fileformat glb`
-
-Automated adapter option:
-- `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
-  - optional helper for uploading local stylized PNG files to an operator-configured hosting endpoint
-  - current configured endpoint in the canonical scene: `https://www.mikusc.top/api/scene-shift/upload`
-  - sends raw PNG bytes with `Content-Type: image/png` by default; a multipart form field `file` fallback remains available if `uploadRawPngBody` is disabled
-  - expects a JSON response containing `url`, `image_url`, `public_url`, or `download_url`
-  - writes `StylizedImageUrl` back to the job without changing the job state
-  - reads the upload token from `SCENESHIFT_UPLOAD_TOKEN` and sends it as `x-sceneshift-upload-token`; it does not write the token to job JSON
-- `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
-- reads the API key from environment variable `ARK_API_KEY`
-- default endpoint/model/subdivision/fileformat match the tested Seed3D 2.0 values above
-- processes only jobs in `StylizedImageReady`
-- requires `StylizedImageUrl`, or `StylizedImagePath`, to be a public `http(s)` `image_url`
-- does not upload local files; local `Library/.../*.png` paths remain waiting for a hosted URL unless a separate upload bridge writes `StylizedImageUrl`
-- writes request/result metadata under `Library/GeneratedObjectModels/<requestId>/`
-- downloads the returned model to `Assets/Generated/ThemeAssets/<requestId>/<requestId>.seed3d.generated.glb` when `fileformat=glb`, then sets the job to `ModelReady`
-
-Current packaging caveat:
-- Seed3D can return a zip package even when GLB output was requested.
-- If the downloaded file is a zip, move it under `Library/GeneratedObjectModels/<requestId>/downloaded_package/`, extract it there, and copy only the real `.glb` file, usually `pbr/mesh_textured_pbr.glb`, into `Assets/Generated/ThemeAssets/<requestId>/`.
-- Do not leave a zip payload in `Assets/` with a `.glb` extension, because Unity/glTFast will try to import it as GLB and report JSON parsing/import errors.
-
-Hard rule:
-- do not write API keys, bearer tokens, or signed `file_url` values into repository files or docs
-- if a backend response JSON contains a signed URL, keep it under `Library/GeneratedObjectModels/` only and do not commit it
-
-Expected worker steps:
-1. use the transparent `*.stylized.png` as the image input
-2. request GLB output
-3. download and unzip the backend package under `Library/GeneratedObjectModels/<requestId>/`
-4. copy only the Unity-ready GLB into `Assets/Generated/ThemeAssets/<requestId>/`
-5. set the matching `.job.json` to `ModelReady`
-6. set `GeneratedModelPath` to the copied GLB path
-7. set `BackendTransformId` to a descriptive value such as `manual_gpt_image_v1+seed3d_2_0_260328_medium_glb`
-
-If using `Seed3DBackendAdapter`, the adapter first records `ModelGenerationSubmitted` with the Ark task id, can resume polling after interruption, and then advances the job to `ModelReady` after the model download completes. The adapter keeps `ARK_API_KEY` out of logs and job JSON.
-
-For the current preferred validated table, the copied GLB path is:
-- `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
-
----
-
-# 9. Unity import flow
-
+## Unity Import
 The editor importer is:
-- `Assets/Scripts/Editor/GeneratedObjectModelImporter.cs`
 
-It runs on editor load/refresh and is also available from:
-- `SceneShift/Generated Objects/Import Ready Model Jobs`
+```text
+Assets/Scripts/Editor/GeneratedObjectModelImporter.cs
+```
 
-Expected behavior for a `ModelReady` job:
-- import the GLB through `AssetDatabase`
-- instantiate it under a wrapper
-- remove imported colliders
-- normalize the wrapper to a centered bottom pivot
-- save `Assets/Generated/ThemeAssets/<requestId>/<requestId>.generated_table_proxy.prefab`
-- update the job to `Imported`
-- write `ImportedPrefabPath` and `ImportedBounds`
+It can be triggered through:
 
-For the current preferred validated table, the imported prefab path is:
-- `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
+```text
+SceneShift/Generated Objects/Import Ready Model Jobs
+```
 
----
+Expected behavior for `ModelReady` jobs:
+- import GLB
+- remove generated colliders
+- normalize under a centered bottom pivot wrapper
+- save generated prefab under `Assets/Generated/ThemeAssets/<requestId>/`
+- set job state to `Imported`
 
-# 10. Runtime placement check
+Runtime placement can only use the generated prefab after import.
 
-In Editor/Simulator, `AnchorThemeApplier` can prefer imported generated table prefabs.
-If the canonical scene is currently set to the MRUK shell, enable `AnchorThemeApplier.applyTableProxies` for this check and decide separately whether to hide original MRUK volume visuals.
+## Runtime Placement Check
+In Play, the dashboard/object status should show:
+- active target category
+- active object id / anchor id
+- cache state
+- total queued/running/ready jobs
+- whether generated furniture is imported or still running
 
-Expected `Table Status` indicators:
-- `source=generated_import`
-- `prefab=<requestId>.generated_table_proxy`
-- `failure=none`
-- `fit=target=..., source=..., scale=..., bottomDelta=..., axis=...`
+For a placed generated object, expected status includes:
+- `source=generated_import` or equivalent generated source marker
+- matching request/object identity
+- no active failure
+- reasonable visual fit to MRUK shell
 
-The latest inspected run for the old `table_18_20260424173938` placement reported:
-- `source=generated_import`
-- `axis=rotated90(source=Z, target=X)`
-- `fit=target=2.371x0.803x1.099, source=2.157x0.698x1.316, scale=1.099x1.15x0.835, bottomDelta=0m`
+If a good object is rotated incorrectly, use the dashboard `Rotate 90` control for the selected generated object.
 
-Interpretation:
-- `bottomDelta=0m` means the generated prefab bounds bottom is aligned to the MRUK table scaffold bottom in the applier's fitting space
-- `axis=rotated90(...)` means the imported generated model's local long axis was rotated to match the MRUK target long axis before final scale fitting
-- this does not replace visual review; the generated table still needs user-facing camera validation and later correction/approval UI
+If the object is too rough, wrong scale, or wrong category:
+1. keep the capture
+2. archive or remove the old generated model/job
+3. rerun from the saved capture or use Reuse Captures
+4. do not delete unrelated generated assets
 
----
+## Manual Image Worker Fallback
+Use this when APIMart is not producing an acceptable image.
 
-# 11. Hard rules
-- The deterministic proxy remains the fallback.
-- Never block room stylization while waiting for generated assets.
-- Do not treat a stylized 2D image as a scene-ready 3D asset.
-- Do not silently apply generated collision-sensitive furniture without later review/correction support.
-- Keep all request/job/result artifacts for debugging and reproducibility.
-- Never commit API keys, bearer tokens, signed backend URLs, or downloaded backend result URLs.
+Steps:
+1. open the latest `Library/GeneratedObjectBackendInbox/*.submission.json`
+2. read `PromptArtifactPath`
+3. upload `SourceInputImagePath` to the external image model
+4. generate one isolated stylized object
+5. preserve object role, silhouette, proportions, major contact surface, and yaw
+6. save the PNG exactly to `RequestedOutputImagePath`
+7. copy `ResultTemplatePath` to `RequestedResultPath`
+8. set `OutputState` to `StylizedImageReady`
+9. verify the request id matches the job
+
+Do not save the result only to Desktop or a photos folder. The watcher reads the paths listed in the submission JSON.
+
+## Manual Seed3D Fallback
+Use this when the automated Seed3D adapter is not available.
+
+Steps:
+1. upload the stylized PNG or hosted URL to Seed3D
+2. request GLB output
+3. download the backend package
+4. extract it under `Library/GeneratedObjectModels/<requestId>/`
+5. copy only the real GLB into `Assets/Generated/ThemeAssets/<requestId>/`
+6. update the matching job to `ModelReady`
+7. run the Unity importer
+
+Do not put backend zip files, signed URLs, or API secrets into tracked folders.
+
+## Troubleshooting
+
+### No target in HUD
+Check:
+- MRUK room is loaded
+- target object has a supported MRUK semantic
+- Auto Target is enabled
+- the object is in gaze/frustum
+- clean view has not hidden the feedback you need
+
+### Capture created but no image generation
+Check:
+- latest job is in `CaptureReady`
+- `APIMART_API_KEY` was visible before Unity launched
+- prompt path and source image path exist
+- backend adapter is enabled
+- Console has no API/auth/network errors
+
+### Image generated but Seed3D does not start
+Check:
+- `StylizedImageUrl` exists and is public `https`
+- upload bridge has `SCENESHIFT_UPLOAD_TOKEN`
+- `ARK_API_KEY` was visible before Unity launched
+- job state is `StylizedImageReady`
+
+### Imported model does not appear
+Check:
+- job state is `Imported`
+- `ImportedPrefabPath` exists
+- active Play target matches the generated request/object id
+- current Style matches the generated style variant
+- `AnchorThemeApplier` has reapplied after import
+
+### Model quality is poor
+Options:
+- rerun image generation with a stricter prompt
+- rerun Seed3D using the same stylized image
+- archive old generated artifacts but keep the capture
+- use deterministic fallback for the demo if the object is not visually stable
+
+## Hard Rules
+- Do not commit generated GLBs/prefabs by default.
+- Do not commit `Library/` artifacts.
+- Do not commit API keys or signed URLs.
+- Do not silently reuse an old object model for a different object.
+- Do not block the room stylization demo on generated-object success.

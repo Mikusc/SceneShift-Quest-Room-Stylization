@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -15,6 +16,7 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField] private RoomSemanticBootstrap roomSemanticBootstrap;
     [SerializeField] private ThemeIntentController themeIntentController;
     [SerializeField] private StylizationPlanner stylizationPlanner;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private BestViewCaptureService bestViewCaptureService;
     [SerializeField] private DevicePassthroughCaptureService devicePassthroughCaptureService;
     [SerializeField] private Transform proxyObjectsRoot;
@@ -73,12 +75,18 @@ public class AnchorThemeApplier : MonoBehaviour
     private bool lockPlacedGeneratedTables = true;
     [SerializeField] private bool augmentFlatTableProxies = true;
     [SerializeField, Range(0.1f, 0.6f)] private float flatTableHeightThreshold = 0.35f;
+
+    [Header("Memory")]
+    [SerializeField, Tooltip("On style/theme changes, release old generated furniture proxies before loading the next style to reduce texture allocation spikes.")]
+    private bool unloadUnusedAssetsBeforeStyleRefresh = true;
+    [SerializeField, Tooltip("Clear generated prefab locks on style/theme changes so old style prefab asset references can be unloaded.")]
+    private bool clearGeneratedPrefabLocksOnStyleSwitch = true;
 #if UNITY_EDITOR
     [SerializeField] private bool preferImportedGeneratedTablePrefabs = true;
     [SerializeField] private bool lockGeneratedTablePrefabsToActiveCapture = true;
     [SerializeField, Tooltip("When no active capture exists, still load the newest generated prefab that matches each table ObjectId. Disable this to require a fresh capture in every Play session.")]
     private bool allowLatestGeneratedTableWhenNoActiveCapture = true;
-    [SerializeField, Tooltip("Allows request-locked generated tables that failed automatic quality review to be placed for visual validation only.")]
+    [SerializeField, Tooltip("Allows request-locked generated tables that failed automatic quality review to be placed for visual validation. Some visually acceptable generated assets still land in NeedsReview because the automatic gate is conservative.")]
     private bool allowNeedsReviewGeneratedTablesForValidation = true;
     [SerializeField, Tooltip("Debug only: allows the newest generated table to appear on the current best-view target even when ObjectId does not match. Keep disabled for multi-table validation.")]
     private bool allowUnmatchedLatestGeneratedTableForDebug;
@@ -130,6 +138,7 @@ public class AnchorThemeApplier : MonoBehaviour
     private readonly List<Material> _runtimeMaterials = new();
     private readonly List<Texture2D> _runtimeTextures = new();
     private readonly List<GameObject> _spawnedProxyRoots = new();
+    private readonly List<Renderer> _proxyAccentRenderers = new();
     private readonly Dictionary<string, LockedGeneratedFurniturePrefab> _lockedGeneratedTablePrefabs = new(StringComparer.Ordinal);
 
     private string _latestSummary = "[AnchorThemeApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
@@ -140,6 +149,8 @@ public class AnchorThemeApplier : MonoBehaviour
     private int _lastAppliedTableProxyCount;
     private bool _needsRefresh = true;
     private float _nextRefreshTime;
+    private bool _isCleaningBeforeRefresh;
+    private Coroutine _deferredRefreshCoroutine;
 
     private void Reset()
     {
@@ -166,6 +177,11 @@ public class AnchorThemeApplier : MonoBehaviour
         if (stylizationPlanner == null)
         {
             stylizationPlanner = FindAnyObjectByType<StylizationPlanner>();
+        }
+
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
         }
 
         if (bestViewCaptureService == null)
@@ -199,12 +215,13 @@ public class AnchorThemeApplier : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
+        CancelDeferredRefresh();
         ResetAppliedState();
     }
 
     private void Update()
     {
-        if (!Application.isPlaying || !_needsRefresh)
+        if (!Application.isPlaying || !_needsRefresh || _isCleaningBeforeRefresh)
         {
             return;
         }
@@ -252,6 +269,12 @@ public class AnchorThemeApplier : MonoBehaviour
             stylizationPlanner.PlanChanged -= HandlePlanChanged;
             stylizationPlanner.PlanChanged += HandlePlanChanged;
         }
+
+        if (runtimeStyleIntentController != null)
+        {
+            runtimeStyleIntentController.StyleIntentChanged -= HandleStyleIntentChanged;
+            runtimeStyleIntentController.StyleIntentChanged += HandleStyleIntentChanged;
+        }
     }
 
     private void Unsubscribe()
@@ -270,6 +293,11 @@ public class AnchorThemeApplier : MonoBehaviour
         {
             stylizationPlanner.PlanChanged -= HandlePlanChanged;
         }
+
+        if (runtimeStyleIntentController != null)
+        {
+            runtimeStyleIntentController.StyleIntentChanged -= HandleStyleIntentChanged;
+        }
     }
 
     private void HandleRoomSummaryChanged()
@@ -280,14 +308,79 @@ public class AnchorThemeApplier : MonoBehaviour
 
     private void HandleThemeChanged(ThemeProfile _)
     {
-        _needsRefresh = true;
-        RefreshApplication("theme-changed");
+        QueueRefreshAfterMemoryCleanup("theme-changed");
     }
 
     private void HandlePlanChanged()
     {
         _needsRefresh = true;
         RefreshApplication("plan-changed");
+    }
+
+    private void HandleStyleIntentChanged()
+    {
+        QueueRefreshAfterMemoryCleanup("style-intent-changed");
+    }
+
+    private void QueueRefreshAfterMemoryCleanup(string reason)
+    {
+        _needsRefresh = true;
+        ClearGeneratedPrefabLocksForStyleSwitch();
+
+        if (!Application.isPlaying || !unloadUnusedAssetsBeforeStyleRefresh)
+        {
+            RefreshApplication(reason);
+            return;
+        }
+
+        if (_deferredRefreshCoroutine != null)
+        {
+            StopCoroutine(_deferredRefreshCoroutine);
+        }
+
+        _deferredRefreshCoroutine = StartCoroutine(RefreshApplicationAfterUnusedAssetUnload(reason));
+    }
+
+    private IEnumerator RefreshApplicationAfterUnusedAssetUnload(string reason)
+    {
+        _isCleaningBeforeRefresh = true;
+        _needsRefresh = false;
+        ResetAppliedState();
+        _latestSummary = $"[AnchorThemeApplier]\nState: {reason}-releasing-old-assets\nHint: releasing old generated furniture proxies before applying the next style.";
+        SummaryChanged?.Invoke();
+
+        yield return null;
+        yield return Resources.UnloadUnusedAssets();
+        GC.Collect();
+
+        _isCleaningBeforeRefresh = false;
+        _deferredRefreshCoroutine = null;
+        _needsRefresh = true;
+        _nextRefreshTime = 0f;
+        RefreshApplication($"{reason}-after-release");
+    }
+
+    private void CancelDeferredRefresh()
+    {
+        if (_deferredRefreshCoroutine != null)
+        {
+            StopCoroutine(_deferredRefreshCoroutine);
+            _deferredRefreshCoroutine = null;
+        }
+
+        _isCleaningBeforeRefresh = false;
+    }
+
+    private void ClearGeneratedPrefabLocksForStyleSwitch()
+    {
+        if (!clearGeneratedPrefabLocksOnStyleSwitch || _lockedGeneratedTablePrefabs.Count == 0)
+        {
+            return;
+        }
+
+        var clearedCount = _lockedGeneratedTablePrefabs.Count;
+        _lockedGeneratedTablePrefabs.Clear();
+        _lastGeneratedTableSelectionStatus = $"locks_cleared_for_style_switch:{clearedCount}";
     }
 
     private void RefreshApplication(string reason)
@@ -515,7 +608,8 @@ public class AnchorThemeApplier : MonoBehaviour
             return null;
         }
 
-        var lockKey = GetGeneratedFurnitureLockKey(theme.ThemeId, planEntry.EntryId);
+        var effectiveThemeId = GetEffectiveThemeId(theme);
+        var lockKey = GetGeneratedFurnitureLockKey(effectiveThemeId, planEntry.EntryId);
         if (!_lockedGeneratedTablePrefabs.TryGetValue(lockKey, out var lockedPrefab) ||
             lockedPrefab == null ||
             lockedPrefab.Prefab == null)
@@ -543,10 +637,11 @@ public class AnchorThemeApplier : MonoBehaviour
             return;
         }
 
-        var lockKey = GetGeneratedFurnitureLockKey(theme.ThemeId, planEntry.EntryId);
+        var effectiveThemeId = GetEffectiveThemeId(theme);
+        var lockKey = GetGeneratedFurnitureLockKey(effectiveThemeId, planEntry.EntryId);
         _lockedGeneratedTablePrefabs[lockKey] = new LockedGeneratedFurniturePrefab
         {
-            ThemeId = theme.ThemeId,
+            ThemeId = effectiveThemeId,
             EntryId = planEntry.EntryId,
             ObjectId = planEntry.ObjectId,
             Prefab = proxyPrefab,
@@ -558,6 +653,13 @@ public class AnchorThemeApplier : MonoBehaviour
     private static string GetGeneratedFurnitureLockKey(string themeId, string entryId)
     {
         return $"{themeId ?? string.Empty}:{entryId ?? string.Empty}";
+    }
+
+    private string GetEffectiveThemeId(ThemeProfile theme)
+    {
+        return RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(
+            theme,
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
     }
 
     private bool TrySpawnFurnitureProxy(
@@ -581,6 +683,12 @@ public class AnchorThemeApplier : MonoBehaviour
 
         var proxyRoot = new GameObject($"{ToTitleCase(semanticLabel)}Proxy_{planEntry.EntryId}");
         proxyRoot.transform.SetParent(proxyObjectsRoot, false);
+        proxyRoot.AddComponent<StylizedFurnitureInstance>().Initialize(
+            planEntry.EntryId,
+            planEntry.ObjectId,
+            semanticLabel,
+            prefabSource,
+            proxyPrefab.name);
 
         var volumeBounds = anchor.VolumeBounds.Value;
         proxyRoot.transform.position = anchor.transform.TransformPoint(volumeBounds.center);
@@ -1178,36 +1286,44 @@ public class AnchorThemeApplier : MonoBehaviour
             }
 
             var sourceMaterials = renderer.sharedMaterials;
-            var themedMaterials = new Material[sourceMaterials.Length];
             for (var index = 0; index < sourceMaterials.Length; index++)
             {
                 var sourceMaterial = sourceMaterials[index];
-                var materialInstance = sourceMaterial != null ? new Material(sourceMaterial) : null;
-                if (materialInstance == null)
-                {
-                    continue;
-                }
-
-                ApplyProxyMaterialTone(materialInstance, accentTint);
-                SetEmission(materialInstance, accentEmission);
-                themedMaterials[index] = materialInstance;
-                _runtimeMaterials.Add(materialInstance);
+                var block = new MaterialPropertyBlock();
+                renderer.GetPropertyBlock(block, index);
+                ApplyProxyAccentBlock(block, sourceMaterial, accentTint, accentEmission);
+                renderer.SetPropertyBlock(block, index);
             }
 
-            renderer.sharedMaterials = themedMaterials;
+            if (!_proxyAccentRenderers.Contains(renderer))
+            {
+                _proxyAccentRenderers.Add(renderer);
+            }
         }
     }
 
-    private static void ApplyProxyMaterialTone(Material materialInstance, Color accentTint)
+    private static void ApplyProxyAccentBlock(
+        MaterialPropertyBlock block,
+        Material sourceMaterial,
+        Color accentTint,
+        Color accentEmission)
     {
-        if (!TryGetMaterialColor(materialInstance, out var baseColor))
+        if (block == null)
         {
-            baseColor = Color.white;
+            return;
+        }
+
+        var baseColor = Color.white;
+        if (sourceMaterial != null)
+        {
+            TryGetMaterialColor(sourceMaterial, out baseColor);
         }
 
         var tintedColor = Color.Lerp(baseColor, accentTint, 0.28f);
         tintedColor.a = baseColor.a > 0.001f ? baseColor.a : 1f;
-        SetMaterialColor(materialInstance, tintedColor);
+        block.SetColor("_BaseColor", tintedColor);
+        block.SetColor("_Color", tintedColor);
+        block.SetColor("_EmissionColor", accentEmission);
     }
 
     private Material CreateGeneratedTableSupportMaterial(ThemeProfile theme, float valueBlend, float emissionScale)
@@ -1716,6 +1832,8 @@ public class AnchorThemeApplier : MonoBehaviour
 
         GeneratedAssetRecord bestRecord = null;
         DateTime bestUpdatedAt = DateTime.MinValue;
+        var effectiveThemeId = GetEffectiveThemeId(theme);
+        var effectiveStyleVariantId = GetActiveStyleVariantId();
         foreach (var jobPath in Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly))
         {
             var record = TryReadGeneratedAssetRecord(jobPath);
@@ -1723,6 +1841,8 @@ public class AnchorThemeApplier : MonoBehaviour
                 !IsUsableGeneratedTableRecord(
                     record,
                     theme,
+                    effectiveThemeId,
+                    effectiveStyleVariantId,
                     planEntry,
                     activeRequest,
                     hasActiveCaptureRequest,
@@ -1837,6 +1957,8 @@ public class AnchorThemeApplier : MonoBehaviour
     private static bool IsUsableGeneratedTableRecord(
         GeneratedAssetRecord record,
         ThemeProfile theme,
+        string effectiveThemeId,
+        string effectiveStyleVariantId,
         StylizationPlanEntry planEntry,
         GeneratedObjectRequest activeRequest,
         bool hasActiveCaptureRequest,
@@ -1854,7 +1976,15 @@ public class AnchorThemeApplier : MonoBehaviour
             return false;
         }
 
-        if (!string.Equals(record.ThemeId, theme.ThemeId, StringComparison.Ordinal))
+        if (!string.Equals(record.ThemeId, effectiveThemeId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.Equals(
+                NormalizeStyleVariant(record.StyleVariantId),
+                NormalizeStyleVariant(effectiveStyleVariantId),
+                StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -1931,6 +2061,17 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         return value.Length <= 18 ? value : value[..18];
+    }
+
+    private string GetActiveStyleVariantId()
+    {
+        return SurfaceTexturePromptBuilder.BuildStyleVariantId(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
+    }
+
+    private static string NormalizeStyleVariant(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? SurfaceTexturePromptBuilder.PresetStyleVariantId : value.Trim();
     }
 
     private static bool TryGetProjectRelativePath(string absoluteOrRelativePath, out string assetPath)
@@ -2123,6 +2264,8 @@ public class AnchorThemeApplier : MonoBehaviour
 
     private void ResetAppliedMaterials()
     {
+        ResetProxyAccentBlocks();
+
         foreach (var pair in _originalSharedMaterials)
         {
             if (pair.Key == null)
@@ -2155,6 +2298,21 @@ public class AnchorThemeApplier : MonoBehaviour
         _originalSharedMaterials.Clear();
         _lastAppliedAnchorCount = 0;
         _lastAppliedRendererCount = 0;
+    }
+
+    private void ResetProxyAccentBlocks()
+    {
+        foreach (var renderer in _proxyAccentRenderers)
+        {
+            if (renderer == null)
+            {
+                continue;
+            }
+
+            renderer.SetPropertyBlock(null);
+        }
+
+        _proxyAccentRenderers.Clear();
     }
 
     private void ResetSuppressedRenderers()

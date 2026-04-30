@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 [DisallowMultipleComponent]
 public class GenerationJobWorldStatusOverlay : MonoBehaviour
@@ -22,11 +23,9 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
     [Header("Refresh")]
     [SerializeField, Min(0.2f)] private float refreshIntervalSeconds = 0.5f;
     [SerializeField, Min(0.1f)] private float verticalOffsetMeters = 0.35f;
-    [SerializeField, Min(0.01f)] private float textWorldScale = 0.055f;
-    [SerializeField, Min(0.1f)] private float textFontSize = 1.55f;
     [SerializeField, Min(0.05f)] private float cardWidthMeters = 0.62f;
     [SerializeField, Min(0.03f)] private float cardHeightMeters = 0.24f;
-    [SerializeField, Min(0.001f)] private float accentStripWidthMeters = 0.018f;
+    [SerializeField, Min(240f)] private float cardPixelWidth = 420f;
     [SerializeField, Min(6)] private int maxStatusNoteCharacters = 42;
 
     [Header("Colors")]
@@ -46,10 +45,8 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
     private readonly Dictionary<string, StatusCard> _cardsByRequestId = new();
     private readonly HashSet<string> _visibleRequestIds = new();
     private readonly StringBuilder _builder = new(256);
-    private Mesh _quadMesh;
-    private Material _cardMaterial;
-    private Material _accentMaterial;
-    private Material _glowMaterial;
+    private Sprite _roundedCardSprite;
+    private Sprite _roundedPillSprite;
     private float _nextRefreshTime;
     private string _latestSummary = "[GenerationJobWorldStatusOverlay] State: waiting";
 
@@ -171,8 +168,18 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         card.Title.color = titleColor;
         card.Note.color = noteColor;
         card.Title.text = BuildTitleText(record, request);
+        card.State.text = GetStateLabel(record.State);
+        card.State.color = stateColor;
         card.Note.text = BuildNoteText(record);
-        card.AccentRenderer.material.color = stateColor;
+        card.Id.text = ShortId(record.RequestId);
+        SetGraphicColor(card.AccentImage, stateColor);
+        SetGraphicColor(card.StatusPillImage, WithAlpha(stateColor, 0.18f));
+        SetGraphicColor(card.ProgressFillImage, stateColor);
+        if (card.ProgressFillImage != null)
+        {
+            card.ProgressFillImage.fillAmount = GetStateProgress(record.State);
+        }
+
         card.Root.SetActive(true);
     }
 
@@ -213,9 +220,6 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         {
             _builder.Append(GetStateHint(record.State));
         }
-
-        _builder.AppendLine();
-        _builder.Append(ShortId(record.RequestId));
         return _builder.ToString();
     }
 
@@ -229,34 +233,107 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         EnsureOverlayRoot();
         EnsureStyleResources();
 
-        var labelObject = new GameObject($"GenerationStatus_{requestId}");
+        var labelObject = new GameObject(
+            $"GenerationStatus_{requestId}",
+            typeof(RectTransform),
+            typeof(Canvas),
+            typeof(CanvasScaler));
         labelObject.transform.SetParent(overlayRoot != null ? overlayRoot : transform, false);
+        var rect = labelObject.GetComponent<RectTransform>();
+        var canvas = labelObject.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 32040;
+        canvas.worldCamera = targetCamera;
 
-        var glow = CreateQuad("CardGlow", labelObject.transform, new Vector3(0f, 0f, 0.018f), new Vector3(cardWidthMeters + 0.08f, cardHeightMeters + 0.08f, 1f), _glowMaterial);
-        var background = CreateQuad("CardBackground", labelObject.transform, new Vector3(0f, 0f, 0.012f), new Vector3(cardWidthMeters, cardHeightMeters, 1f), _cardMaterial);
-        var accent = CreateQuad(
-            "StatusAccent",
-            labelObject.transform,
-            new Vector3(-cardWidthMeters * 0.5f + accentStripWidthMeters * 0.5f + 0.018f, 0f, 0.008f),
-            new Vector3(accentStripWidthMeters, cardHeightMeters - 0.04f, 1f),
-            _accentMaterial);
+        var canvasScaler = labelObject.GetComponent<CanvasScaler>();
+        canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        canvasScaler.dynamicPixelsPerUnit = 12f;
 
-        var title = CreateText("Title", labelObject.transform, Vector3.zero, textFontSize, titleColor, TextAlignmentOptions.MidlineLeft);
+        var glow = CreateImage("UISetGlow", rect, _roundedCardSprite, cardGlowColor);
+        StretchToParent(glow.rectTransform);
+        glow.rectTransform.offsetMin = new Vector2(-18f, -18f);
+        glow.rectTransform.offsetMax = new Vector2(18f, 18f);
+
+        var background = CreateImage("UISetBackplate", rect, _roundedCardSprite, cardColor);
+        StretchToParent(background.rectTransform);
+
+        var accent = CreateImage("StatusAccent", rect, _roundedPillSprite, runningColor);
+        SetLeftAccentLayout(accent.rectTransform);
+
+        var contentRoot = new GameObject("ContentRoot", typeof(RectTransform), typeof(VerticalLayoutGroup));
+        contentRoot.transform.SetParent(rect, false);
+        var contentRect = contentRoot.GetComponent<RectTransform>();
+        StretchToParent(contentRect);
+        contentRect.offsetMin = new Vector2(32f, 18f);
+        contentRect.offsetMax = new Vector2(-18f, -16f);
+        var contentLayout = contentRoot.GetComponent<VerticalLayoutGroup>();
+        contentLayout.padding = new RectOffset(0, 0, 0, 0);
+        contentLayout.spacing = 8f;
+        contentLayout.childControlWidth = true;
+        contentLayout.childControlHeight = true;
+        contentLayout.childForceExpandWidth = true;
+        contentLayout.childForceExpandHeight = false;
+
+        var headerRow = CreateLayoutRow("HeaderRow", contentRoot.transform, 8f, 34f);
+        var title = CreateText("Title", headerRow.transform, 23f, titleColor, TextAlignmentOptions.MidlineLeft);
+        title.fontStyle = FontStyles.Bold;
         title.textWrappingMode = TextWrappingModes.NoWrap;
         title.overflowMode = TextOverflowModes.Ellipsis;
+        var titleLayout = title.gameObject.AddComponent<LayoutElement>();
+        titleLayout.flexibleWidth = 1f;
+        titleLayout.preferredHeight = 34f;
 
-        var note = CreateText("Note", labelObject.transform, Vector3.zero, textFontSize * 0.7f, noteColor, TextAlignmentOptions.MidlineLeft);
+        var statusPill = CreateImage("StatusPill", headerRow.transform, _roundedPillSprite, WithAlpha(runningColor, 0.18f));
+        var statusPillLayout = statusPill.gameObject.AddComponent<LayoutElement>();
+        statusPillLayout.preferredWidth = 132f;
+        statusPillLayout.preferredHeight = 30f;
+        var status = CreateText("State", statusPill.transform, 15f, runningColor, TextAlignmentOptions.Center);
+        StretchToParent(status.rectTransform);
+        status.margin = new Vector4(10f, 0f, 10f, 1f);
+        status.textWrappingMode = TextWrappingModes.NoWrap;
+        status.overflowMode = TextOverflowModes.Ellipsis;
+
+        var note = CreateText("Note", contentRoot.transform, 17f, noteColor, TextAlignmentOptions.MidlineLeft);
         note.textWrappingMode = TextWrappingModes.Normal;
         note.overflowMode = TextOverflowModes.Ellipsis;
+        var noteLayout = note.gameObject.AddComponent<LayoutElement>();
+        noteLayout.minHeight = 42f;
+        noteLayout.preferredHeight = 48f;
+
+        var footerRow = CreateLayoutRow("FooterRow", contentRoot.transform, 10f, 24f);
+        var id = CreateText("RequestId", footerRow.transform, 13f, WithAlpha(noteColor, 0.72f), TextAlignmentOptions.MidlineLeft);
+        id.textWrappingMode = TextWrappingModes.NoWrap;
+        id.overflowMode = TextOverflowModes.Ellipsis;
+        var idLayout = id.gameObject.AddComponent<LayoutElement>();
+        idLayout.preferredWidth = 170f;
+        idLayout.preferredHeight = 22f;
+
+        var progressTrack = CreateImage("ProgressTrack", footerRow.transform, _roundedPillSprite, new Color(1f, 1f, 1f, 0.1f));
+        var progressTrackLayout = progressTrack.gameObject.AddComponent<LayoutElement>();
+        progressTrackLayout.flexibleWidth = 1f;
+        progressTrackLayout.preferredHeight = 8f;
+        var progressFill = CreateImage("ProgressFill", progressTrack.transform, _roundedPillSprite, runningColor);
+        progressFill.type = Image.Type.Filled;
+        progressFill.fillMethod = Image.FillMethod.Horizontal;
+        progressFill.fillOrigin = 0;
+        progressFill.fillAmount = 0f;
+        StretchToParent(progressFill.rectTransform);
 
         var card = new StatusCard
         {
             Root = labelObject,
-            BackgroundRenderer = background,
-            GlowRenderer = glow,
-            AccentRenderer = accent,
+            RectTransform = rect,
+            Canvas = canvas,
+            BackgroundImage = background,
+            GlowImage = glow,
+            AccentImage = accent,
+            StatusPillImage = statusPill,
+            ProgressFillImage = progressFill,
             Title = title,
+            State = status,
             Note = note,
+            Id = id,
         };
 
         ApplyCardTextLayout(card);
@@ -271,31 +348,13 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
             return;
         }
 
-        var safeTextScale = Mathf.Max(0.001f, textWorldScale);
-        var textX = -cardWidthMeters * 0.5f + accentStripWidthMeters + 0.045f;
-        var textWidth = Mathf.Max(1f, (cardWidthMeters - 0.13f) / safeTextScale);
-        var titleHeight = Mathf.Max(0.5f, 0.085f / safeTextScale);
-        var noteHeight = Mathf.Max(0.8f, 0.13f / safeTextScale);
-
-        ApplyTextLayout(card.Title, new Vector3(textX, 0.048f, 0f), new Vector2(textWidth, titleHeight), textWorldScale);
-        ApplyTextLayout(card.Note, new Vector3(textX, -0.052f, 0f), new Vector2(textWidth, noteHeight), textWorldScale);
-    }
-
-    private static void ApplyTextLayout(TextMeshPro text, Vector3 localPosition, Vector2 sizeDelta, float localScale)
-    {
-        if (text == null)
+        var pixelSize = GetCardPixelSize();
+        card.RectTransform.sizeDelta = pixelSize;
+        card.RectTransform.localScale = Vector3.one * (cardWidthMeters / Mathf.Max(1f, pixelSize.x));
+        if (card.Canvas != null)
         {
-            return;
+            card.Canvas.worldCamera = targetCamera;
         }
-
-        var rect = text.rectTransform;
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0f, 0.5f);
-        rect.localPosition = localPosition;
-        rect.localRotation = Quaternion.identity;
-        rect.localScale = Vector3.one * Mathf.Max(0.001f, localScale);
-        rect.sizeDelta = sizeDelta;
     }
 
     private void FaceCamera()
@@ -367,6 +426,37 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
             GeneratedObjectJobState.Failed => failedColor,
             _ => waitingColor,
         };
+    }
+
+    private static float GetStateProgress(GeneratedObjectJobState state)
+    {
+        return state switch
+        {
+            GeneratedObjectJobState.Pending => 0.08f,
+            GeneratedObjectJobState.CaptureReady => 0.18f,
+            GeneratedObjectJobState.BackendSubmitted => 0.42f,
+            GeneratedObjectJobState.StylizedImageReady => 0.58f,
+            GeneratedObjectJobState.ModelGenerationSubmitted => 0.76f,
+            GeneratedObjectJobState.ModelReady => 0.9f,
+            GeneratedObjectJobState.Imported => 1f,
+            GeneratedObjectJobState.NeedsReview => 0.92f,
+            GeneratedObjectJobState.Failed => 1f,
+            _ => 0.08f,
+        };
+    }
+
+    private static Color WithAlpha(Color color, float alpha)
+    {
+        color.a = alpha;
+        return color;
+    }
+
+    private static void SetGraphicColor(Graphic graphic, Color color)
+    {
+        if (graphic != null)
+        {
+            graphic.color = color;
+        }
     }
 
     private static string GetStateLabel(GeneratedObjectJobState state)
@@ -449,132 +539,139 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         overlayRoot = rootObject.transform;
     }
 
-    private MeshRenderer CreateQuad(string name, Transform parent, Vector3 localPosition, Vector3 localScale, Material material)
+    private Vector2 GetCardPixelSize()
     {
-        var quad = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
-        quad.transform.SetParent(parent, false);
-        quad.transform.localPosition = localPosition;
-        quad.transform.localRotation = Quaternion.identity;
-        quad.transform.localScale = localScale;
-
-        var meshFilter = quad.GetComponent<MeshFilter>();
-        meshFilter.sharedMesh = _quadMesh;
-
-        var renderer = quad.GetComponent<MeshRenderer>();
-        renderer.sharedMaterial = material;
-        return renderer;
+        var width = Mathf.Max(240f, cardPixelWidth);
+        var aspect = Mathf.Max(0.2f, cardHeightMeters / Mathf.Max(0.01f, cardWidthMeters));
+        return new Vector2(width, Mathf.Max(120f, width * aspect));
     }
 
-    private TextMeshPro CreateText(string name, Transform parent, Vector3 localPosition, float fontSize, Color color, TextAlignmentOptions alignment)
+    private static GameObject CreateLayoutRow(string name, Transform parent, float spacing, float preferredHeight)
     {
-        var textObject = new GameObject(name, typeof(RectTransform), typeof(TextMeshPro));
-        textObject.transform.SetParent(parent, false);
+        var row = new GameObject(name, typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+        row.transform.SetParent(parent, false);
+        var layout = row.GetComponent<HorizontalLayoutGroup>();
+        layout.spacing = spacing;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = false;
+        layout.childAlignment = TextAnchor.MiddleLeft;
 
-        var text = textObject.GetComponent<TextMeshPro>();
+        var layoutElement = row.GetComponent<LayoutElement>();
+        layoutElement.minHeight = preferredHeight;
+        layoutElement.preferredHeight = preferredHeight;
+        layoutElement.flexibleWidth = 1f;
+        return row;
+    }
+
+    private static Image CreateImage(string name, Transform parent, Sprite sprite, Color color)
+    {
+        var imageObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        imageObject.transform.SetParent(parent, false);
+        var image = imageObject.GetComponent<Image>();
+        image.sprite = sprite;
+        image.color = color;
+        image.raycastTarget = false;
+        if (sprite != null)
+        {
+            image.type = Image.Type.Sliced;
+            image.pixelsPerUnitMultiplier = 1f;
+        }
+
+        return image;
+    }
+
+    private static TextMeshProUGUI CreateText(
+        string name,
+        Transform parent,
+        float fontSize,
+        Color color,
+        TextAlignmentOptions alignment)
+    {
+        var textObject = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        textObject.transform.SetParent(parent, false);
+        var text = textObject.GetComponent<TextMeshProUGUI>();
         text.alignment = alignment;
         text.fontSize = fontSize;
         text.color = color;
         text.richText = false;
         text.raycastTarget = false;
-        ApplyTextLayout(text, localPosition, Vector2.zero, textWorldScale);
         return text;
+    }
+
+    private static void StretchToParent(RectTransform rectTransform)
+    {
+        if (rectTransform == null)
+        {
+            return;
+        }
+
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.one;
+        rectTransform.offsetMin = Vector2.zero;
+        rectTransform.offsetMax = Vector2.zero;
+        rectTransform.localScale = Vector3.one;
+        rectTransform.localRotation = Quaternion.identity;
+    }
+
+    private static void SetLeftAccentLayout(RectTransform rectTransform)
+    {
+        if (rectTransform == null)
+        {
+            return;
+        }
+
+        rectTransform.anchorMin = new Vector2(0f, 0.14f);
+        rectTransform.anchorMax = new Vector2(0f, 0.86f);
+        rectTransform.pivot = new Vector2(0f, 0.5f);
+        rectTransform.sizeDelta = new Vector2(8f, 0f);
+        rectTransform.anchoredPosition = new Vector2(14f, 0f);
+        rectTransform.localScale = Vector3.one;
+        rectTransform.localRotation = Quaternion.identity;
     }
 
     private void EnsureStyleResources()
     {
-        if (_quadMesh == null)
-        {
-            _quadMesh = CreateQuadMesh();
-        }
-
-        if (_cardMaterial == null)
-        {
-            _cardMaterial = CreateUnlitTransparentMaterial("SceneShift Status Card", cardColor);
-        }
-
-        if (_accentMaterial == null)
-        {
-            _accentMaterial = CreateUnlitTransparentMaterial("SceneShift Status Accent", runningColor);
-        }
-
-        if (_glowMaterial == null)
-        {
-            _glowMaterial = CreateUnlitTransparentMaterial("SceneShift Status Glow", cardGlowColor);
-        }
+        _roundedCardSprite ??= CreateRoundedSprite("SceneShift_StatusCardRoundedBox", 64, 18);
+        _roundedPillSprite ??= CreateRoundedSprite("SceneShift_StatusPillRoundedBox", 48, 20);
     }
 
-    private static Mesh CreateQuadMesh()
+    private static Sprite CreateRoundedSprite(string name, int size, int radius)
     {
-        var mesh = new Mesh
-        {
-            name = "SceneShiftWorldStatusQuad",
-            vertices = new[]
-            {
-                new Vector3(-0.5f, -0.5f, 0f),
-                new Vector3(0.5f, -0.5f, 0f),
-                new Vector3(0.5f, 0.5f, 0f),
-                new Vector3(-0.5f, 0.5f, 0f),
-            },
-            uv = new[]
-            {
-                new Vector2(0f, 0f),
-                new Vector2(1f, 0f),
-                new Vector2(1f, 1f),
-                new Vector2(0f, 1f),
-            },
-            triangles = new[] { 0, 2, 1, 0, 3, 2 },
-        };
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
-        return mesh;
-    }
-
-    private static Material CreateUnlitTransparentMaterial(string name, Color color)
-    {
-        var shader = Shader.Find("Universal Render Pipeline/Unlit");
-        if (shader == null)
-        {
-            shader = Shader.Find("Unlit/Color");
-        }
-
-        var material = new Material(shader)
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
         {
             name = name,
-            color = color,
+            hideFlags = HideFlags.DontSave,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
         };
 
-        if (material.HasProperty("_BaseColor"))
+        var clear = new Color32(255, 255, 255, 0);
+        var solid = new Color32(255, 255, 255, 255);
+        for (var y = 0; y < size; y++)
         {
-            material.SetColor("_BaseColor", color);
+            for (var x = 0; x < size; x++)
+            {
+                var dx = x < radius ? radius - x : x >= size - radius ? x - (size - radius - 1) : 0;
+                var dy = y < radius ? radius - y : y >= size - radius ? y - (size - radius - 1) : 0;
+                var inside = dx == 0 && dy == 0 || dx * dx + dy * dy <= radius * radius;
+                texture.SetPixel(x, y, inside ? solid : clear);
+            }
         }
 
-        if (material.HasProperty("_Surface"))
-        {
-            material.SetFloat("_Surface", 1f);
-        }
-
-        if (material.HasProperty("_Blend"))
-        {
-            material.SetFloat("_Blend", 0f);
-        }
-
-        if (material.HasProperty("_SrcBlend"))
-        {
-            material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        }
-
-        if (material.HasProperty("_DstBlend"))
-        {
-            material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        }
-
-        if (material.HasProperty("_ZWrite"))
-        {
-            material.SetFloat("_ZWrite", 0f);
-        }
-
-        material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-        return material;
+        texture.Apply(false, true);
+        var sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(radius, radius, radius, radius));
+        sprite.name = name;
+        sprite.hideFlags = HideFlags.DontSave;
+        return sprite;
     }
 
     private void ClearLabels()
@@ -665,12 +762,18 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
     private struct StatusCard
     {
         public GameObject Root;
-        public MeshRenderer BackgroundRenderer;
-        public MeshRenderer GlowRenderer;
-        public MeshRenderer AccentRenderer;
-        public TextMeshPro Title;
-        public TextMeshPro Note;
+        public RectTransform RectTransform;
+        public Canvas Canvas;
+        public Image BackgroundImage;
+        public Image GlowImage;
+        public Image AccentImage;
+        public Image StatusPillImage;
+        public Image ProgressFillImage;
+        public TMP_Text Title;
+        public TMP_Text State;
+        public TMP_Text Note;
+        public TMP_Text Id;
 
-        public bool IsValid => Root != null && Title != null && Note != null && AccentRenderer != null;
+        public bool IsValid => Root != null && RectTransform != null && Title != null && State != null && Note != null && Id != null && AccentImage != null;
     }
 }

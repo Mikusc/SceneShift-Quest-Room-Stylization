@@ -21,6 +21,8 @@ public class Seed3DBackendAdapter : MonoBehaviour
     [SerializeField] private string model = "doubao-seed3d-2-0-260328";
     [SerializeField] private string subdivisionLevel = "medium";
     [SerializeField] private string fileFormat = "glb";
+    [SerializeField] private Seed3DImageInputMode imageInputMode = Seed3DImageInputMode.PreferBase64DataUri;
+    [SerializeField, Min(256)] private int maxBase64ImageKilobytes = 12288;
     [SerializeField, TextArea(2, 5)] private string extraTextInstruction =
         "Generate one clean 3D model from the isolated stylized object image. Preserve proportions, footprint, and support/contact surfaces.";
 
@@ -42,13 +44,15 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
     public string LatestSummary => _latestSummary;
     public GeneratedAssetRecord LastProcessedRecord => _lastProcessedRecord;
+    public Seed3DImageInputMode ImageInputMode => imageInputMode;
 
     private GeneratedAssetRecord _lastProcessedRecord = new();
     private readonly HashSet<string> _activeJobPaths = new(StringComparer.OrdinalIgnoreCase);
     private bool _isProcessing;
     private float _nextProcessTime;
+    private string _lastImageInputSummary = "none";
     private string _latestSummary =
-        "[Seed3DBackendAdapter]\nState: waiting\nHint: provide ARK_API_KEY in the environment and a StylizedImageReady job with a public image_url.";
+        "[Seed3DBackendAdapter]\nState: waiting\nHint: provide ARK_API_KEY and a StylizedImageReady job with a local PNG or public image URL.";
 
     private void OnEnable()
     {
@@ -129,6 +133,30 @@ public class Seed3DBackendAdapter : MonoBehaviour
         return _latestSummary;
     }
 
+    public bool ShouldPreferLocalBase64ImageInput(string imagePath)
+    {
+        if (imageInputMode != Seed3DImageInputMode.PreferBase64DataUri &&
+            imageInputMode != Seed3DImageInputMode.Base64DataUriOnly)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var maxBytes = Mathf.Max(256, maxBase64ImageKilobytes) * 1024L;
+            return new FileInfo(imagePath).Length <= maxBytes;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private IEnumerator RunTrackedJob(string jobPath, GeneratedAssetRecord record)
     {
         var key = NormalizeJobPath(jobPath);
@@ -196,23 +224,25 @@ public class Seed3DBackendAdapter : MonoBehaviour
             yield break;
         }
 
-        var imageUrl = ResolveHostedStylizedImageUrl(record);
-        if (!IsHttpUrl(imageUrl))
+        if (!TryResolveSeed3DImageInput(record, out var seed3DImageInput, out var imageInputSummary, out var imageInputWaitReason))
         {
-            record.StatusNote = "Waiting for StylizedImageUrl, or an http(s) StylizedImagePath, before submitting Seed3D. Local files are not uploaded by this adapter.";
+            _lastImageInputSummary = imageInputSummary;
+            record.StatusNote = imageInputWaitReason;
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
-            PublishSummary("waiting-for-hosted-image-url");
+            PublishSummary("waiting-for-seed3d-image-input");
             _isProcessing = false;
             yield break;
         }
+
+        _lastImageInputSummary = imageInputSummary;
 
         var metadataDirectory = Path.Combine(GetLibraryDirectory(backendModelFolderName), record.RequestId);
         Directory.CreateDirectory(metadataDirectory);
         var requestPath = Path.Combine(metadataDirectory, $"{record.RequestId}.seed3d.request.json");
         var resultPath = Path.Combine(metadataDirectory, $"{record.RequestId}.seed3d.result.json");
         EnrichRecordFromSourceRequest(record);
-        var requestJson = BuildCreateTaskJson(record, imageUrl);
+        var requestJson = BuildCreateTaskJson(record, seed3DImageInput);
         File.WriteAllText(requestPath, requestJson);
 
         string createResponse;
@@ -493,14 +523,14 @@ public class Seed3DBackendAdapter : MonoBehaviour
         return true;
     }
 
-    private string BuildCreateTaskJson(GeneratedAssetRecord record, string imageUrl)
+    private string BuildCreateTaskJson(GeneratedAssetRecord record, string imageInput)
     {
         var promptText = BuildSeed3DTextPrompt(record);
         return "{\n" +
                $"  \"model\": \"{EscapeJson(model)}\",\n" +
                "  \"content\": [\n" +
                $"    {{ \"type\": \"text\", \"text\": \"{EscapeJson(promptText)}\" }},\n" +
-               $"    {{ \"type\": \"image_url\", \"image_url\": {{ \"url\": \"{EscapeJson(imageUrl)}\" }} }}\n" +
+               $"    {{ \"type\": \"image_url\", \"image_url\": {{ \"url\": \"{EscapeJson(imageInput)}\" }} }}\n" +
                "  ]\n" +
                "}";
     }
@@ -711,6 +741,126 @@ public class Seed3DBackendAdapter : MonoBehaviour
         return IsHttpUrl(record.StylizedImagePath) ? record.StylizedImagePath : string.Empty;
     }
 
+    private bool TryResolveSeed3DImageInput(
+        GeneratedAssetRecord record,
+        out string imageInput,
+        out string summary,
+        out string waitReason)
+    {
+        imageInput = string.Empty;
+        summary = "none";
+        waitReason = "Waiting for a Seed3D-compatible image input.";
+
+        var preferBase64 = imageInputMode == Seed3DImageInputMode.PreferBase64DataUri ||
+                           imageInputMode == Seed3DImageInputMode.Base64DataUriOnly;
+        var allowUrl = imageInputMode == Seed3DImageInputMode.PreferBase64DataUri ||
+                       imageInputMode == Seed3DImageInputMode.PreferHostedUrl ||
+                       imageInputMode == Seed3DImageInputMode.HostedUrlOnly;
+
+        if (preferBase64 && TryBuildBase64DataUri(record, out imageInput, out summary, out waitReason))
+        {
+            return true;
+        }
+
+        if (allowUrl)
+        {
+            var imageUrl = ResolveHostedStylizedImageUrl(record);
+            if (IsHttpUrl(imageUrl))
+            {
+                summary = "hosted-url";
+                imageInput = imageUrl;
+                return true;
+            }
+        }
+
+        if (imageInputMode == Seed3DImageInputMode.PreferHostedUrl)
+        {
+            var imageUrl = ResolveHostedStylizedImageUrl(record);
+            if (IsHttpUrl(imageUrl))
+            {
+                summary = "hosted-url";
+                imageInput = imageUrl;
+                return true;
+            }
+
+            return TryBuildBase64DataUri(record, out imageInput, out summary, out waitReason);
+        }
+
+        if (preferBase64)
+        {
+            waitReason = $"{waitReason} No hosted URL fallback is allowed by imageInputMode={imageInputMode}.";
+        }
+        else
+        {
+            waitReason = "Waiting for StylizedImageUrl, or an http(s) StylizedImagePath, before submitting Seed3D.";
+        }
+
+        return false;
+    }
+
+    private bool TryBuildBase64DataUri(
+        GeneratedAssetRecord record,
+        out string dataUri,
+        out string summary,
+        out string waitReason)
+    {
+        dataUri = string.Empty;
+        summary = "base64-unavailable";
+        waitReason = "Waiting for local StylizedImagePath before submitting Seed3D as base64.";
+
+        var localImagePath = ResolveLocalStylizedImagePath(record);
+        if (string.IsNullOrWhiteSpace(localImagePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fileInfo = new FileInfo(localImagePath);
+            var maxBytes = Mathf.Max(256, maxBase64ImageKilobytes) * 1024L;
+            if (fileInfo.Length > maxBytes)
+            {
+                summary = $"base64-too-large {fileInfo.Length / 1024L}KB>{maxBase64ImageKilobytes}KB";
+                waitReason = $"Local stylized image is too large for base64 Seed3D input ({fileInfo.Length / 1024L}KB > {maxBase64ImageKilobytes}KB).";
+                return false;
+            }
+
+            var mimeType = ResolveImageMimeType(localImagePath);
+            var base64 = Convert.ToBase64String(File.ReadAllBytes(localImagePath));
+            dataUri = $"data:{mimeType};base64,{base64}";
+            summary = $"base64-data-uri {fileInfo.Length / 1024L}KB";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            summary = "base64-read-failed";
+            waitReason = $"Failed to read local stylized image for base64 Seed3D input: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static string ResolveLocalStylizedImagePath(GeneratedAssetRecord record)
+    {
+        if (record == null || string.IsNullOrWhiteSpace(record.StylizedImagePath))
+        {
+            return string.Empty;
+        }
+
+        return File.Exists(record.StylizedImagePath) ? record.StylizedImagePath : string.Empty;
+    }
+
+    private static string ResolveImageMimeType(string path)
+    {
+        var extension = Path.GetExtension(path)?.ToLowerInvariant();
+        return extension switch
+        {
+            ".jpg" => "image/jpeg",
+            ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => "image/png",
+        };
+    }
+
     private static bool TryExtractTaskId(string json, out string taskId)
     {
         return TryExtractString(json, "task_id", out taskId) ||
@@ -916,6 +1066,8 @@ public class Seed3DBackendAdapter : MonoBehaviour
         builder.AppendLine($"Active Jobs: {_activeJobPaths.Count}/{Mathf.Max(1, maxConcurrentSeed3DJobs)}");
         builder.AppendLine($"Endpoint: {taskEndpoint}");
         builder.AppendLine($"Model: {model}");
+        builder.AppendLine($"Image Input Mode: {imageInputMode}");
+        builder.AppendLine($"Last Image Input: {_lastImageInputSummary}");
         builder.AppendLine($"Subdivision: {subdivisionLevel}");
         builder.AppendLine($"File Format: {fileFormat}");
 
@@ -935,4 +1087,12 @@ public class Seed3DBackendAdapter : MonoBehaviour
         _latestSummary = builder.ToString().TrimEnd();
         SummaryChanged?.Invoke();
     }
+}
+
+public enum Seed3DImageInputMode
+{
+    PreferBase64DataUri,
+    PreferHostedUrl,
+    Base64DataUriOnly,
+    HostedUrlOnly,
 }

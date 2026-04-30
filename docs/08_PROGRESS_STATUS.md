@@ -1,230 +1,180 @@
 # 08 Progress Status
 
 ## Purpose
-This file is the manual progress tracker for the current vertical slice.
-Update it after each meaningful implementation step.
+
+This file is the rolling implementation tracker for the current vertical slice. Update it after meaningful implementation work, especially when runtime behavior, generated-job contracts, scene wiring, or demo validation changes.
 
 ## Snapshot
-- Last updated: `2026-04-27`
-- Current priority: `Phase 1 — room stylization`
+
+- Last updated: `2026-04-30`
+- Current priority: `Phase 1 - room stylization`
+- Canonical setting: `one real UNNC IEB office room`
 - Canonical scene: `Assets/Scenes/MR_RoomStylization.unity`
-- Primary development validation path: `MetaXRSimulator` for MRUK/planner/applier logic; Quest build validation is required for passthrough camera capture and final spatial confidence.
+- Current development path: `Quest Link / Unity Editor Play` plus `MetaXRSimulator` for safer iteration
+- Current demo target: a coherent stylized office room with surfaces, openings, furniture replacement, clean view, runtime status, and style switching
 
 ## Milestone Status
+
 | Milestone | Status | Notes |
 | --- | --- | --- |
-| M0 — Project foundation audit | Partial | Project audit and canonical scene exist; agreed folder structure is only partially normalized. |
-| M1 — MRUK semantic debug layer | Mostly done | Simulator path works, room bootstrap exists, semantic HUD exists, and a thin best-view capture plus generated-object request export path now exists with a `TABLE` object-level crop rect and external-screenshot simulation input. Further capture refinement remains open. |
-| M2 — Visible object perception fusion | Not started | No `ObservedObjectCollector` or `SemanticFusionService` yet. A smaller manual semantic override fallback is now the recommended next step if true-room MRUK labels miss the table. |
-| M3 — Theme system and stylization planning | Mostly done | `ThemeProfile`, `StylizationPlan`, `StylizationPlanner`, and debug HUD are in place. |
-| M4 — Stylization application | In progress | Surface stylization and room mood are working. Table proxy replacement is wired but still being refined. |
-| M5 — Manual correction mode | Started | A standalone `CorrectionModeController` code skeleton now exists, but it is not yet scene-integrated. |
-| M6 — Demo readiness | Not started | No dedicated demo UI, smoke-test panel, or capture toggles yet. |
-| M7 — NPC preparation | Not started | Intentionally deferred until Phase 1 is stable. |
-| M8 — Generated object enrichment | In progress | Multiple `TABLE` side-branch jobs reached transparent image, Seed3D GLB, imported prefab, and runtime generated-prefab placement in Simulator. Current preferred candidate is `table_18_20260425025836`. |
+| M0 - Project foundation audit | Mostly done | Canonical scene, folder structure, docs, and Git workflow exist. Recovery/UISet sample clutter still needs cleanup before a final milestone commit. |
+| M1 - MRUK semantic debug layer | Mostly done | MRUK room bootstrap, semantic counts, debug shell visibility, active-room refresh, and headset-visible status are in place. |
+| M2 - Visible object perception fusion | Partial fallback | Full Image Segmentation fusion is not implemented. Current path uses MRUK furniture labels plus gaze/best-view capture and supports `OTHER` fallback. |
+| M3 - Theme system and stylization planning | Mostly done | Generic scaffold plus built-in/custom Style identity is implemented. Style-aware prompt/cache IDs are in use. |
+| M4 - Stylization application | In progress | Surfaces, openings, window vista, generated furniture placement, and mood changes are implemented. Surface v3 aesthetic validation is next. |
+| M5 - Manual correction mode | Partial | Runtime `Rotate 90` correction exists for generated furniture, but polished accept/reject/reset/nudge persistence is not demo-final. |
+| M6 - Demo readiness | In progress | Main runtime panel, clean view, object status cards, and queue summaries exist. UI polish and final validation remain. |
+| M7 - NPC preparation | Deferred | Still out of scope until Phase 1 is stable. |
+| M8 - Generated object enrichment | In progress | APIMart image2, hosted upload, Seed3D, import, and request-locked placement are wired. Multiple generated furniture replacements have been validated in Editor Play, but accept/reject UX remains open. |
 
 ## Working Features
-- `RoomSemanticBootstrap` initializes MRUK room semantics for the canonical scene.
-- `StylizationDebugPanel` shows room/theme/planner/applier state in-scene.
-- Theme selection is available through `ThemeIntentController`.
-- `RuntimeStyleIntentController` is attached under `AppRoot/Perception` and provides a Roomify-like optional user style layer. It converts freeform text such as `cyberpunk` into deterministic style/material/color/motif keywords, can write an LLM handoff prompt under `Library/StyleIntentJobs/`, and feeds those keywords into generated-object requests.
-- `DeepSeekStyleIntentProvider` is attached under `AppRoot/Perception` as an optional external style parser. In Play mode it can call DeepSeek V4 (`deepseek-v4-flash` by default) using `DEEPSEEK_API_KEY`, then replace the deterministic fallback with JSON keyword fields if the response is valid.
-- `StylizationPlanner` generates deterministic mappings for wall, floor, ceiling, table, screen, storage, and seating.
-- `AnchorThemeApplier` visibly stylizes wall / floor / ceiling surfaces.
-- When a `ThemeProfile` has no explicit wall / floor / ceiling material assets, `AnchorThemeApplier` now falls back to deterministic runtime procedural surface textures instead of plain color-only materials.
-- `SurfaceTexturePromptBuilder` writes Roomify-style wall / floor / ceiling prompt artifacts under `Library/SurfaceTextureJobs/` for future offline seamless PBR texture generation.
-- `SurfaceTexturePromptBuilder` now writes wall / floor / ceiling / door-frame / window-frame / window-vista prompt artifacts plus `.surface.job.json` records. Prompt text includes active runtime style keywords when `RuntimeStyleIntentController` has a user style intent.
-- Surface texture prompt/job ids are now style-variant-aware. Empty user style keeps the `preset` cache key; arbitrary style requests such as cyberpunk, solarpunk, or underwater produce separate `StyleVariantId` keys and do not reuse old generated surface textures.
-- `window_vista` jobs request wide `16:9` images intended as exterior backdrops behind `WINDOW_FRAME` anchors, not as room interiors, wall materials, or generated 3D assets.
-- `ApimartSurfaceTextureBackendAdapter` is attached under `AppRoot/Stylization` as the first automated surface-image worker. It consumes `PromptReady` surface jobs, calls APIMart `gpt-image-2`, downloads PNGs under `Library/SurfaceTextureOutputs/`, and advances jobs to `TextureReady`.
-- `ApimartSurfaceTextureBackendAdapter` now defaults to active-theme and active-style-only processing, so if multiple theme/style prompt caches exist it will not automatically submit inactive jobs during Play.
-- Generation workers now support bounded parallelism: APIMart furniture image jobs default to 2 concurrent jobs, hosted uploads to 3, Seed3D to 2, and surface image jobs to 2. Unity model import remains editor-side serial.
-- `GenerationQueueStatusService` is attached under `AppRoot/Perception` and summarizes object/surface queue counts for the existing debug/HUD panel, so users can see waiting / running / ready / failed stages instead of waiting blindly.
-- `GenerationJobWorldStatusOverlay` is attached under `UI` and creates per-furniture world-space labels during Play. Each label resolves the job's source request bounds and shows whether that specific captured object is queued, running through image2, waiting for upload/Seed3D, running Seed3D, ready, placed, failed, or awaiting review.
-- `SurfaceOverrideApplier` can prefer generated `TextureReady` surface PNGs at runtime, then fall back to theme materials or procedural textures. Door and window anchors use lightweight frame/trim meshes with open centers instead of full 3D replacement; window anchors can also get a separate vista backdrop plane behind the opening.
-- `Assets/Materials/SurfaceOverrides/` now contains GPT-image-2 generated albedo PNGs plus Unity materials for both current themes, and the `ThemeProfile` surface material fields are populated for wall / floor / ceiling instead of being visually empty in the Inspector.
-- `SurfaceOverrideApplier` now spawns MRUK-scaffold-aligned surface override planes under `StylizedContentRoot/SurfaceOverrides`, including a 5cm wall outward offset aligned with the Roomify scene-composition rule.
-- `SurfaceOverrideApplier` now exposes `Off`, `Background`, and `DemoStrong` surface visibility modes. The canonical scene defaults to `Background` so wall / floor / ceiling stay as low-opacity style atmosphere while furniture replacement is still being brought up.
-- `RoomMoodController` provides theme-linked mood changes.
-- Initial table proxy spawning is connected from planner to applier.
-- `BestViewCaptureService` tracks the best visible `TABLE` anchor in Play mode and writes a full-frame reference image + metadata + `GeneratedObjectRequest` JSON export to `Library/BestViewCaptures/`; in `ExternalScreenshot` mode the original screenshot is currently used directly as the backend input while the estimated crop rect remains in metadata. Requests now carry target physical length / width / height, target aspect ratio, safety footprint scale, and vertical fit mode for generated asset workers.
-- `BestViewCaptureService` now distinguishes between `ExternalScreenshot`, `UnityFramebufferDebug`, and `DevicePassthroughReserved` source modes; `ExternalScreenshot` is the preferred simulation path.
-- `DevicePassthroughCaptureService` is now attached under `Perception` as the first Quest Link / headset PCA probe. In Play mode it tracks the best visible `TABLE` MRUK anchor, uses `Meta.XR.PassthroughCameraAccess` for native camera texture, pose, intrinsics, and projection, writes full-frame/cropped PNG plus metadata/request JSON, and can queue a `CaptureReady` generated-object job directly under `Library/GeneratedObjectJobs/`.
-- `DevicePassthroughCaptureHud` is attached under `Perception` and creates a head-locked world-space PCA status panel at runtime. The panel shows PCA readiness, target category, best anchor, best-view score, distance, viewport/crop values, input hint, and latest capture/job id so Quest Link validation does not require watching the Unity Game View.
-- `SceneShiftUISetDashboard` is attached under `UI` as a Meta Interaction SDK UISet-based headset control panel. It instantiates from the official `EmptyUIBackplateWithCanvas` prefab and references official UISet button prefabs for Capture, Auto Target, Next Theme, Reapply Room, and Toggle Shell actions.
-- The UISet dashboard also exposes an `Object Status` action that toggles the per-furniture `GenerationJobWorldStatusOverlay` cards. Those cards remain anchored above each furniture request bounds and billboard toward the headset camera; they do not move with the user's head position.
-- `RoomStyleCacheService` is attached under `AppRoot/Stylization` and summarizes reusable generated content by current room, active theme, and `StyleVariantId`. It reports theme cache state as `cached / partial / generating / missing` using surface texture jobs and generated furniture jobs.
-- The UISet dashboard now uses the official `DropDown1LineTextOnly` UISet prefab as the theme selector entry point, with a Unity-compatible fallback dropdown if the package prefab does not expose a standard dropdown component at runtime. The old `Next Theme` button is removed from rebuilt dashboard content.
-- `DevicePassthroughCaptureService` now supports keyboard `P` and right-controller primary button capture input for headset-side validation.
-- `GenerativeObjectCoordinator` is now attached under `Perception` and writes a local `.job.json` shell to `Library/GeneratedObjectJobs/` when a new captured request appears.
-- `GeneratedObjectPromptBuilder` now converts each request into a Roomify-inspired prompt artifact and `GenerativeObjectCoordinator` writes it as `Library/GeneratedObjectJobs/*.prompt.txt`.
-- `GeneratedObjectPromptBuilder` now emits prompt version `roomify_image_asset_v3_style_keywords`, including `STYLE_INTENT` fields when runtime user style text is provided. The user style layer affects visual language only; object function, footprint, dimensions, yaw, and safety constraints remain controlled by MRUK/planner data.
-- `LocalGeneratedObjectBackendAdapter` is now attached under `Perception` and can locally consume `CaptureReady` jobs into simulated `StylizedImageReady` outputs by applying a theme-aware mock stylization transform, writing `Library/GeneratedObjectOutputs/*.stylized.png`, and writing a matching `*.result.json` backend artifact.
-- `LocalGeneratedObjectBackendAdapter` now also exposes an `ExternalFileProtocol` mode that writes `Library/GeneratedObjectBackendInbox/*.submission.json` plus a prefilled `*.result.template.json`, and can later consume a dropped external `*.result.json` without changing the Unity-side job/prompt contract.
-- `LocalGeneratedObjectBackendAdapter` can now consume either a local stylized PNG path or an external hosted stylized image URL from `GeneratedImageBackendResult`, enabling the Seed3D API path without adding an upload worker.
-- `ApimartImageBackendAdapter` is attached under `Perception` as the first automated image-generation worker. It reads `APIMART_API_KEY`, submits `CaptureReady` jobs to APIMart `gpt-image-2`, downloads the returned stylized PNG into `Library/GeneratedObjectOutputs/`, and advances the job to `StylizedImageReady`.
-- `HostedImageUploadBridge` uploads local stylized PNG outputs to the configured `www.mikusc.top` Azure Static Web Apps endpoint using `SCENESHIFT_UPLOAD_TOKEN`, raw `image/png` body, and `x-sceneshift-upload-token`, then writes `StylizedImageUrl` back to the job for Seed3D `image_url` input.
-- `Seed3DBackendAdapter` can process `StylizedImageReady` jobs when a public `http(s)` stylized image URL is available, read `ARK_API_KEY` from the Unity process environment, create Ark Seed3D 2.0 tasks, record `ModelGenerationSubmitted`, resume polling by task id after interruption, download the generated model under `Assets/Generated/ThemeAssets/<requestId>/`, and advance the job to `ModelReady`.
-- Current Seed3D downloads must be checked for zip packaging. The validated manual flow extracts backend zip packages under `Library/GeneratedObjectModels/<requestId>/downloaded_package/` and copies only the real `.glb` into `Assets/Generated/ThemeAssets/<requestId>/` before import.
-- Earlier manual GPT-image/Seed3D outputs exist for `TABLE_18`, including `table_18_20260424071758`, `table_18_20260424173938`, and `table_18_20260425025836`.
-- The current preferred generated table candidate is:
-  - stylized image: `Library/GeneratedObjectOutputs/table_18_20260425025836.stylized.png`
-  - hosted image: `https://www.mikusc.top/scene-shift/seed3d/table_18_20260425025836.stylized.png`
-  - Seed3D task: `cgt-20260425030546-n8b7x`
-  - GLB: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.seed3d.pbr.glb`
-  - prefab: `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`
-  - imported bounds: `0.884 x 0.700 x 2.000`
-- `GeneratedObjectModelImporter` imports `ModelReady` jobs, normalizes generated model bounds to a centered bottom pivot, removes imported colliders, saves a prefab, and advances the job to `Imported`.
-- The current imported generated table prefab is `Assets/Generated/ThemeAssets/table_18_20260425025836/table_18_20260425025836.generated_table_proxy.prefab`.
-- `AnchorThemeApplier` can use imported generated table prefabs, but generated-table lookup is now locked to the active capture request by default. It checks the latest `DevicePassthroughCaptureService` request first, then the simulator `BestViewCaptureService` request, and only uses imported jobs with matching `RequestId`, `ObjectId`, or source request path. If no active capture exists, it falls back to deterministic theme/default proxies instead of silently using an old Simulator-generated table.
-- `AnchorThemeApplier` now auto-aligns imported generated table long axes before bounds fitting. If the generated model's local long axis and MRUK target long axis differ, runtime status reports `axis=rotated90(...)` and the visual child is rotated before final per-axis fit.
-- The canonical scene currently keeps table replacement disabled (`applyTableProxies=false`) and original MRUK volume visuals visible (`hideOriginalVolumeVisuals=false`) so the default Play view returns to the MRUK shell. Generated/deterministic table proxy placement is an opt-in validation step, not the default scene state.
-- Table generated-prefab fitting now transforms the MRUK `VolumeBounds` corners through the anchor transform into proxy-root local space before sizing, so rotated MRUK bounds do not treat a local axis as world-up by mistake.
-- Table proxy footprint and height padding are now saved as `1.0` in the canonical scene for size consistency, and runtime status logs target/source/scale/bottomDelta fit diagnostics. The latest local code adds full-height generated-table fitting from MRUK floor to MRUK table top, horizontal safety footprint scaling, per-axis local footprint correction, and a final vertical offset field for one-room calibration.
-- `CorrectionModeController` now exists as a standalone component code skeleton for selecting one applied object, inspecting metadata, nudging position, rotating yaw, resetting, and confirming correction deltas; it is not yet wired into the canonical scene or applier registry.
-- Project documentation now includes a manual external-worker runbook, smoke-test/demo checklist, and true-device validation plan so the generated-object side branch can be tested without relying on ad hoc chat instructions.
 
-## In Progress
-- Table replacement readability and accept/reject UX after the generated Seed3D prefab is placed.
-- Verifying the generated table visually from the user's intended Simulator camera angle, not just from fit metrics.
-- Verifying that the generated table candidate for the active capture request is selected after import/reapply, rather than the newest unrelated generated table.
-- Deciding whether exact per-axis generated-prefab fitting is acceptable for the current demo or whether to add a later Roomify-style IoU/orientation refinement step.
-- Keeping old generated jobs compatible while new prompt artifacts use `roomify_image_asset_v3_style_keywords`; the already imported `table_18_20260424071758` job was produced by an earlier prompt artifact.
-- Keeping documentation synchronized with the current code/scene state after each generated-object workflow change.
-- Cleaning up crash-related transient workspace state before the next commit.
+- `RoomSemanticBootstrap` initializes MRUK room data and exposes semantic counts.
+- `RoomSemanticBootstrap` can refresh the active/current room during Play, which helps when Quest contains multiple scanned rooms.
+- `ThemeIntentController` uses a generic room scaffold internally.
+- `RuntimeStyleIntentController` treats built-in and custom user-facing Styles as first-class runtime identities.
+- Built-in Styles include `Future Research Lab` and `Arcane Knowledge Chamber`.
+- Custom style text can produce deterministic style/material/color/motif keywords.
+- `DeepSeekStyleIntentProvider` can optionally replace deterministic keyword extraction when `DEEPSEEK_API_KEY` is available.
+- `StylizationPlanner` maps MRUK room and furniture semantics into a `StylizationPlan`.
+- `SurfaceTexturePromptBuilder` writes style-aware surface prompt/job records under `Library/SurfaceTextureJobs/`.
+- Surface prompt version is now `surface_texture_v3_room_scale_openings`.
+- Surface jobs cover `wall`, `floor`, `ceiling`, `door_frame`, `window_frame`, and `window_vista`.
+- `ApimartSurfaceTextureBackendAdapter` can submit active-theme/active-style surface jobs to APIMart `gpt-image-2`.
+- `SurfaceOverrideApplier` can consume generated surface PNGs from `Library/SurfaceTextureOutputs/`.
+- `SurfaceOverrideApplier` falls back to theme materials or procedural textures when generated textures are missing.
+- Wall/floor/ceiling overlays are now opaque and use larger world-scale texture repeats to avoid dense wallpaper-like visuals.
+- Wall overlays now include baseboard, crown, and corner trim strips to reduce visible MRUK seams and improve wall/floor/ceiling transitions.
+- Door anchors now use a flat full-door/portal panel mesh on the room-facing side of the wall instead of cutting a hole in the wall surface.
+- Door-host walls use the same wall material, tiling, opacity, and seam logic as other walls.
+- Window anchors can still cut a valid window opening out of the wall override so the open-center frame and 16:9 exterior vista remain visible.
+- `RoomMoodController` applies theme-linked lighting/ambient mood.
+- `SceneShiftUISetDashboard` provides the runtime control panel with theme selection, capture, auto target, reapply, clean view, and object status controls.
+- The dashboard currently uses a stable UISet-inspired fallback implementation because dynamic official UISet sample controls mis-layout when instantiated into the runtime panel.
+- `GeneratedObjectRotationCorrectionController` adds a dashboard `Rotate 90` action for the currently selected/generated furniture target, using `ObjectId` first and gaze/viewport fallback second.
+- `PassthroughOnlyVisibilityToggle` provides a left-controller `Y` / keyboard `Y` safety view that hides all virtual renderers, canvases, rays, shells, generated assets, and surface overlays, then restores them on the next press.
+- `GenerationQueueStatusService` summarizes object and surface queue counts for the HUD/panel.
+- `GenerationJobWorldStatusOverlay` shows per-furniture job status cards near captured objects.
+- `DevicePassthroughCaptureService` tracks supported MRUK furniture anchors from gaze and can create generated-object requests.
+- Supported generated-furniture categories now include `TABLE`, `STORAGE`, `SCREEN`, `COUCH` mapped internally to `Seating`, `BED`, `LAMP`, `PLANT`, and `OTHER`.
+- `CapturedFurnitureReuseService` supports reusing previous capture data across Styles when the physical object image is still valid.
+- `BestViewCaptureService` remains useful for simulator/external-screenshot tests.
+- `GenerativeObjectCoordinator` writes generated-object `.job.json` and prompt artifacts.
+- `ApimartImageBackendAdapter` can process `CaptureReady -> StylizedImageReady` with APIMart `gpt-image-2`.
+- `HostedImageUploadBridge` uploads local PNGs to `www.mikusc.top` with `x-sceneshift-upload-token`.
+- `Seed3DBackendAdapter` can submit hosted stylized images to Ark Seed3D 2.0, poll tasks, download models, and resume polling.
+- `GeneratedObjectModelImporter` imports ready generated models into Unity prefabs.
+- `GeneratedObjectModelImporter` no longer rewrites generated GLB embedded textures on import; model texture size is controlled by the upstream generation quality/settings.
+- `GeneratedObjectAssetCleaner` can report or archive duplicate generated models for the same object/style while keeping generated assets local by default.
+- `AnchorThemeApplier` can place imported generated furniture by matching active request IDs so old generated models are not silently applied to unrelated room objects.
+- `AnchorThemeApplier` marks each placed furniture proxy with `StylizedFurnitureInstance` metadata for runtime correction controls.
+- Multiple generated furniture placements have been validated in Quest Link / Editor Play, including two tables coexisting correctly.
+- Parallelism is bounded for APIMart image jobs, uploads, Seed3D jobs, and surface image jobs.
+- Official Interaction SDK ray/poke components are preserved for the dashboard. The custom SceneShift fallback `LineRenderer` pointer ray has been removed so only the official ray visual should appear.
+
+## Current Surface Aesthetic Direction
+
+The latest surface work moved the project away from debug-style planes and toward interior-design readability:
+
+- Wall/floor/ceiling textures should read at room scale, not as tiny repeated wallpaper.
+- Wall seams should be softened by trims rather than pretending MRUK planes are perfectly watertight.
+- Floor/wall and wall/ceiling junctions should be visually intentional.
+- Doors should read as complete doors or portals placed on a continuous wall, not as holes cut out of the wall.
+- Windows should keep a readable opening and may use non-square visual language through frame/trim texture and silhouette cues.
+- Window vista should appear outside the room and should not include a duplicate window frame or room interior.
 
 ## Known Gaps
-- No perception fusion layer yet for `Image Segmentation` or object detection.
-- No manual semantic override table yet. If true-device MRUK labels the real table as `OTHER` instead of `TABLE`, this should be implemented before heavier perception work.
-- No manual correction workflow yet.
-- No reset / reapply / clean theme-switch flow documented as finished.
-- Runtime user style extraction has a deterministic fallback plus an optional DeepSeek API path for Editor/Quest Link testing. For standalone headset builds, use a backend/proxy instead of embedding API keys in the APK.
-- The committed surface texture assets are currently GPT-image-2 albedo maps only; matching normal / roughness / metallic maps are still a future refinement.
-- The current object-level crop path is `TABLE`-only and still MRUK-anchor-driven; it is not yet generalized to fused `RoomObjectRecord` inputs.
-- The current `ExternalScreenshot` path assumes the manual screenshot matches the active gameplay view and excludes window chrome. Because MetaXRSimulator resets the user pose on Play entry, new generated-table runs should take the screenshot after entering Play, paste that screenshot path into `BestViewCaptureService.externalScreenshotPath` in the same Play session, then press `C` without moving.
-- The estimated crop rect can still drift from the screenshot composition because the image source and runtime camera are not the same frame.
-- Image stylization is now wired through APIMart `gpt-image-2`, but it still needs live-key validation against a real `CaptureReady` job. Seed3D model generation has been exercised through Ark for recent table candidates, and hosted upload is configured through `www.mikusc.top`.
-- Generated asset lookup still scans imported `.job.json` records; there is no dedicated generated asset registry database yet. The scan is now request-locked by default to avoid applying an unrelated generated table in a different real room.
-- Generated furniture still lacks explicit user approval/reject/correction UI.
-- A first true-device/Link passthrough-camera capture path exists through `DevicePassthroughCaptureService`, but it has not yet been validated on a Quest 3 / Quest 3S headset. Treat it as a probe until a real Link/device run produces PNG, metadata, request, and job artifacts.
-- MQDH screenshots/casts are useful for human review, but they are not the app-consumable capture source. The app-side capture source should be the headset-supported PCA path, and MQDH should only be used to document what the user saw or to pull saved artifacts.
-- Surface-generated textures are image-only albedo PNGs for now. There is no automated normal/roughness/metallic import or persistent material-asset promotion step yet.
-- Door/window frame overlays depend on MRUK rooms that actually expose `DOOR_FRAME` / `WINDOW_FRAME` anchors with `PlaneRect`; rooms without those labels will simply skip them.
-- Window-vista overlays also depend on `WINDOW_FRAME` anchors. The deterministic procedural fallback is available immediately, but generated vista PNGs still need one APIMart Play run to validate the returned `16:9` output in the headset.
-- No complete demo-ready UI path outside inspector/debug HUD usage.
-- The Ark API key is read only from `ARK_API_KEY` in the Unity process environment; Unity must be launched with that environment variable for `Seed3DBackendAdapter` to see it.
-- MetaXRSimulator / Editor Play still resets the user start pose between Play sessions. A first editor-only pose-bookmark experiment was reverted because it did not reliably override the simulator start pose; use simulator controls or a future official-rig-compatible solution instead.
 
-## Latest Stable Verification
-Last stable manual/runtime checks before this document update confirmed:
-- `MR_RoomStylization` loads through the `MetaXRSimulator` path.
-- MRUK room semantics and theme/planner/applier summaries are visible through the debug HUD.
-- Wall / floor / ceiling stylization is visible at runtime.
-- The first table proxy path resolves a prefab and spawns a proxy root.
-- After reloading the scene with `BestViewCaptureService` wired into `Perception`, entering Play introduced no new project errors; only the previously accepted six Meta/OpenXR simulator warnings remained.
-- After adding `GeneratedObjectRequest` export, Unity reimported the new script cleanly; no new compile errors were introduced by the request-contract change.
-- After adding object-level crop rect calculation for `TABLE`, Unity reimported the updated script cleanly; no new compile errors or Console warnings were introduced by the crop-rect change.
-- After switching best-view export to explicit capture-source modes, Unity reimported the updated scripts cleanly; no new compile errors or Console warnings were introduced by the contract/source-mode change.
-- After setting the simulator-stage path to `ExternalScreenshot`, `Assets/Refresh` completed cleanly and Console remained at `0` entries in non-Play state.
-- After adding `GenerativeObjectCoordinator`, Unity reimported the updated scripts cleanly, the component was attached to `AppRoot/Perception`, and the canonical scene saved successfully with no new Console entries.
-- Manual validation confirmed that entering Play and pressing `C` now produces both a new `GeneratedObjectRequest` and a matching `Library/GeneratedObjectJobs/*.job.json` record, and the HUD shows a `GenerativeObjectCoordinator` status block.
-- After adding `LocalGeneratedObjectBackendAdapter`, Unity reimported the updated scripts cleanly, the component was attached to `AppRoot/Perception`, and the canonical scene saved successfully with no new Console entries.
-- After adding `GeneratedObjectPromptBuilder` and prompt-artifact writing in `GenerativeObjectCoordinator`, Unity reimported the updated scripts cleanly with Console remaining at `0` entries in non-Play state.
-- After extending `LocalGeneratedObjectBackendAdapter` to apply a theme-aware local image transform and write `Library/GeneratedObjectOutputs/*.result.json`, Unity reimported the updated scripts cleanly with Console remaining at `0` entries in non-Play state.
-- After extending `LocalGeneratedObjectBackendAdapter` with `ExternalFileProtocol` and a prefilled `*.result.template.json` artifact, Unity reimported the updated scripts cleanly with Console remaining at `0` entries in non-Play state.
-- After switching the scene-side `LocalGeneratedObjectBackendAdapter` processing mode to `ExternalFileProtocol`, `Assets/Refresh` completed cleanly and Console remained at `0` entries in non-Play state.
-- Documentation was brought in line with the current generated-object workflow, including data contracts, file protocol, manual-worker steps, smoke testing, and true-device validation planning.
-- Previously introduced `Locomotor`, `Local Dimming`, `Metal memoryless texture`, and controller-helper warnings were reduced; accepted simulator/runtime noise may still remain.
-- After adding procedural surface texture fallback, Unity reimported the new script cleanly with Console at `0` entries before Play. In Play mode, `AnchorThemeApplier` reported `Surface Anchors: 12`, `Renderers: 12`, and `Coverage: floor=1, wall=10, ceiling=1`; a multi-angle Scene View capture showed the runtime wall/floor/ceiling patterned materials on the MRUK room surfaces. Only the accepted Meta/OpenXR simulator warnings appeared during Play.
-- After adding `SurfaceTexturePromptBuilder` and `SurfaceOverrideApplier`, Unity reimported the new scripts cleanly with Console at `0` entries before Play. In Play mode, surface prompt artifacts were written for `future_research_lab` wall/floor/ceiling, and `SurfaceOverrideApplier` reported `Override Planes: 12`, `Coverage: floor=1, wall=10, ceiling=1`, `Skipped: 0`, and `Wall Offset: 0.050m`; a multi-angle Scene View capture confirmed the override planes under `SurfaceOverrides`.
-- After creating persistent surface material assets, both theme profiles now reference explicit wall/floor/ceiling materials. A follow-up Play smoke test reported `Override Planes: 12`, `Coverage: floor=1, wall=10, ceiling=1`, `Skipped: 0`, and `Wall Offset: 0.050m`; Unity returned to edit mode with `IsCompiling=false` and Console at `0` entries after cleanup.
-- After replacing the procedural placeholder PNGs with GPT-image-2 generated wall/floor/ceiling albedo textures, Unity refreshed with no project errors. A Play smoke test again reported `Override Planes: 12`, `Coverage: floor=1, wall=10, ceiling=1`, `Skipped: 0`, and `Wall Offset: 0.050m`; a multi-angle Scene View capture showed the new texture detail on the surface override planes, and Console was cleared back to `0` entries after exiting Play.
-- After adding surface visibility modes, Unity refreshed cleanly with Console at `0` entries before Play. The canonical scene is saved in `Background` mode. In Play mode, `SurfaceOverrideApplier` reported `Visibility Mode: Background`, `Override Planes: 12`, `Coverage: floor=1, wall=10, ceiling=1`, and `Background Alpha: wall=0.30, floor=0.24, ceiling=0.20`; Unity exited Play with no Error entries.
-- After the manual GPT-image worker step, `Library/GeneratedObjectOutputs/table_18_20260424071758.stylized.png` exists as `1323 x 1189` RGBA PNG data.
-- After the manual Seed3D 2.0 step, the generated model was copied into `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.seed3d.medium.glb`.
-- `GeneratedObjectModelImporter` imported that GLB into `Assets/Generated/ThemeAssets/table_18_20260424071758/table_18_20260424071758.generated_table_proxy.prefab` and updated the matching job to `Imported`.
-- A later Simulator Play run selected the generated prefab rather than the deterministic fallback. `AnchorThemeApplier` logged `source=generated_import`, `fit=target=2.02x0.782x0.937, source=2.159x0.761x1.33, scale=0.935x1.027x0.704, bottomDelta=0m`, and `failure=none`.
-- After the latest table fitting change, no `error CS`, `Compiler errors`, or `Compilation failed` entries were found in the inspected Unity Editor log tail.
-- After adding generated physical-size request fields, hosted stylized image URL propagation, `Seed3DBackendAdapter`, floor-to-tabletop table fitting, and the standalone correction controller skeleton, `Assets/Refresh` completed and Unity Console reported `0` Error entries and `0` Warning entries.
-- After adding resumable Seed3D `ModelGenerationSubmitted` state, generated model quality review fields, and importer quality gating to `NeedsReview`, static diff checks passed before the final Unity refresh.
-- After the editor play-pose bookmark experiment was reverted, the canonical scene no longer contains `PlayModeViewPoseBookmark`; the current scene state intentionally remains on the MRUK shell until table proxy placement is explicitly re-enabled for validation.
-- After the generated-table long-axis correction, `AnchorThemeApplier` reported `axis=rotated90(source=Z, target=X)`, `bottomDelta=0m`, and `failure=none` for generated table placement using an imported generated prefab.
-- After regenerating the table with a stronger long-rectangle prompt, Seed3D task `cgt-20260425030546-n8b7x` succeeded, the returned zip package was extracted outside `Assets/`, `table_18_20260425025836.seed3d.pbr.glb` imported cleanly, `GeneratedObjectModelImporter` advanced the job to `Imported`, and Unity Console reported `0` Error entries after refresh/import.
-- After adding `DevicePassthroughCaptureService`, enabling `horizonos.permission.HEADSET_CAMERA`, and attaching `Meta.XR.PassthroughCameraAccess` plus the service under `AppRoot/Perception`, `Assets/Refresh` completed with Unity Console at `0` entries in non-Play state. This validates compile/scene wiring only; Link/headset camera access is still unverified.
-- After adding `DevicePassthroughCaptureHud` and XR controller capture input, `Assets/Refresh` completed with Unity Console at `0` entries. The HUD scene wiring is saved, but headset readability and controller input still need real Link/device validation.
-- After locking generated-table lookup to the active capture request, `Assets/Refresh` completed with Unity Console at `0` entries. This prevents old Simulator generated-table jobs from being used on a new true-device room unless they match the active request or the fallback lock is explicitly disabled.
-- After adding the first Surface Pipeline automation pass, `AssetDatabase.Refresh` completed, Unity reported `IsCompiling=false` / `IsUpdating=false`, and Console reported `0` Error entries and `0` Warning entries. The canonical scene now has `ApimartSurfaceTextureBackendAdapter` attached under `AppRoot/Stylization`.
-- After generating cached surface prompt/job artifacts, `Library/SurfaceTextureJobs/` contains 12 `.surface.job.json` records: wall / floor / ceiling / door-frame / window-frame / window-vista for both `future_research_lab` and `arcane_knowledge_chamber`. They remain `PromptReady`; no APIMart surface image call was made during this editor-only setup.
-- After making surface caches style-aware, Unity refreshed and compiled cleanly with Console at `0` entries. The preset jobs were rewritten with `StyleVariantId=preset`; future runtime style text will create separate style-specific jobs instead of overwriting or reusing preset textures.
-- Window-vista automation has been added to the same Surface Pipeline: prompt/job metadata now includes `window_vista` with `ImageSize=16:9`, and `SurfaceOverrideApplier` can place the generated or fallback vista texture behind each `WINDOW_FRAME` while keeping the open-center frame overlay separate.
-- After adding bounded parallel generation workers and queue status, Unity refreshed cleanly with Console at `0` entries. The scene now has `GenerationQueueStatusService` attached under `AppRoot/Perception`.
+- Full Meta Image Segmentation / object-detection fusion is not implemented.
+- Manual correction UX is not yet polished enough for final demo use.
+- Generated furniture still needs a clear accept / reject / reset flow.
+- True-device PCA capture is still a probe; Quest Link / Editor Play validates much of the pipeline, but not native camera support on every headset/runtime.
+- Surface v3 prompts/code are implemented, but the resulting aesthetics need a new Play validation in the actual office room.
+- Official UISet sample prefabs are available, but direct dynamic instantiation caused layout problems. Current dashboard prioritizes stable interaction over perfect official visual fidelity.
+- Official ray visibility still needs headset validation after removing the custom SceneShift fallback ray. If the official ray is visually hidden by the world-space backplate, treat it as a depth/rendering-order issue rather than reintroducing the custom ray.
+- Generated model artifacts under `Assets/Generated/ThemeAssets/` should generally remain local and uncommitted unless a specific demo asset is intentionally preserved.
+- Recovery scenes under `Assets/_Recovery/` and imported UISet sample scenes should be reviewed before final commits.
+- Some existing compiler warnings are non-blocking but should be cleaned before a polished milestone.
+
+## Latest Verification
+
+Latest verified by Codex on `2026-04-30`:
+
+- `dotnet build Assembly-CSharp.csproj` succeeded with `0` errors after the runtime generated-furniture `Rotate 90` correction change.
+- Remaining compiler warnings are known non-blocking warnings: existing `FindObjectsSortMode` deprecation warnings and serialized JSON DTO field warnings in `DeepSeekStyleIntentProvider`.
+- Unity-side Play validation has not yet been rerun after these latest documentation/code updates.
+
+Latest verified by user during prior Play runs:
+
+- Two generated tables can coexist and align acceptably.
+- Generated furniture replacement can be positioned correctly after request-specific capture/import.
+- Runtime panel is visible and more stable after avoiding direct dynamic UISet sample control instantiation.
+- Some surface/window aesthetics still needed improvement, which is what the current surface-v3 update targets.
 
 ## Current Local Workspace State
-The workspace currently contains uncommitted local state that should be treated as in-progress rather than final:
-- `Assets/Scenes/MR_RoomStylization.unity`
-  Current local scene state includes `ExternalScreenshot` capture input, `DevicePassthroughCaptureService`, `DevicePassthroughCaptureHud`, `HostedImageUploadBridge`, `Seed3DBackendAdapter`, request-locked generated-table selection, and table proxy placement disabled so the default view shows the MRUK shell.
-- `Assets/Scripts/Stylization/AnchorThemeApplier.cs`
-  Generated table prefab selection, MRUK-volume-corner target bounds, 1:1 proxy padding defaults, bottom-face alignment, and fit diagnostics are present locally.
-- `Assets/Scripts/Editor/GeneratedObjectModelImporter.cs`
-  Generated GLB-to-prefab import is present locally.
-- `Assets/Generated/ThemeAssets/table_18_20260425025836/`
-  Contains the current preferred Seed3D GLB and generated table prefab.
-- `Assets/Scripts/Perception/GeneratedObjectPromptBuilder.cs`
-  Future generated-object prompts now require an isolated transparent object asset; old jobs may still carry older prompt text.
-- `Assets/Scripts/Perception/DevicePassthroughCaptureService.cs`
-  First native passthrough camera capture probe exists for Quest Link/headset runs and writes the same generated-object request/job shape as the existing simulator screenshot path. It exposes score/status properties for headset HUD display and supports keyboard plus right-controller primary-button capture input.
-- `Assets/Scripts/UI/DevicePassthroughCaptureHud.cs`
-  Runtime head-locked PCA capture HUD exists locally and displays readiness, score, distance, viewport/crop, and latest capture/job status in the headset.
-- `Assets/Scripts/UI/SceneShiftUISetDashboard.cs`
-  Runtime Meta UISet dashboard exists locally and uses official Interaction SDK UISet backplate/button/dropdown prefab references instead of hand-built plain Unity UI styling.
-- `Assets/Scripts/Stylization/RoomStyleCacheService.cs`
-  Runtime cache summary service exists locally. It treats old generated furniture jobs with no `StyleVariantId` as `preset` and filters furniture jobs by current room id when request metadata is available.
-- `Assets/Scripts/UI/GenerationJobWorldStatusOverlay.cs`
-  Runtime world-space generation status cards exist locally and display per-captured-furniture progress above each object's request bounds. The visual treatment now uses a Meta UISet-aligned card style with translucent panel, subtle glow, left status accent strip, title, and note text while staying non-interactive and cheaper than spawning a full UISet Canvas per object.
-- `Assets/Scripts/Perception/ApimartImageBackendAdapter.cs`
-  APIMart `gpt-image-2` image-generation adapter is present locally and requires `APIMART_API_KEY` in the Unity process environment.
-- `Assets/Scripts/Perception/Seed3DBackendAdapter.cs`
-  Ark Seed3D 2.0 task creation/poll/download adapter is present locally and requires hosted image URLs plus `ARK_API_KEY` in the Unity process environment.
-- `Assets/Scripts/Perception/HostedImageUploadBridge.cs`
-  Local-PNG-to-hosted-URL bridge is configured for the `www.mikusc.top` upload endpoint and requires `SCENESHIFT_UPLOAD_TOKEN` in the Unity process environment.
-- `Assets/Scripts/Stylization/CorrectionModeController.cs`
-  Standalone correction-mode code skeleton exists locally but is not yet integrated into the scene.
-- `ProjectSettings/URPProjectSettings.asset`
-  Unity touched this file during prior graphics/rendering setting recovery.
-- `Assets/_Recovery/0 (11).unity` and `.meta`
-  Unity recovery artifacts created after the recent editor crash.
 
-## Biggest Technical Risks
-- Unity editor instability when inspecting runtime objects during Play in this project/runtime combination.
-- The current table proxy source asset reads more like a tabletop slab than a clear furniture replacement, though new prompts/contracts now carry target physical proportions to reduce this risk in future generations.
-- APIMart image generation is wired but not yet validated from Unity because `APIMART_API_KEY` is not currently visible to the Unity process.
-- Remaining simulator/runtime warnings can obscure newly introduced regressions if Console hygiene is not maintained carefully.
+The workspace contains active uncommitted work. Treat it as in-progress:
 
-## Next Smallest Task
-For the generated-table branch:
-1. set `APIMART_API_KEY` before launching Unity and run one `CaptureReady -> StylizedImageReady` APIMart image job,
-2. confirm `HostedImageUploadBridge` writes a stable `www.mikusc.top` `StylizedImageUrl`,
-3. confirm `Seed3DBackendAdapter` advances the same request through `ModelGenerationSubmitted -> ModelReady`,
-4. import the matching generated table asset and confirm the table status reports `generated=locked(...), match=<requestId>`,
-5. inspect the generated table from the intended Simulator/user camera angle with `AnchorThemeApplier.applyTableProxies` explicitly enabled,
-6. add a minimal accept/reject or reset-to-deterministic control before treating generated furniture as demo-ready.
+- `README.md` and `START_HERE_CN.md` have been refreshed to reflect the current project state.
+- `docs/08_PROGRESS_STATUS.md` has been rewritten as the current rolling tracker.
+- `docs/05_DATA_CONTRACTS.md` now documents full-door/portal surface behavior.
+- `SurfaceOverrideApplier.cs` includes room-scale tiling, trims, opaque room surfaces, full door panels, and window-vista behavior.
+- `SurfaceOverrideApplier.cs` now keeps door-host walls continuous and only uses wall cutouts for valid window openings.
+- `SurfaceTexturePromptBuilder.cs` uses `surface_texture_v3_room_scale_openings`.
+- `GeneratedObjectModelImporter.cs` imports generated GLBs without applying a local embedded-texture resize cap.
+- `SceneShiftUISetDashboard.cs` preserves official Interaction SDK interaction and no longer creates a custom fallback ray visual.
+- `SceneShiftUISetDashboard.cs` now exposes a `Rotate 90` button and status row for selected generated furniture.
+- `GeneratedObjectRotationCorrectionController.cs` and `StylizedFurnitureInstance.cs` provide runtime-only generated furniture yaw correction.
+- `PassthroughOnlyVisibilityToggle.cs` now owns the left-controller `Y` pure passthrough toggle; `DevicePassthroughCaptureService` no longer uses controller `Y` for target cycling in the canonical scene.
+- Theme profile assets include updated room-scale surface and opening prompt hints.
+- `MR_RoomStylization.unity` contains many runtime systems and local scene wiring changes.
+- `Assets/Scenes/UISet.unity` and `Assets/Scenes/UISetPatterns.unity` exist locally as sample/reference scenes.
+- `Assets/_Recovery/` contains crash-recovery scene artifacts.
 
-For the Quest Link / true-device capture probe:
-1. run `MR_RoomStylization` through Quest Link on Quest 3 / Quest 3S with compatible Meta Horizon Link and headset OS versions,
-2. grant `horizonos.permission.HEADSET_CAMERA`,
-3. confirm the head-locked PCA HUD is readable in the headset and shows `PCA playing=true`, a non-empty best anchor, and a visible best-view score,
-4. press keyboard `P` or the right-controller primary button in Play mode and confirm PCA full-frame PNG, crop PNG, metadata JSON, request JSON, prompt text, and `.job.json` are written,
-5. confirm `LocalGeneratedObjectBackendAdapter.ExternalFileProtocol` can consume the resulting job into the existing manual/external worker flow,
-6. after the matching prefab is imported, enable table proxies/reapply and confirm `AnchorThemeApplier` reports a generated match for that same request before accepting the replacement.
+## Environment Variables
 
-For the core Phase 1 room-stylization branch:
-1. keep `SurfaceOverrideApplier` in `Background` mode while furniture replacement is incomplete,
-2. add a simple reset/reapply control to the existing debug or correction UI,
-3. begin the first `CorrectionModeController` path for inspect / nudge / confirm on one selected stylized object.
+For automatic generation, Unity must be launched with the relevant variables visible to the Unity process:
+
+- `DEEPSEEK_API_KEY`
+- `APIMART_API_KEY`
+- `SCENESHIFT_UPLOAD_TOKEN`
+- `ARK_API_KEY`
+
+Do not commit API keys.
+
+## Next Smallest Tasks
+
+For surface aesthetics:
+
+1. Enter Play in the real office / Quest Link setup.
+2. Confirm wall/floor/ceiling no longer look like dense repeated wallpaper.
+3. Confirm trim strips reduce visible wall seams and wall/floor/ceiling edge issues.
+4. Confirm door appears as a complete door or portal panel.
+5. Confirm the wall behind/around the door is not cut out and uses the same wall material as other walls.
+6. Confirm window frame keeps an open center and the vista appears only outside the window area.
+7. Confirm the dashboard uses only the official Interaction SDK ray visual, with no duplicate SceneShift line ray.
+8. If needed, tune `wallTextureTileSizeMeters`, `floorTextureTileSizeMeters`, `ceilingTextureTileSizeMeters`, trim sizes, and door arch depth in `SurfaceOverrideApplier`.
+
+For demo readiness:
+
+1. Add minimal accept/reject/reset for generated furniture.
+2. Persist confirmed generated-furniture rotation corrections per room/style/object.
+3. Clean or intentionally ignore Recovery/UISet sample artifacts before commit.
+4. Run `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md`.
+
+For true-device validation:
+
+1. Validate PCA capture on a supported Quest runtime.
+2. Confirm capture writes PNG, metadata, request JSON, prompt text, and job JSON.
+3. Confirm the generated result can be imported and placed against the same request.
 
 ## Update Rule
-When a task materially changes the state of the prototype, update:
-- this file for rolling status,
-- `README.md` only when the public-facing project summary changes.
-- `docs/05_DATA_CONTRACTS.md` when serialized request/job/result fields change.
-- `docs/09_GENERATIVE_OBJECT_PIPELINE.md` when the generated-object workflow state changes.
+
+When a task materially changes the prototype, update:
+
+- `docs/08_PROGRESS_STATUS.md` for rolling status.
+- `README.md` when the public project summary changes.
+- `START_HERE_CN.md` when the user-facing workflow changes.
+- `docs/05_DATA_CONTRACTS.md` when serialized request/job/result contracts change.
+- `docs/09_GENERATIVE_OBJECT_PIPELINE.md` when generated-object workflow changes.
+- `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md` when validation steps change.

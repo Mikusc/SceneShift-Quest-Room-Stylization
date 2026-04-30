@@ -378,15 +378,15 @@ public class BestViewCaptureService : MonoBehaviour
                 yield break;
         }
 
+        var captureTheme = themeIntentController != null ? themeIntentController.ActiveTheme : null;
+        var captureRuntimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
         _lastCapture = new BestViewCaptureRecord
         {
             CaptureId = captureId,
             RoomId = roomSemanticBootstrap != null && roomSemanticBootstrap.CurrentRoom != null
                 ? roomSemanticBootstrap.CurrentRoom.name
                 : "unknown_room",
-            ThemeId = themeIntentController != null && themeIntentController.ActiveTheme != null
-                ? themeIntentController.ActiveTheme.ThemeId
-                : "no_theme",
+            ThemeId = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(captureTheme, captureRuntimeIntent),
             SemanticLabel = GetSemanticLabel(targetCategory),
             FunctionTag = GetFunctionTag(targetCategory),
             AnchorName = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.name : "unknown_anchor",
@@ -585,6 +585,7 @@ public class BestViewCaptureService : MonoBehaviour
         var semanticLabel = GetSemanticLabel(targetCategory);
         var functionTag = GetFunctionTag(targetCategory);
         var theme = themeIntentController != null ? themeIntentController.ActiveTheme : null;
+        var runtimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
         var plannedEntry = FindMatchingPlanEntry(_bestCandidate.Anchor, _bestCandidate.AnchorIndex);
         var worldRotation = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.transform.rotation : Quaternion.identity;
         var targetSize = CalculateTargetPhysicalSize(_bestCandidate.Dimensions);
@@ -598,9 +599,9 @@ public class BestViewCaptureService : MonoBehaviour
             RoomId = roomSemanticBootstrap != null && roomSemanticBootstrap.CurrentRoom != null
                 ? roomSemanticBootstrap.CurrentRoom.name
                 : "unknown_room",
-            ThemeId = theme != null ? theme.ThemeId : "no_theme",
-            ThemeDisplayName = theme != null ? theme.DisplayName : "No Theme",
-            ThemeShortDescription = theme != null ? theme.ShortDescription : string.Empty,
+            ThemeId = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(theme, runtimeIntent),
+            ThemeDisplayName = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(theme, runtimeIntent),
+            ThemeShortDescription = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDescription(theme, runtimeIntent),
             SemanticLabel = semanticLabel,
             FunctionTag = functionTag,
             SourceAnchorName = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.name : "unknown_anchor",
@@ -638,13 +639,11 @@ public class BestViewCaptureService : MonoBehaviour
             ScaffoldLongestAxis = GetDominantAxisVector(_bestCandidate.Dimensions),
             VisibilityScore = _bestCandidate.Score,
             PromptVersion = GeneratedObjectPromptBuilder.RoomifyImagePromptVersion,
-            AppearancePrompt = BuildAppearancePrompt(theme, semanticLabel, functionTag, plannedEntry),
+            AppearancePrompt = BuildAppearancePrompt(theme, runtimeIntent, semanticLabel, functionTag, plannedEntry),
             CreatedAtIsoUtc = capturedAtUtc.ToString("O"),
         };
 
-        RuntimeStyleIntentRequestUtility.ApplyToRequest(
-            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null,
-            request);
+        RuntimeStyleIntentRequestUtility.ApplyThemeIdentityToRequest(theme, runtimeIntent, request);
         request.ImageStylizationPrompt = GeneratedObjectPromptBuilder.BuildImageStylizationPrompt(request);
         return request;
     }
@@ -747,23 +746,26 @@ public class BestViewCaptureService : MonoBehaviour
 
     private static string BuildAppearancePrompt(
         ThemeProfile theme,
+        RuntimeStyleIntent runtimeIntent,
         string semanticLabel,
         string functionTag,
         StylizationPlanEntry plannedEntry)
     {
         var builder = new StringBuilder(256);
+        var themeDisplayName = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(theme, runtimeIntent);
+        var themeDescription = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDescription(theme, runtimeIntent);
         builder.Append("Stylize the ");
         builder.Append(semanticLabel);
         builder.Append(" for the theme \"");
-        builder.Append(theme != null ? theme.DisplayName : "Unassigned Theme");
+        builder.Append(themeDisplayName);
         builder.Append("\" while preserving its ");
         builder.Append(functionTag);
         builder.Append(", approximate dimensions, dominant yaw, and walk-around footprint.");
 
-        if (theme != null && !string.IsNullOrWhiteSpace(theme.ShortDescription))
+        if (!string.IsNullOrWhiteSpace(themeDescription))
         {
             builder.Append(" Theme intent: ");
-            builder.Append(theme.ShortDescription.Trim());
+            builder.Append(themeDescription.Trim());
             builder.Append('.');
         }
 

@@ -13,6 +13,25 @@ public class RuntimeStyleIntentController : MonoBehaviour
     [SerializeField] private bool writeLlmHandoffArtifact;
     [SerializeField] private string llmJobFolderName = "StyleIntentJobs";
 
+    [Header("User Style Catalog")]
+    [SerializeField] private bool useStyleCatalog = true;
+    [SerializeField] private List<RuntimeStyleOption> builtinStyles = new()
+    {
+        RuntimeStyleOption.CreateBuiltIn(
+            "future_research_lab",
+            "Future Research Lab",
+            "future research lab",
+            "A precise high-tech research workspace style with cool panels, cyan accents, clean surfaces, and functional lab readability."),
+        RuntimeStyleOption.CreateBuiltIn(
+            "arcane_knowledge_chamber",
+            "Arcane Knowledge Chamber",
+            "arcane knowledge chamber",
+            "A warm scholarly archive style with carved materials, amber light, brass or wood details, and ritual-study atmosphere."),
+    };
+    [SerializeField] private int activeStyleIndex;
+    [SerializeField] private bool includeCustomStyleSlot = true;
+    [SerializeField, TextArea(1, 3)] private string customStyleIntent = string.Empty;
+
     [Header("Optional External Provider")]
     [SerializeField] private bool useDeepSeekStyleIntentProvider = true;
     [SerializeField] private DeepSeekStyleIntentProvider deepSeekStyleIntentProvider;
@@ -38,6 +57,10 @@ public class RuntimeStyleIntentController : MonoBehaviour
     }
 
     public string UserStyleIntent => userStyleIntent;
+    public bool UsesStyleCatalog => useStyleCatalog;
+    public int ActiveStyleIndex => Mathf.Clamp(activeStyleIndex, 0, Mathf.Max(0, GetStyleOptionCount() - 1));
+    public int StyleOptionCount => GetStyleOptionCount();
+    public string ActiveStyleDisplayName => ResolveActiveStyleDisplayName();
     public string LatestSummary => latestSummary;
     public bool HasActiveIntent
     {
@@ -51,6 +74,7 @@ public class RuntimeStyleIntentController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        PrepareStyleSelectionForRuntime();
 
         if (rebuildOnEnable)
         {
@@ -64,18 +88,90 @@ public class RuntimeStyleIntentController : MonoBehaviour
 
     private void OnValidate()
     {
+        PrepareStyleSelectionForRuntime();
         if (!Application.isPlaying)
         {
-            currentIntent = BuildDeterministicIntent(userStyleIntent, "inspector_preview");
-            lastBuiltUserStyleIntent = userStyleIntent ?? string.Empty;
+            currentIntent = BuildIntentForActiveStyle("inspector_preview");
+            lastBuiltUserStyleIntent = BuildStyleSelectionSignature();
             PublishSummary("inspector-preview");
         }
     }
 
     public void SetUserStyleIntent(string value)
     {
-        userStyleIntent = value ?? string.Empty;
+        customStyleIntent = value ?? string.Empty;
+        userStyleIntent = customStyleIntent;
+        if (useStyleCatalog && includeCustomStyleSlot && !string.IsNullOrWhiteSpace(customStyleIntent))
+        {
+            activeStyleIndex = builtinStyles != null ? builtinStyles.Count : 0;
+        }
+
         RebuildStyleIntent("set-user-intent");
+    }
+
+    public bool SelectStyleByIndex(int index)
+    {
+        EnsureStyleCatalogDefaults();
+        var count = GetStyleOptionCount();
+        if (!useStyleCatalog || index < 0 || index >= count)
+        {
+            return false;
+        }
+
+        if (activeStyleIndex == index)
+        {
+            ApplyActiveStyleSelectionToUserIntent();
+            return true;
+        }
+
+        activeStyleIndex = index;
+        ApplyActiveStyleSelectionToUserIntent();
+        RebuildStyleIntent("select-style");
+        return true;
+    }
+
+    public void CycleStyle(int direction)
+    {
+        EnsureStyleCatalogDefaults();
+        var count = GetStyleOptionCount();
+        if (!useStyleCatalog || count == 0)
+        {
+            return;
+        }
+
+        var start = Mathf.Clamp(activeStyleIndex, 0, count - 1);
+        var next = (start + direction + count) % count;
+        SelectStyleByIndex(next);
+    }
+
+    public List<string> GetStyleOptionLabels()
+    {
+        EnsureStyleCatalogDefaults();
+        var labels = new List<string>();
+        if (!useStyleCatalog)
+        {
+            if (!string.IsNullOrWhiteSpace(userStyleIntent))
+            {
+                labels.Add(RuntimeStyleIntentRequestUtility.BuildDisplayLabel(userStyleIntent));
+            }
+
+            return labels;
+        }
+
+        for (var index = 0; index < builtinStyles.Count; index++)
+        {
+            var style = builtinStyles[index];
+            labels.Add(style != null && !string.IsNullOrWhiteSpace(style.DisplayName)
+                ? style.DisplayName.Trim()
+                : $"Style {index + 1}");
+        }
+
+        if (HasCustomStyleSlot())
+        {
+            labels.Add($"Custom: {RuntimeStyleIntentRequestUtility.BuildDisplayLabel(customStyleIntent)}");
+        }
+
+        return labels;
     }
 
     [ContextMenu("Rebuild Style Intent")]
@@ -86,8 +182,11 @@ public class RuntimeStyleIntentController : MonoBehaviour
 
     private void RebuildStyleIntent(string reason)
     {
-        currentIntent = BuildDeterministicIntent(userStyleIntent, "local_keyword_extractor_v1");
-        lastBuiltUserStyleIntent = userStyleIntent ?? string.Empty;
+        EnsureStyleCatalogDefaults();
+        ApplyActiveStyleSelectionToUserIntent();
+
+        currentIntent = BuildIntentForActiveStyle("local_keyword_extractor_v1");
+        lastBuiltUserStyleIntent = BuildStyleSelectionSignature();
         externalProviderStatus = string.Empty;
 
         if (writeLlmHandoffArtifact && !string.IsNullOrWhiteSpace(userStyleIntent))
@@ -102,8 +201,11 @@ public class RuntimeStyleIntentController : MonoBehaviour
 
     private void EnsureIntentCurrent(string reason)
     {
-        var currentUserStyleIntent = userStyleIntent ?? string.Empty;
-        if (currentIntent == null || !string.Equals(lastBuiltUserStyleIntent, currentUserStyleIntent, StringComparison.Ordinal))
+        EnsureStyleCatalogDefaults();
+        ApplyActiveStyleSelectionToUserIntent();
+
+        var currentSignature = BuildStyleSelectionSignature();
+        if (currentIntent == null || !string.Equals(lastBuiltUserStyleIntent, currentSignature, StringComparison.Ordinal))
         {
             RebuildStyleIntent(reason);
         }
@@ -164,6 +266,7 @@ public class RuntimeStyleIntentController : MonoBehaviour
     private void HandleExternalStyleIntentSuccess(string requestedIntent, RuntimeStyleIntent intent)
     {
         externalRequestInFlight = false;
+        ApplyActiveStyleSelectionToUserIntent();
         if (!string.Equals(externalRequestedIntent, requestedIntent, StringComparison.Ordinal) ||
             !string.Equals((userStyleIntent ?? string.Empty).Trim(), requestedIntent, StringComparison.Ordinal))
         {
@@ -173,7 +276,8 @@ public class RuntimeStyleIntentController : MonoBehaviour
         }
 
         currentIntent = intent;
-        lastBuiltUserStyleIntent = requestedIntent;
+        ApplyActiveStyleIdentity(currentIntent);
+        lastBuiltUserStyleIntent = BuildStyleSelectionSignature();
         externalProviderStatus = $"DeepSeek: completed with {deepSeekStyleIntentProvider.Model}.";
         PublishSummary("deepseek-response");
         StyleIntentChanged?.Invoke();
@@ -190,6 +294,186 @@ public class RuntimeStyleIntentController : MonoBehaviour
         externalProviderStatus = $"DeepSeek: failed, using local fallback. {error}";
         PublishSummary("deepseek-fallback");
         StyleIntentChanged?.Invoke();
+    }
+
+    private RuntimeStyleIntent BuildIntentForActiveStyle(string source)
+    {
+        var intent = BuildDeterministicIntent(userStyleIntent, ResolveActiveStyleSource(source));
+        ApplyActiveStyleIdentity(intent);
+        return intent;
+    }
+
+    private void PrepareStyleSelectionForRuntime()
+    {
+        EnsureStyleCatalogDefaults();
+        if (!useStyleCatalog)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(userStyleIntent))
+        {
+            var matchingIndex = FindBuiltinStyleIndex(userStyleIntent);
+            if (matchingIndex >= 0)
+            {
+                activeStyleIndex = matchingIndex;
+            }
+            else if (includeCustomStyleSlot)
+            {
+                customStyleIntent = userStyleIntent.Trim();
+                activeStyleIndex = builtinStyles.Count;
+            }
+        }
+
+        ApplyActiveStyleSelectionToUserIntent();
+    }
+
+    private void ApplyActiveStyleSelectionToUserIntent()
+    {
+        if (!useStyleCatalog)
+        {
+            return;
+        }
+
+        EnsureStyleCatalogDefaults();
+        var style = ResolveActiveBuiltinStyle();
+        if (style != null)
+        {
+            userStyleIntent = style.UserStyleIntent ?? string.Empty;
+            return;
+        }
+
+        userStyleIntent = HasCustomStyleSlot() ? customStyleIntent ?? string.Empty : string.Empty;
+    }
+
+    private void ApplyActiveStyleIdentity(RuntimeStyleIntent intent)
+    {
+        if (intent == null || !useStyleCatalog)
+        {
+            return;
+        }
+
+        var style = ResolveActiveBuiltinStyle();
+        if (style != null)
+        {
+            style.ApplyTo(intent);
+        }
+    }
+
+    private RuntimeStyleOption ResolveActiveBuiltinStyle()
+    {
+        EnsureStyleCatalogDefaults();
+        if (!useStyleCatalog || activeStyleIndex < 0 || activeStyleIndex >= builtinStyles.Count)
+        {
+            return null;
+        }
+
+        return builtinStyles[activeStyleIndex];
+    }
+
+    private string ResolveActiveStyleSource(string fallbackSource)
+    {
+        var style = ResolveActiveBuiltinStyle();
+        if (style != null && !string.IsNullOrWhiteSpace(style.StyleIntentSource))
+        {
+            return style.StyleIntentSource.Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(fallbackSource) ? "local_keyword_extractor_v1" : fallbackSource;
+    }
+
+    private string ResolveActiveStyleDisplayName()
+    {
+        var style = ResolveActiveBuiltinStyle();
+        if (style != null && !string.IsNullOrWhiteSpace(style.DisplayName))
+        {
+            return style.DisplayName.Trim();
+        }
+
+        if (HasCustomStyleSlot())
+        {
+            return $"Custom: {RuntimeStyleIntentRequestUtility.BuildDisplayLabel(customStyleIntent)}";
+        }
+
+        return string.IsNullOrWhiteSpace(userStyleIntent)
+            ? "No Style"
+            : RuntimeStyleIntentRequestUtility.BuildDisplayLabel(userStyleIntent);
+    }
+
+    private string BuildStyleSelectionSignature()
+    {
+        return $"{activeStyleIndex}|{userStyleIntent ?? string.Empty}|{customStyleIntent ?? string.Empty}";
+    }
+
+    private int GetStyleOptionCount()
+    {
+        EnsureStyleCatalogDefaults();
+        if (!useStyleCatalog)
+        {
+            return 0;
+        }
+
+        return builtinStyles.Count + (HasCustomStyleSlot() ? 1 : 0);
+    }
+
+    private bool HasCustomStyleSlot()
+    {
+        return includeCustomStyleSlot && !string.IsNullOrWhiteSpace(customStyleIntent);
+    }
+
+    private int FindBuiltinStyleIndex(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || builtinStyles == null)
+        {
+            return -1;
+        }
+
+        var trimmed = value.Trim();
+        for (var index = 0; index < builtinStyles.Count; index++)
+        {
+            var style = builtinStyles[index];
+            if (style == null)
+            {
+                continue;
+            }
+
+            if (string.Equals(style.StyleId, trimmed, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(style.DisplayName, trimmed, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(style.UserStyleIntent, trimmed, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private void EnsureStyleCatalogDefaults()
+    {
+        if (builtinStyles == null)
+        {
+            builtinStyles = new List<RuntimeStyleOption>();
+        }
+
+        if (builtinStyles.Count == 0)
+        {
+            builtinStyles.Add(RuntimeStyleOption.CreateBuiltIn(
+                "future_research_lab",
+                "Future Research Lab",
+                "future research lab",
+                "A precise high-tech research workspace style with cool panels, cyan accents, clean surfaces, and functional lab readability."));
+            builtinStyles.Add(RuntimeStyleOption.CreateBuiltIn(
+                "arcane_knowledge_chamber",
+                "Arcane Knowledge Chamber",
+                "arcane knowledge chamber",
+                "A warm scholarly archive style with carved materials, amber light, brass or wood details, and ritual-study atmosphere."));
+        }
+
+        if (useStyleCatalog && builtinStyles.Count > 0)
+        {
+            var count = builtinStyles.Count + (HasCustomStyleSlot() ? 1 : 0);
+            activeStyleIndex = Mathf.Clamp(activeStyleIndex, 0, Mathf.Max(0, count - 1));
+        }
     }
 
     private RuntimeStyleIntent BuildDeterministicIntent(string rawIntent, string source)
@@ -299,13 +583,19 @@ public class RuntimeStyleIntentController : MonoBehaviour
     {
         if (currentIntent == null)
         {
-            currentIntent = BuildDeterministicIntent(userStyleIntent, "summary_fallback");
-            lastBuiltUserStyleIntent = userStyleIntent ?? string.Empty;
+            currentIntent = BuildIntentForActiveStyle("summary_fallback");
+            lastBuiltUserStyleIntent = BuildStyleSelectionSignature();
         }
 
         var builder = new StringBuilder(512);
         builder.AppendLine("[RuntimeStyleIntent]");
         builder.AppendLine($"State: {state}");
+        builder.AppendLine($"Style: {ActiveStyleDisplayName}");
+        if (!string.IsNullOrWhiteSpace(currentIntent.StyleId))
+        {
+            builder.AppendLine($"Style Id: {currentIntent.StyleId}");
+        }
+
         builder.AppendLine($"Intent: {(string.IsNullOrWhiteSpace(userStyleIntent) ? "none" : userStyleIntent.Trim())}");
         builder.AppendLine($"Source: {currentIntent.Source}");
         builder.AppendLine($"Keywords: {JoinPreview(currentIntent.StyleKeywords)}");
@@ -608,6 +898,10 @@ public class RuntimeStyleIntentController : MonoBehaviour
 [Serializable]
 public class RuntimeStyleIntent
 {
+    public string StyleId;
+    public string StyleDisplayName;
+    public string StyleDescription;
+    public string StyleVariantIdOverride;
     public string UserIntent;
     public string Source;
     public string GlobalStyleSummary;
@@ -621,8 +915,136 @@ public class RuntimeStyleIntent
     public string CreatedAtIsoUtc;
 }
 
+[Serializable]
+public class RuntimeStyleOption
+{
+    public string StyleId;
+    public string DisplayName;
+    [TextArea(1, 3)] public string UserStyleIntent;
+    [TextArea(2, 4)] public string Description;
+    public string StyleIntentSource = "builtin_style_catalog";
+    public string StyleVariantIdOverride = SurfaceTexturePromptBuilder.PresetStyleVariantId;
+
+    public static RuntimeStyleOption CreateBuiltIn(
+        string styleId,
+        string displayName,
+        string userStyleIntent,
+        string description)
+    {
+        return new RuntimeStyleOption
+        {
+            StyleId = styleId,
+            DisplayName = displayName,
+            UserStyleIntent = userStyleIntent,
+            Description = description,
+            StyleIntentSource = "builtin_style_catalog",
+            StyleVariantIdOverride = SurfaceTexturePromptBuilder.PresetStyleVariantId,
+        };
+    }
+
+    public void ApplyTo(RuntimeStyleIntent intent)
+    {
+        if (intent == null)
+        {
+            return;
+        }
+
+        intent.StyleId = StyleId;
+        intent.StyleDisplayName = DisplayName;
+        intent.StyleDescription = Description;
+        intent.StyleVariantIdOverride = StyleVariantIdOverride;
+        if (!string.IsNullOrWhiteSpace(StyleIntentSource))
+        {
+            intent.Source = StyleIntentSource.Trim();
+        }
+    }
+}
+
 public static class RuntimeStyleIntentRequestUtility
 {
+    public static bool HasUserStyleIntent(RuntimeStyleIntent intent)
+    {
+        return intent != null &&
+               (!string.IsNullOrWhiteSpace(intent.UserIntent) ||
+                !string.IsNullOrWhiteSpace(intent.StyleId) ||
+                !string.IsNullOrWhiteSpace(intent.StyleDisplayName));
+    }
+
+    public static string BuildEffectiveThemeId(ThemeProfile scaffoldTheme, RuntimeStyleIntent intent)
+    {
+        if (intent != null && !string.IsNullOrWhiteSpace(intent.StyleId))
+        {
+            return SurfaceTexturePromptBuilder.SanitizeFileName(intent.StyleId);
+        }
+
+        if (!HasUserStyleIntent(intent))
+        {
+            return scaffoldTheme != null && !string.IsNullOrWhiteSpace(scaffoldTheme.ThemeId)
+                ? scaffoldTheme.ThemeId
+                : "no_theme";
+        }
+
+        var label = SurfaceTexturePromptBuilder.SanitizeFileName(intent.UserIntent);
+        if (label.Length > 40)
+        {
+            label = label.Substring(0, 40).Trim('_');
+        }
+
+        return string.IsNullOrWhiteSpace(label) ? "custom_style" : $"custom_{label}";
+    }
+
+    public static string BuildEffectiveThemeDisplayName(ThemeProfile scaffoldTheme, RuntimeStyleIntent intent)
+    {
+        if (intent != null && !string.IsNullOrWhiteSpace(intent.StyleDisplayName))
+        {
+            return intent.StyleDisplayName.Trim();
+        }
+
+        if (!HasUserStyleIntent(intent))
+        {
+            return scaffoldTheme != null && !string.IsNullOrWhiteSpace(scaffoldTheme.DisplayName)
+                ? scaffoldTheme.DisplayName
+                : "No Theme";
+        }
+
+        return string.IsNullOrWhiteSpace(intent.UserIntent)
+            ? "Custom Style"
+            : $"Custom: {BuildDisplayLabel(intent.UserIntent)}";
+    }
+
+    public static string BuildEffectiveThemeDescription(ThemeProfile scaffoldTheme, RuntimeStyleIntent intent)
+    {
+        if (intent != null && !string.IsNullOrWhiteSpace(intent.StyleDescription))
+        {
+            return intent.StyleDescription.Trim();
+        }
+
+        if (!HasUserStyleIntent(intent))
+        {
+            return scaffoldTheme != null ? scaffoldTheme.ShortDescription : string.Empty;
+        }
+
+        return !string.IsNullOrWhiteSpace(intent.GlobalStyleSummary)
+            ? intent.GlobalStyleSummary.Trim()
+            : $"User-defined room style: {intent.UserIntent.Trim()}";
+    }
+
+    public static void ApplyThemeIdentityToRequest(
+        ThemeProfile scaffoldTheme,
+        RuntimeStyleIntent intent,
+        GeneratedObjectRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+
+        request.ThemeId = BuildEffectiveThemeId(scaffoldTheme, intent);
+        request.ThemeDisplayName = BuildEffectiveThemeDisplayName(scaffoldTheme, intent);
+        request.ThemeShortDescription = BuildEffectiveThemeDescription(scaffoldTheme, intent);
+        ApplyToRequest(intent, request);
+    }
+
     public static void ApplyToRequest(RuntimeStyleIntent intent, GeneratedObjectRequest request)
     {
         if (request == null)
@@ -650,5 +1072,43 @@ public static class RuntimeStyleIntentRequestUtility
     private static List<string> Copy(List<string> source)
     {
         return source == null ? new List<string>() : new List<string>(source);
+    }
+
+    public static string BuildDisplayLabel(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "Style";
+        }
+
+        var words = value.Trim().Split(new[] { ' ', '\t', '\r', '\n', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 0)
+        {
+            return "Style";
+        }
+
+        var builder = new StringBuilder(value.Length);
+        for (var index = 0; index < words.Length; index++)
+        {
+            if (index > 0)
+            {
+                builder.Append(' ');
+            }
+
+            var word = words[index];
+            if (word.Length == 0)
+            {
+                continue;
+            }
+
+            builder.Append(char.ToUpperInvariant(word[0]));
+            if (word.Length > 1)
+            {
+                builder.Append(word.Substring(1));
+            }
+        }
+
+        var label = builder.ToString();
+        return label.Length <= 48 ? label : $"{label.Substring(0, 45).TrimEnd()}...";
     }
 }

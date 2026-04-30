@@ -20,7 +20,7 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
     public SurfaceTexturePromptSet LatestPromptSet => _latestPromptSet;
     public string LatestSummary => _latestSummary;
 
-    public const string PromptVersion = "surface_texture_v2_theme_style_frames";
+    public const string PromptVersion = "surface_texture_v3_room_scale_openings";
     public const string PresetStyleVariantId = "preset";
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -153,13 +153,13 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         foreach (var entry in _latestPromptSet.Entries)
         {
             File.WriteAllText(entry.PromptPath, FormatPromptFile(_latestPromptSet, entry), Utf8NoBom);
-            WriteJobRecord(theme, entry);
+            WriteJobRecord(entry);
         }
 
-        var jsonPath = Path.Combine(jobFolder, $"{SanitizeFileName(theme.ThemeId)}_surface_prompts.json");
+        var jsonPath = Path.Combine(jobFolder, $"{SanitizeFileName(_latestPromptSet.ThemeId)}_surface_prompts.json");
         if (_latestPromptSet != null && !string.Equals(_latestPromptSet.StyleVariantId, PresetStyleVariantId, StringComparison.Ordinal))
         {
-            jsonPath = Path.Combine(jobFolder, $"{SanitizeFileName(theme.ThemeId)}_{SanitizeFileName(_latestPromptSet.StyleVariantId)}_surface_prompts.json");
+            jsonPath = Path.Combine(jobFolder, $"{SanitizeFileName(_latestPromptSet.ThemeId)}_{SanitizeFileName(_latestPromptSet.StyleVariantId)}_surface_prompts.json");
         }
 
         File.WriteAllText(jsonPath, JsonUtility.ToJson(_latestPromptSet, prettyPrint: true), Utf8NoBom);
@@ -171,11 +171,14 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
     {
         var runtimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
         var styleVariantId = BuildStyleVariantId(runtimeIntent);
+        var effectiveThemeId = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(theme, runtimeIntent);
+        var effectiveThemeDisplayName = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(theme, runtimeIntent);
+        var effectiveThemeDescription = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDescription(theme, runtimeIntent);
         _latestPromptSet = new SurfaceTexturePromptSet
         {
-            ThemeId = theme.ThemeId,
-            ThemeDisplayName = theme.DisplayName,
-            ThemeDescription = theme.ShortDescription,
+            ThemeId = effectiveThemeId,
+            ThemeDisplayName = effectiveThemeDisplayName,
+            ThemeDescription = effectiveThemeDescription,
             StyleVariantId = styleVariantId,
             UserStyleIntent = runtimeIntent != null ? runtimeIntent.UserIntent : string.Empty,
             StyleIntentSource = runtimeIntent != null ? runtimeIntent.Source : string.Empty,
@@ -183,24 +186,27 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
             JobFolder = jobFolder,
         };
 
-        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.Wall, "wall", "seamless_wall_pbr_texture"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.Floor, "floor", "seamless_floor_pbr_texture"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.Ceiling, "ceiling", "ceiling_treatment_or_skybox_prompt"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.DoorFrame, "door_frame", "door_frame_trim_overlay_texture"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.WindowFrame, "window_frame", "window_frame_trim_overlay_texture"));
-        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, styleVariantId, ThemeSurfaceKind.WindowVista, "window_vista", "wide_window_exterior_vista_overlay"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, effectiveThemeId, effectiveThemeDisplayName, effectiveThemeDescription, styleVariantId, ThemeSurfaceKind.Wall, "wall", "large_scale_wall_material"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, effectiveThemeId, effectiveThemeDisplayName, effectiveThemeDescription, styleVariantId, ThemeSurfaceKind.Floor, "floor", "large_scale_floor_material"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, effectiveThemeId, effectiveThemeDisplayName, effectiveThemeDescription, styleVariantId, ThemeSurfaceKind.Ceiling, "ceiling", "large_scale_ceiling_treatment"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, effectiveThemeId, effectiveThemeDisplayName, effectiveThemeDescription, styleVariantId, ThemeSurfaceKind.DoorFrame, "door_frame", "full_door_panel_or_portal_texture"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, effectiveThemeId, effectiveThemeDisplayName, effectiveThemeDescription, styleVariantId, ThemeSurfaceKind.WindowFrame, "window_frame", "window_frame_trim_overlay_texture"));
+        _latestPromptSet.Entries.Add(BuildEntry(theme, runtimeIntent, effectiveThemeId, effectiveThemeDisplayName, effectiveThemeDescription, styleVariantId, ThemeSurfaceKind.WindowVista, "window_vista", "wide_window_exterior_vista_overlay"));
     }
 
     private SurfaceTexturePromptEntry BuildEntry(
         ThemeProfile theme,
         RuntimeStyleIntent runtimeIntent,
+        string effectiveThemeId,
+        string effectiveThemeDisplayName,
+        string effectiveThemeDescription,
         string styleVariantId,
         ThemeSurfaceKind surfaceKind,
         string semanticLabel,
         string outputRole)
     {
         var promptHint = GetPromptHint(theme, surfaceKind);
-        var requestId = BuildRequestId(theme.ThemeId, semanticLabel, styleVariantId);
+        var requestId = BuildRequestId(effectiveThemeId, semanticLabel, styleVariantId);
         var promptPath = Path.Combine(
             ResolveJobFolder(),
             $"{requestId}.prompt.txt");
@@ -215,7 +221,7 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
             SurfaceKind = surfaceKind,
             OutputRole = outputRole,
             PromptVersion = PromptVersion,
-            Prompt = BuildPrompt(theme, runtimeIntent, surfaceKind, promptHint),
+            Prompt = BuildPrompt(theme, runtimeIntent, effectiveThemeDisplayName, effectiveThemeDescription, surfaceKind, promptHint),
             NegativePrompt = BuildNegativePrompt(surfaceKind),
             ImageSize = GetImageSize(surfaceKind),
             PromptPath = promptPath,
@@ -227,35 +233,49 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         };
     }
 
-    private static string BuildPrompt(ThemeProfile theme, RuntimeStyleIntent runtimeIntent, ThemeSurfaceKind surfaceKind, string promptHint)
+    private static string BuildPrompt(
+        ThemeProfile theme,
+        RuntimeStyleIntent runtimeIntent,
+        string effectiveThemeDisplayName,
+        string effectiveThemeDescription,
+        ThemeSurfaceKind surfaceKind,
+        string promptHint)
     {
         var surfaceLabel = ToSemanticLabel(surfaceKind);
-        var colorHex = ColorUtility.ToHtmlStringRGB(theme.AccentColor);
+        var colorHex = ColorUtility.ToHtmlStringRGB(RuntimeStyleColorUtility.ResolveAccentColor(theme, runtimeIntent));
         var runtimeStyleBlock = BuildRuntimeStyleBlock(runtimeIntent);
+        var scaffoldLine = RuntimeStyleIntentRequestUtility.HasUserStyleIntent(runtimeIntent)
+            ? $"Internal scaffold ThemeProfile: {theme.DisplayName}. Use it only for functional/material fallback; the user-facing visual identity is the active Style.\n"
+            : string.Empty;
         var tileableRequirement = surfaceKind switch
         {
-            ThemeSurfaceKind.Ceiling => "Create a subtle ceiling material or overhead treatment texture; keep real room boundaries readable.",
-            ThemeSurfaceKind.DoorFrame => "Create a stylized door-frame trim/decal texture treatment with an explicitly open/transparent center concept; do not block passage.",
-            ThemeSurfaceKind.WindowFrame => "Create a stylized window-frame trim/decal texture treatment with an explicitly open/transparent center concept; do not block view or daylight cues.",
+            ThemeSurfaceKind.Wall => "Create a seamless room-scale wall material. One visual repeat should feel roughly 2-3 meters wide, with large calm panels or broad material fields rather than tiny wallpaper motifs.",
+            ThemeSurfaceKind.Floor => "Create a seamless room-scale floor material. One visual repeat should feel roughly 2 meters wide, with readable walking surfaces and broad panels rather than dense micro-patterns.",
+            ThemeSurfaceKind.Ceiling => "Create a subtle room-scale ceiling material or overhead treatment. Use broad panels, soft lighting fields, or large motifs; keep real room boundaries readable.",
+            ThemeSurfaceKind.DoorFrame => "Create a full stylized door panel or portal surface fitted to a real MRUK door opening. It may use a rectangular, arched, rounded, organic, or sci-fi silhouette implied by the texture, but it must stay flat and aligned to the doorway.",
+            ThemeSurfaceKind.WindowFrame => "Create a stylized window-frame trim/decal treatment with an explicitly open/transparent center concept. The frame shape may be arched, rounded, organic, or sci-fi, but it must not block the view or daylight cues.",
             ThemeSurfaceKind.WindowVista => "Create a wide stylized exterior vista that appears beyond a real mixed-reality window opening; distant scenery only, soft depth, readable at room scale.",
-            _ => "Create a seamless, tileable PBR-style material texture suitable for repeated use on large room surfaces.",
+            _ => "Create a seamless, tileable PBR-style material texture suitable for repeated use on large room surfaces. Avoid dense repeated wallpaper.",
         };
         var outputInstruction = surfaceKind switch
         {
             ThemeSurfaceKind.WindowVista =>
                 "Output should read as an exterior panorama/backdrop layer, not a room interior. No window frame, no curtains, no foreground furniture, no people, no text.",
-            ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame =>
-                "Output should read as reusable trim/frame material, edge glow, panel linework, or decal detail. No solid door/window slab, no filled center.",
+            ThemeSurfaceKind.DoorFrame =>
+                "Output should read as a complete door/portal panel treatment, not just a thin frame. Include broad readable surface areas, optional inset panels, hardware, or style-specific ornament. No product render, no perspective scene.",
+            ThemeSurfaceKind.WindowFrame =>
+                "Output should read as reusable trim/frame material, edge glow, panel linework, or decal detail with a clear open center. No solid window slab, no filled center.",
             _ =>
-                "Output should be style-consistent with furniture proxies, readable in mixed reality, and not overly eye-catching.",
+                "Output should be style-consistent with furniture proxies, readable in mixed reality, and not overly eye-catching. Prefer low-frequency composition over small high-contrast repeated details.",
         };
         var pbrInstruction = surfaceKind == ThemeSurfaceKind.WindowVista
             ? "Use a 16:9 composition with a stable horizon and soft atmospheric depth so it can sit behind multiple window openings."
             : "Prefer albedo/base color plus matching normal and roughness/metallic guidance when the backend supports PBR maps.";
 
         return
-            $"Target style: {theme.DisplayName}\n" +
-            $"Style intent: {theme.ShortDescription}\n" +
+            $"Target style: {effectiveThemeDisplayName}\n" +
+            $"Style intent: {effectiveThemeDescription}\n" +
+            $"{scaffoldLine}" +
             $"{runtimeStyleBlock}" +
             $"Accent color: #{colorHex}\n" +
             $"Surface: {surfaceLabel}\n" +
@@ -272,10 +292,12 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         return surfaceKind switch
         {
             ThemeSurfaceKind.Ceiling => $"{common}, no opaque virtual ceiling that hides real room boundaries",
-            ThemeSurfaceKind.DoorFrame => $"{common}, no closed door slab, no blocked doorway, no filled center, no handle-only product render",
+            ThemeSurfaceKind.DoorFrame => $"{common}, no thin-frame-only design, no handle-only product render, no perspective door photo, no protruding 3D geometry",
             ThemeSurfaceKind.WindowFrame => $"{common}, no opaque window cover, no blocked view, no filled center, no exterior scenery render",
             ThemeSurfaceKind.WindowVista => "no window frame, no room interior, no furniture, no people, no logos, no readable text, no close foreground objects, no black border, no UI",
-            _ => $"{common}, no seams, no non-tileable borders, no large focal objects",
+            ThemeSurfaceKind.Wall => $"{common}, no seams, no non-tileable borders, no tiny wallpaper, no dense brick grid, no repeated small tiles",
+            ThemeSurfaceKind.Floor => $"{common}, no seams, no non-tileable borders, no tiny floor tiles, no dense grid, no busy carpet pattern",
+            _ => $"{common}, no seams, no non-tileable borders, no large focal objects, no dense repeated micro-pattern",
         };
     }
 
@@ -298,9 +320,9 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         return surfaceKind == ThemeSurfaceKind.WindowVista ? "16:9" : "1:1";
     }
 
-    private void WriteJobRecord(ThemeProfile theme, SurfaceTexturePromptEntry entry)
+    private void WriteJobRecord(SurfaceTexturePromptEntry entry)
     {
-        if (theme == null || entry == null || string.IsNullOrWhiteSpace(entry.JobPath))
+        if (_latestPromptSet == null || entry == null || string.IsNullOrWhiteSpace(entry.JobPath))
         {
             return;
         }
@@ -318,8 +340,8 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         var record = new SurfaceTextureJobRecord
         {
             RequestId = entry.RequestId,
-            ThemeId = theme.ThemeId,
-            ThemeDisplayName = theme.DisplayName,
+            ThemeId = _latestPromptSet.ThemeId,
+            ThemeDisplayName = _latestPromptSet.ThemeDisplayName,
             StyleVariantId = entry.StyleVariantId,
             UserStyleIntent = entry.UserStyleIntent,
             StyleIntentSource = entry.StyleIntentSource,
@@ -399,7 +421,9 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
         builder.AppendLine("- Save generated materials as theme assets before using them in a demo build.");
         builder.AppendLine("- Keep runtime procedural textures as the deterministic fallback.");
         builder.AppendLine("- Walls should be applied to MRUK wall scaffolds with a 0.05m outward offset.");
-        builder.AppendLine("- Door/window frames should preserve transparent/open center areas and never block passage or view.");
+        builder.AppendLine("- Wall/floor/ceiling textures should read at room scale; avoid tiny repeated wallpaper, dense brick grids, or noisy micro-detail.");
+        builder.AppendLine("- Door entries are applied as flat full-door/portal panels fitted to MRUK door anchors, not just thin frames.");
+        builder.AppendLine("- Window frames should preserve transparent/open center areas and never block view.");
         builder.AppendLine("- Window vista images are exterior backdrops placed behind WINDOW_FRAME anchors, not wall materials or generated 3D objects.");
         return builder.ToString();
     }
@@ -472,6 +496,11 @@ public class SurfaceTexturePromptBuilder : MonoBehaviour
 
     public static string BuildStyleVariantId(RuntimeStyleIntent runtimeIntent)
     {
+        if (runtimeIntent != null && !string.IsNullOrWhiteSpace(runtimeIntent.StyleVariantIdOverride))
+        {
+            return SanitizeFileName(runtimeIntent.StyleVariantIdOverride);
+        }
+
         if (runtimeIntent == null || string.IsNullOrWhiteSpace(runtimeIntent.UserIntent))
         {
             return PresetStyleVariantId;

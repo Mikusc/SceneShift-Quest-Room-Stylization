@@ -1,30 +1,31 @@
 # 01 Product Scope and Success
 
 ## 1. Project name
-**Echo Discussion Room**
+**SceneShift Office Room**
 
 Working technical subtitle:
-**Scene-aware room stylization for a library discussion room on Meta Quest**
+**Scene-aware room stylization for a UNNC IEB office room on Meta Quest**
 
 ## 2. Canonical problem statement
-Transform one real library discussion room into a coherent themed mixed-reality learning space while preserving room readability, major furniture roles, and user confidence about where real objects still are.
+Transform one real office room at UNNC IEB into a coherent themed mixed-reality work/study space while preserving room readability, major furniture roles, and user confidence about where real objects still are.
 
 ## 3. Current development scope
 ### Phase 1 — Room stylization only
 The current implementation must support:
-- one canonical real room
-- one to two theme presets
+- one canonical real office room at UNNC IEB
+- one internal `GenericRoomStyleScaffold` for deterministic mappings and safe fallbacks
+- built-in or user-defined `Style` entries as the user-facing visual identity
 - spatially grounded room stylization
 - a visible and inspectable stylization plan
 - basic manual correction in MR
 
-During Phase 1A development, `MetaXRSimulator` may be used as a controlled validation environment for MRUK room loading, semantic visualization, and debug tooling. It accelerates iteration, but it does **not** replace final verification in the canonical real discussion room.
+During Phase 1A development, `MetaXRSimulator` may be used as a controlled validation environment for MRUK room loading, semantic visualization, and debug tooling. It accelerates iteration, but it does **not** replace final verification in the canonical UNNC IEB office room.
 
 ### Phase 2 — NPC learning partner
 Only after Phase 1 is stable, add:
 - themed NPC presence
 - user question input
-- room-reactive discussion support
+- room-reactive work/study support
 - whiteboard/screen keyword feedback
 
 ## 4. Research framing
@@ -40,10 +41,10 @@ The user should feel:
 - “The system helps me reinterpret the space instead of hiding it.”
 
 ## 6. Primary user journey for Phase 1
-1. User enters the canonical discussion room.
+1. User enters the canonical UNNC IEB office room.
 2. System loads room semantics via MRUK.
 3. System optionally enriches visible object understanding with Image Segmentation.
-4. User selects a theme preset.
+4. User selects a built-in Style or enters a custom style intent. The internal `GenericRoomStyleScaffold` handles functional mappings and fallbacks, not the visible theme identity.
 5. System creates a stylization plan.
 6. System applies material swaps, proxy objects, lighting, audio, and surface effects.
 7. User inspects highlighted objects and adjusts incorrect placements.
@@ -82,20 +83,20 @@ If other categories appear, classify them as optional or debug-only.
 ### Functional success
 - The project compiles and runs on the target Meta Quest setup.
 - The system can load room semantics in a known room.
-- The system can apply one coherent theme preset.
+- The system can apply one coherent preset or user-defined style.
 - At least four semantic categories visibly change in a spatially grounded way.
 - The user can inspect and correct at least one incorrect mapping.
 
-Development-stage validation may use `MetaXRSimulator`, but milestone success is still defined against the known real room target.
+Development-stage validation may use `MetaXRSimulator`, but milestone success is still defined against the known real UNNC IEB office target.
 
 ### Demo success
 The system can support a short demo flow:
 - enter room
 - scan/load room
-- select theme
+- select style
 - stylize room
 - inspect/correct
-- reset or switch theme
+- reset or switch style
 
 ### Coursework success
 The implementation stays explainable as a proof-of-concept prototype for one setting and one core mixed-reality interaction loop.
@@ -109,21 +110,24 @@ Do not treat these as required:
 - multiplayer / colocation
 - full AI conversation system
 
-An optional generated-object side branch may exist for `TABLE` experiments, but it is not a Phase 1 success dependency.
+An optional generated-object side branch may exist for generated furniture, but it is not a Phase 1 success dependency.
+Window vistas are treated as lightweight opening overlays, not as a full dynamic skybox pipeline.
 The room must still stylize correctly through deterministic materials/proxies if generated images or generated 3D assets are unavailable.
 
-## 11. Theme strategy
-Use only 1–2 presets first.
-Recommended starter presets:
+## 11. Style strategy
+Use one neutral `GenericRoomStyleScaffold` internally, then expose built-in and custom `Style` entries to the user.
+Built-in starter styles:
 - **Future Research Lab**
 - **Arcane Knowledge Chamber**
 
-Each theme should define:
+The scaffold should define:
 - surface material family
 - proxy replacements for major furniture semantics
 - lighting preset
 - VFX / ambient audio palette
 - whiteboard / screen treatment
+
+Every built-in or custom runtime Style should be treated as a first-class generated-artifact identity in cache status, prompt records, generated furniture records, and UI labels, for example `Future Research Lab`, `Arcane Knowledge Chamber`, or `Custom: Underwater Research Lounge`. The underlying scaffold remains responsible for deterministic mappings, proxy availability, and safe fallbacks.
 
 ## 12. User-editability strategy
 Correction must stay lightweight.
@@ -156,4 +160,4 @@ Examples:
 ## 15. Recommended next implementation target
 Build the smallest vertical slice that proves this chain:
 
-**MRUK room semantics -> theme preset -> stylization plan -> material/proxy application -> correction overlay**
+**MRUK room semantics -> GenericRoomStyleScaffold + user Style -> stylization plan -> material/proxy application -> correction overlay**

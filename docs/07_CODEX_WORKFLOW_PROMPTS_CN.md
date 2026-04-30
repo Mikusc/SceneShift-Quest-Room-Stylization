@@ -130,7 +130,7 @@ Implement only the smallest useful part of Milestone 4.
 Create an AnchorThemeApplier that can:
 - apply wall/floor material changes,
 - apply a screen treatment,
-- fit at least one table proxy,
+- fit at least one furniture proxy or generated-furniture fallback,
 - keep collision-sensitive objects footprint-aware.
 Do not implement correction mode yet.
 After coding, inspect Unity console and fix introduced errors.

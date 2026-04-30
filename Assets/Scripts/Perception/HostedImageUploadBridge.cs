@@ -16,9 +16,11 @@ public class HostedImageUploadBridge : MonoBehaviour
     [SerializeField] private string authHeaderPrefix = "Bearer ";
     [SerializeField] private bool uploadRawPngBody = true;
     [SerializeField] private string formFileFieldName = "file";
+    [SerializeField] private Seed3DBackendAdapter seed3DBackendAdapter;
 
     [Header("Processing")]
     [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField] private bool skipUploadWhenSeed3DCanUseLocalBase64 = true;
     [SerializeField, Min(1)] private int maxConcurrentUploadJobs = 3;
     [SerializeField, Min(1f)] private float pollIntervalSeconds = 3f;
     [SerializeField] private string jobFolderName = "GeneratedObjectJobs";
@@ -37,6 +39,7 @@ public class HostedImageUploadBridge : MonoBehaviour
 
     private void OnEnable()
     {
+        ResolveReferences();
         PublishSummary("enabled");
     }
 
@@ -52,6 +55,7 @@ public class HostedImageUploadBridge : MonoBehaviour
             return;
         }
 
+        ResolveReferences();
         _nextPollTime = Time.unscaledTime + pollIntervalSeconds;
         ProcessNextLocalStylizedImage();
     }
@@ -59,6 +63,7 @@ public class HostedImageUploadBridge : MonoBehaviour
     [ContextMenu("Process Next Local Stylized Image")]
     public void ProcessNextLocalStylizedImage()
     {
+        ResolveReferences();
         if (!HasUploadCapacity())
         {
             PublishSummary("at-upload-capacity");
@@ -114,6 +119,14 @@ public class HostedImageUploadBridge : MonoBehaviour
     public string GetDebugSummary()
     {
         return _latestSummary;
+    }
+
+    private void ResolveReferences()
+    {
+        if (seed3DBackendAdapter == null)
+        {
+            seed3DBackendAdapter = FindAnyObjectByType<Seed3DBackendAdapter>();
+        }
     }
 
     private IEnumerator RunTrackedUpload(string jobPath, GeneratedAssetRecord record, string authToken)
@@ -238,10 +251,26 @@ public class HostedImageUploadBridge : MonoBehaviour
         return record != null && !string.IsNullOrWhiteSpace(record.RequestId);
     }
 
-    private static bool NeedsHostedImage(GeneratedAssetRecord record)
+    private bool NeedsHostedImage(GeneratedAssetRecord record)
     {
-        return record != null &&
+        if (record == null ||
                record.State == GeneratedObjectJobState.StylizedImageReady &&
+               string.IsNullOrWhiteSpace(record.StylizedImageUrl) &&
+               !IsHttpUrl(record.StylizedImagePath) &&
+               !string.IsNullOrWhiteSpace(record.StylizedImagePath) &&
+               File.Exists(record.StylizedImagePath) == false)
+        {
+            return false;
+        }
+
+        if (skipUploadWhenSeed3DCanUseLocalBase64 &&
+            seed3DBackendAdapter != null &&
+            seed3DBackendAdapter.ShouldPreferLocalBase64ImageInput(record.StylizedImagePath))
+        {
+            return false;
+        }
+
+        return record.State == GeneratedObjectJobState.StylizedImageReady &&
                string.IsNullOrWhiteSpace(record.StylizedImageUrl) &&
                !IsHttpUrl(record.StylizedImagePath) &&
                !string.IsNullOrWhiteSpace(record.StylizedImagePath) &&
@@ -299,6 +328,7 @@ public class HostedImageUploadBridge : MonoBehaviour
         builder.AppendLine($"Endpoint Configured: {IsHttpUrl(uploadEndpoint)}");
         builder.AppendLine($"Auth Env: {(string.IsNullOrWhiteSpace(authTokenEnvironmentVariable) ? "none" : authTokenEnvironmentVariable)}");
         builder.AppendLine($"Upload Body: {(uploadRawPngBody ? "raw image/png" : $"multipart field '{formFileFieldName}'")}");
+        builder.AppendLine($"Skip For Seed3D Base64: {skipUploadWhenSeed3DCanUseLocalBase64}");
 
         if (!string.IsNullOrWhiteSpace(_lastProcessedRecord.RequestId))
         {

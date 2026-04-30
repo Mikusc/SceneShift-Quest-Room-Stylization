@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using Meta.XR.MRUtilityKit;
@@ -27,12 +28,49 @@ public class SurfaceOverrideApplier : MonoBehaviour
     [SerializeField, Min(0f)] private float floorSurfaceOffsetMeters = 0.012f;
     [SerializeField, Min(0f)] private float ceilingSurfaceOffsetMeters = 0.012f;
     [SerializeField, Min(0f)] private float frameOutwardOffsetMeters = 0.035f;
+    [SerializeField, Min(0f), Tooltip("Forces door/window frames to sit slightly on the room-facing side of opaque wall overlays. Window vistas still use the opposite/outside direction.")]
+    private float frameInteriorOffsetBeyondWallMeters = 0.025f;
     [SerializeField, Min(0.01f)] private float frameBorderWidthMeters = 0.08f;
+    [SerializeField] private bool applyArchitecturalTrimOverlays = true;
+    [SerializeField, Min(0f), Tooltip("Extends wall planes past MRUK PlaneRect edges so offset walls overlap at convex corners instead of exposing black gaps.")]
+    private float wallPlaneHorizontalOverlapMeters = 0.14f;
+    [SerializeField, Min(0f), Tooltip("Slightly extends wall planes into floor/ceiling boundaries to hide small MRUK plane gaps.")]
+    private float wallPlaneVerticalOverlapMeters = 0.025f;
+    [SerializeField, Min(0f), Tooltip("Extends floor and ceiling override planes a little past their MRUK rect to reduce boundary cracks.")]
+    private float floorCeilingPlaneOverlapMeters = 0.05f;
+    [SerializeField, Tooltip("Cut valid window openings out of opaque wall override meshes so generated vistas are not hidden behind the wall material. Doors stay as interior overlays on a full wall surface.")]
+    private bool cutOpeningsFromWallOverrides = true;
+    [SerializeField, Min(0f)] private float wallOpeningCutoutPaddingMeters = 0.06f;
+    [SerializeField, Min(0f), Tooltip("Keeps a small strip of wall below window cutouts so floor/window junctions do not expose passthrough through MRUK plane gaps.")]
+    private float minimumWindowWallSillMeters = 0.08f;
+    [SerializeField, Range(0.5f, 1f)] private float wallOpeningNormalDotThreshold = 0.92f;
+    [SerializeField, Min(0f)] private float wallOpeningPlaneDistanceMeters = 0.18f;
+    [SerializeField, Min(0.01f)] private float baseboardHeightMeters = 0.1f;
+    [SerializeField, Min(0.01f)] private float crownTrimHeightMeters = 0.07f;
+    [SerializeField, Min(0.01f)] private float cornerTrimWidthMeters = 0.14f;
+    [SerializeField, Min(0f)] private float trimAdditionalOffsetMeters = 0.012f;
+    [SerializeField, Range(0f, 1f), Tooltip("Scales visible seam trim after the geometric overlap has already hidden cracks. Lower values keep seams from becoming bright outlines.")]
+    private float architecturalTrimVisualScale = 0.38f;
+    [SerializeField, Range(0f, 1f), Tooltip("How much current style accent color is mixed into dark seam trim. Avoids white/cyan scaffold borders in warm styles.")]
+    private float architecturalTrimAccentBlend = 0.28f;
+    [SerializeField, Range(0f, 1f)] private float architecturalTrimEmissionScale = 0.12f;
+    [SerializeField, Min(0.1f), Tooltip("World-space width of one wall texture repeat. Larger values avoid dense wallpaper patterns.")]
+    private float wallTextureTileSizeMeters = 2.8f;
+    [SerializeField, Min(0.1f), Tooltip("World-space width of one floor texture repeat. Larger values make floor panels read at room scale.")]
+    private float floorTextureTileSizeMeters = 2.2f;
+    [SerializeField, Min(0.1f), Tooltip("World-space width of one ceiling texture repeat. Larger values avoid dense ceiling noise.")]
+    private float ceilingTextureTileSizeMeters = 2.6f;
+    [SerializeField, Min(0.1f), Tooltip("World-space width of one opening trim texture repeat.")]
+    private float openingTextureTileSizeMeters = 1.1f;
+    [SerializeField, Range(0f, 0.3f), Tooltip("0 keeps the door rectangular; higher values create a subtle arched/portal top.")]
+    private float doorPanelArchDepthRatio = 0.08f;
     [SerializeField, Min(0f), Tooltip("Distance to push window vista back outside the room, behind the window frame.")]
     private float windowVistaOutwardOffsetMeters = 0.04f;
     [SerializeField, Min(0.1f), Tooltip("Expected generated exterior vista image aspect ratio. APIMart window vista jobs currently request 16:9.")]
     private float windowVistaAspectRatio = 16f / 9f;
     [SerializeField, Range(1f, 1.5f)] private float windowVistaScaleMultiplier = 1.12f;
+    [SerializeField, Tooltip("Only stylize the largest valid WINDOW_FRAME. This filters small false-positive scan windows in the canonical office.")]
+    private bool applyWindowFrameToLargestWindowOnly = true;
     [SerializeField, Tooltip("Use the largest valid WINDOW_FRAME for the exterior vista to avoid small false-positive windows.")]
     private bool applyVistaToLargestWindowOnly = true;
     [SerializeField, Min(0f)] private float minimumWindowFrameMajorSizeMeters = 1.0f;
@@ -53,6 +91,10 @@ public class SurfaceOverrideApplier : MonoBehaviour
     [SerializeField, Range(0.2f, 1f)] private float demoMinimumWindowVistaAlpha = 0.92f;
     [SerializeField, Range(0f, 2f)] private float windowVistaEmissionIntensity = 0.45f;
 
+    [Header("Memory")]
+    [SerializeField, Tooltip("On style/theme changes, release old generated surface textures before creating the next set to avoid Unity texture allocation spikes.")]
+    private bool unloadUnusedAssetsBeforeStyleRefresh = true;
+
     public event Action SummaryChanged;
 
     public string LatestSummary => _latestSummary;
@@ -67,6 +109,8 @@ public class SurfaceOverrideApplier : MonoBehaviour
     private bool _needsRefresh = true;
     private float _nextRefreshTime;
     private string _lastGeneratedTextureSignature = string.Empty;
+    private bool _isCleaningBeforeRefresh;
+    private Coroutine _deferredRefreshCoroutine;
 
     private void Reset()
     {
@@ -89,12 +133,13 @@ public class SurfaceOverrideApplier : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
+        CancelDeferredRefresh();
         ResetOverrides();
     }
 
     private void Update()
     {
-        if (!Application.isPlaying)
+        if (!Application.isPlaying || _isCleaningBeforeRefresh)
         {
             return;
         }
@@ -204,14 +249,60 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private void HandleThemeChanged(ThemeProfile _)
     {
-        _needsRefresh = true;
-        RefreshOverrides("theme-changed");
+        QueueRefreshAfterMemoryCleanup("theme-changed");
     }
 
     private void HandleStyleIntentChanged()
     {
+        QueueRefreshAfterMemoryCleanup("style-intent-changed");
+    }
+
+    private void QueueRefreshAfterMemoryCleanup(string reason)
+    {
         _needsRefresh = true;
-        RefreshOverrides("style-intent-changed");
+
+        if (!Application.isPlaying || !unloadUnusedAssetsBeforeStyleRefresh)
+        {
+            RefreshOverrides(reason);
+            return;
+        }
+
+        if (_deferredRefreshCoroutine != null)
+        {
+            StopCoroutine(_deferredRefreshCoroutine);
+        }
+
+        _deferredRefreshCoroutine = StartCoroutine(RefreshAfterUnusedAssetUnload(reason));
+    }
+
+    private IEnumerator RefreshAfterUnusedAssetUnload(string reason)
+    {
+        _isCleaningBeforeRefresh = true;
+        _needsRefresh = false;
+        ResetOverrides();
+        _latestSummary = $"[SurfaceOverrideApplier]\nState: {reason}-releasing-old-assets\nHint: releasing old generated surface textures before applying the next style.";
+        SummaryChanged?.Invoke();
+
+        yield return null;
+        yield return Resources.UnloadUnusedAssets();
+        GC.Collect();
+
+        _isCleaningBeforeRefresh = false;
+        _deferredRefreshCoroutine = null;
+        _needsRefresh = true;
+        _nextRefreshTime = 0f;
+        RefreshOverrides($"{reason}-after-release");
+    }
+
+    private void CancelDeferredRefresh()
+    {
+        if (_deferredRefreshCoroutine != null)
+        {
+            StopCoroutine(_deferredRefreshCoroutine);
+            _deferredRefreshCoroutine = null;
+        }
+
+        _isCleaningBeforeRefresh = false;
     }
 
     private void RefreshOverrides(string reason)
@@ -263,9 +354,14 @@ public class SurfaceOverrideApplier : MonoBehaviour
         var doorFrameCount = 0;
         var windowFrameCount = 0;
         var windowVistaCount = 0;
+        var trimCount = 0;
         var skippedCount = 0;
         var materials = new Dictionary<ThemeSurfaceKind, Material>();
-        var primaryVistaAnchor = applyVistaToLargestWindowOnly ? FindPrimaryWindowVistaAnchor(room) : null;
+        Material trimMaterial = null;
+        var primaryWindowAnchor = applyWindowFrameToLargestWindowOnly || applyVistaToLargestWindowOnly
+            ? FindPrimaryWindowAnchor(room)
+            : null;
+        var wallOpeningCutouts = BuildWallOpeningCutouts(room, primaryWindowAnchor);
 
         for (var index = 0; index < room.Anchors.Count; index++)
         {
@@ -288,10 +384,18 @@ public class SurfaceOverrideApplier : MonoBehaviour
                 continue;
             }
 
+            if (surfaceKind == ThemeSurfaceKind.WindowFrame &&
+                applyWindowFrameToLargestWindowOnly &&
+                !ReferenceEquals(anchor, primaryWindowAnchor))
+            {
+                skippedCount++;
+                continue;
+            }
+
             var shouldApplySurface = ShouldApply(surfaceKind);
             var shouldApplyVista = surfaceKind == ThemeSurfaceKind.WindowFrame &&
                                    applyWindowVistaOverlays &&
-                                   (!applyVistaToLargestWindowOnly || ReferenceEquals(anchor, primaryVistaAnchor));
+                                   (!applyVistaToLargestWindowOnly || ReferenceEquals(anchor, primaryWindowAnchor));
             if (!shouldApplySurface && !shouldApplyVista)
             {
                 skippedCount++;
@@ -306,7 +410,8 @@ public class SurfaceOverrideApplier : MonoBehaviour
                     materials[surfaceKind] = material;
                 }
 
-                if (!TryCreateOverridePlane(anchor, surfaceKind, material, index))
+                wallOpeningCutouts.TryGetValue(anchor, out var openingCutouts);
+                if (!TryCreateOverridePlane(anchor, surfaceKind, material, index, openingCutouts))
                 {
                     skippedCount++;
                     continue;
@@ -315,6 +420,12 @@ public class SurfaceOverrideApplier : MonoBehaviour
                 if (suppressOriginalSurfaceRenderers)
                 {
                     SuppressAnchorRenderers(anchor);
+                }
+
+                if (surfaceKind == ThemeSurfaceKind.Wall && applyArchitecturalTrimOverlays)
+                {
+                    trimMaterial ??= CreateArchitecturalTrimMaterial(theme);
+                    trimCount += CreateWallTrimOverlays(anchor, trimMaterial, index);
                 }
 
                 switch (surfaceKind)
@@ -361,7 +472,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
         _needsRefresh = visibilityMode != SurfaceVisibilityMode.Off &&
                         wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount == 0;
         _lastGeneratedTextureSignature = BuildGeneratedTextureSignature(theme);
-        _latestSummary = BuildSummary(reason, theme, wallCount, floorCount, ceilingCount, doorFrameCount, windowFrameCount, windowVistaCount, skippedCount);
+        _latestSummary = BuildSummary(reason, theme, wallCount, floorCount, ceilingCount, doorFrameCount, windowFrameCount, windowVistaCount, trimCount, skippedCount);
         SummaryChanged?.Invoke();
 
         if (logApplications && wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount > 0)
@@ -374,7 +485,8 @@ public class SurfaceOverrideApplier : MonoBehaviour
         MRUKAnchor anchor,
         ThemeSurfaceKind surfaceKind,
         Material material,
-        int anchorIndex)
+        int anchorIndex,
+        IReadOnlyList<Rect> wallOpeningCutouts = null)
     {
         if (anchor == null || material == null || surfaceOverridesRoot == null || !anchor.PlaneRect.HasValue)
         {
@@ -391,7 +503,11 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         var meshFilter = surface.AddComponent<MeshFilter>();
         var meshRenderer = surface.AddComponent<MeshRenderer>();
-        var mesh = CreateOverrideMesh(rect, offset, surfaceKind, frameBorderWidthMeters);
+        var mesh = surfaceKind == ThemeSurfaceKind.Wall &&
+                   wallOpeningCutouts != null &&
+                   wallOpeningCutouts.Count > 0
+            ? CreatePlaneMeshWithCutouts(rect, offset, wallOpeningCutouts)
+            : CreateOverrideMesh(rect, offset, surfaceKind, frameBorderWidthMeters);
         mesh.name = $"{surface.name}_Mesh";
         meshFilter.sharedMesh = mesh;
         meshRenderer.sharedMaterial = material;
@@ -403,13 +519,157 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private Rect GetSurfaceRect(Rect rect, ThemeSurfaceKind surfaceKind)
     {
-        // Window vistas stay clipped to the MRUK window rect; cover-fit happens in UV space.
-        return rect;
+        return surfaceKind switch
+        {
+            ThemeSurfaceKind.Wall => ExpandRect(rect, wallPlaneHorizontalOverlapMeters, wallPlaneVerticalOverlapMeters),
+            ThemeSurfaceKind.Floor or ThemeSurfaceKind.Ceiling => ExpandRect(rect, floorCeilingPlaneOverlapMeters, floorCeilingPlaneOverlapMeters),
+            // Window vistas stay clipped to the MRUK window rect; cover-fit happens in UV space.
+            _ => rect,
+        };
     }
 
-    private MRUKAnchor FindPrimaryWindowVistaAnchor(MRUKRoom room)
+    private static Rect ExpandRect(Rect rect, float horizontalOverlap, float verticalOverlap)
     {
-        if (room == null || !applyWindowVistaOverlays)
+        var xMin = rect.xMin - Mathf.Max(0f, horizontalOverlap);
+        var xMax = rect.xMax + Mathf.Max(0f, horizontalOverlap);
+        var yMin = rect.yMin - Mathf.Max(0f, verticalOverlap);
+        var yMax = rect.yMax + Mathf.Max(0f, verticalOverlap);
+        return Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+    }
+
+    private Dictionary<MRUKAnchor, List<Rect>> BuildWallOpeningCutouts(MRUKRoom room, MRUKAnchor primaryWindowAnchor)
+    {
+        var result = new Dictionary<MRUKAnchor, List<Rect>>();
+        if (!cutOpeningsFromWallOverrides || room == null)
+        {
+            return result;
+        }
+
+        var walls = new List<MRUKAnchor>();
+        var openings = new List<MRUKAnchor>();
+        foreach (var anchor in room.Anchors)
+        {
+            if (anchor == null || !anchor.PlaneRect.HasValue)
+            {
+                continue;
+            }
+
+            if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WALL_FACE))
+            {
+                walls.Add(anchor);
+                continue;
+            }
+
+            if (ShouldUseOpeningAsWallCutout(anchor, primaryWindowAnchor))
+            {
+                openings.Add(anchor);
+            }
+        }
+
+        foreach (var wall in walls)
+        {
+            foreach (var opening in openings)
+            {
+                if (!TryProjectOpeningToWall(wall, opening, out var cutout))
+                {
+                    continue;
+                }
+
+                if (!result.TryGetValue(wall, out var cutouts))
+                {
+                    cutouts = new List<Rect>();
+                    result[wall] = cutouts;
+                }
+
+                cutouts.Add(cutout);
+            }
+        }
+
+        return result;
+    }
+
+    private bool ShouldUseOpeningAsWallCutout(MRUKAnchor anchor, MRUKAnchor primaryWindowAnchor)
+    {
+        if (anchor.HasAnyLabel(MRUKAnchor.SceneLabels.DOOR_FRAME))
+        {
+            // Doors are decorative interior overlays. Keeping the host wall intact
+            // preserves identical wall material/tiling logic across all walls.
+            return false;
+        }
+
+        if (!anchor.HasAnyLabel(MRUKAnchor.SceneLabels.WINDOW_FRAME) ||
+            !anchor.PlaneRect.HasValue ||
+            !IsWindowFrameEligible(anchor.PlaneRect.Value))
+        {
+            return false;
+        }
+
+        if (applyWindowFrameToLargestWindowOnly && !ReferenceEquals(anchor, primaryWindowAnchor))
+        {
+            return false;
+        }
+
+        return applyWindowFrameOverrides || applyWindowVistaOverlays;
+    }
+
+    private bool TryProjectOpeningToWall(MRUKAnchor wall, MRUKAnchor opening, out Rect cutout)
+    {
+        cutout = default;
+        if (wall == null ||
+            opening == null ||
+            !wall.PlaneRect.HasValue ||
+            !opening.PlaneRect.HasValue)
+        {
+            return false;
+        }
+
+        var wallNormal = wall.transform.forward.normalized;
+        var openingNormal = opening.transform.forward.normalized;
+        if (Mathf.Abs(Vector3.Dot(wallNormal, openingNormal)) < wallOpeningNormalDotThreshold)
+        {
+            return false;
+        }
+
+        var planeDistance = Mathf.Abs(Vector3.Dot(opening.transform.position - wall.transform.position, wallNormal));
+        if (planeDistance > wallOpeningPlaneDistanceMeters)
+        {
+            return false;
+        }
+
+        var openingRect = opening.PlaneRect.Value;
+        var corners = new[]
+        {
+            new Vector3(openingRect.xMin, openingRect.yMin, 0f),
+            new Vector3(openingRect.xMax, openingRect.yMin, 0f),
+            new Vector3(openingRect.xMax, openingRect.yMax, 0f),
+            new Vector3(openingRect.xMin, openingRect.yMax, 0f),
+        };
+
+        var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+        foreach (var corner in corners)
+        {
+            var wallLocal = wall.transform.InverseTransformPoint(opening.transform.TransformPoint(corner));
+            min = Vector2.Min(min, new Vector2(wallLocal.x, wallLocal.y));
+            max = Vector2.Max(max, new Vector2(wallLocal.x, wallLocal.y));
+        }
+
+        var padding = Mathf.Max(0f, wallOpeningCutoutPaddingMeters);
+        var wallRect = wall.PlaneRect.Value;
+        var cutoutYMin = Mathf.Max(
+            min.y - padding,
+            wallRect.yMin + Mathf.Max(0f, minimumWindowWallSillMeters));
+        cutout = Rect.MinMaxRect(min.x - padding, cutoutYMin, max.x + padding, max.y + padding);
+        var expandedWallRect = ExpandRect(
+            wallRect,
+            wallPlaneHorizontalOverlapMeters + padding,
+            wallPlaneVerticalOverlapMeters + padding);
+        return cutout.height > 0.005f && cutout.Overlaps(expandedWallRect);
+    }
+
+    private MRUKAnchor FindPrimaryWindowAnchor(MRUKRoom room)
+    {
+        if (room == null)
         {
             return null;
         }
@@ -450,9 +710,12 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private Mesh CreateOverrideMesh(Rect rect, float normalOffset, ThemeSurfaceKind surfaceKind, float frameBorderWidth)
     {
-        return surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame
-            ? CreateFrameMesh(rect, normalOffset, frameBorderWidth)
-            : CreatePlaneMesh(rect, normalOffset, surfaceKind, windowVistaAspectRatio, windowVistaScaleMultiplier);
+        return surfaceKind switch
+        {
+            ThemeSurfaceKind.DoorFrame => CreateDoorPanelMesh(rect, normalOffset, doorPanelArchDepthRatio),
+            ThemeSurfaceKind.WindowFrame => CreateFrameMesh(rect, normalOffset, frameBorderWidth),
+            _ => CreatePlaneMesh(rect, normalOffset, surfaceKind, windowVistaAspectRatio, windowVistaScaleMultiplier),
+        };
     }
 
     private static Mesh CreatePlaneMesh(
@@ -498,6 +761,139 @@ public class SurfaceOverrideApplier : MonoBehaviour
         }
 
         return mesh;
+    }
+
+    private static Mesh CreatePlaneMeshWithCutouts(Rect rect, float normalOffset, IReadOnlyList<Rect> cutouts)
+    {
+        if (cutouts == null || cutouts.Count == 0)
+        {
+            return CreatePlaneMesh(rect, normalOffset, ThemeSurfaceKind.Wall, 1f, 1f);
+        }
+
+        var xEdges = new List<float> { rect.xMin, rect.xMax };
+        var yEdges = new List<float> { rect.yMin, rect.yMax };
+        foreach (var cutout in cutouts)
+        {
+            var clipped = IntersectRect(rect, cutout);
+            if (clipped.width <= 0.01f || clipped.height <= 0.01f)
+            {
+                continue;
+            }
+
+            xEdges.Add(clipped.xMin);
+            xEdges.Add(clipped.xMax);
+            yEdges.Add(clipped.yMin);
+            yEdges.Add(clipped.yMax);
+        }
+
+        xEdges.Sort();
+        yEdges.Sort();
+        RemoveNearDuplicateEdges(xEdges);
+        RemoveNearDuplicateEdges(yEdges);
+
+        var vertices = new List<Vector3>();
+        var uv = new List<Vector2>();
+        var triangles = new List<int>();
+        for (var xIndex = 0; xIndex < xEdges.Count - 1; xIndex++)
+        {
+            for (var yIndex = 0; yIndex < yEdges.Count - 1; yIndex++)
+            {
+                var cell = Rect.MinMaxRect(xEdges[xIndex], yEdges[yIndex], xEdges[xIndex + 1], yEdges[yIndex + 1]);
+                if (cell.width <= 0.005f || cell.height <= 0.005f || IsCellInsideAnyCutout(cell, cutouts))
+                {
+                    continue;
+                }
+
+                AddSurfaceQuad(vertices, uv, triangles, rect, cell, normalOffset);
+            }
+        }
+
+        if (vertices.Count == 0)
+        {
+            return CreatePlaneMesh(rect, normalOffset, ThemeSurfaceKind.Wall, 1f, 1f);
+        }
+
+        var mesh = new Mesh
+        {
+            vertices = vertices.ToArray(),
+            uv = uv.ToArray(),
+            triangles = triangles.ToArray(),
+        };
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private static Rect IntersectRect(Rect a, Rect b)
+    {
+        var xMin = Mathf.Max(a.xMin, b.xMin);
+        var yMin = Mathf.Max(a.yMin, b.yMin);
+        var xMax = Mathf.Min(a.xMax, b.xMax);
+        var yMax = Mathf.Min(a.yMax, b.yMax);
+        return xMax <= xMin || yMax <= yMin
+            ? Rect.zero
+            : Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+    }
+
+    private static void RemoveNearDuplicateEdges(List<float> edges)
+    {
+        for (var index = edges.Count - 1; index > 0; index--)
+        {
+            if (Mathf.Abs(edges[index] - edges[index - 1]) < 0.002f)
+            {
+                edges.RemoveAt(index);
+            }
+        }
+    }
+
+    private static bool IsCellInsideAnyCutout(Rect cell, IReadOnlyList<Rect> cutouts)
+    {
+        var center = cell.center;
+        foreach (var cutout in cutouts)
+        {
+            if (cutout.Contains(center))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void AddSurfaceQuad(
+        ICollection<Vector3> vertices,
+        ICollection<Vector2> uv,
+        ICollection<int> triangles,
+        Rect fullRect,
+        Rect quadRect,
+        float normalOffset)
+    {
+        var start = vertices.Count;
+        vertices.Add(new Vector3(quadRect.xMin, quadRect.yMin, normalOffset));
+        vertices.Add(new Vector3(quadRect.xMax, quadRect.yMin, normalOffset));
+        vertices.Add(new Vector3(quadRect.xMax, quadRect.yMax, normalOffset));
+        vertices.Add(new Vector3(quadRect.xMin, quadRect.yMax, normalOffset));
+
+        uv.Add(new Vector2(
+            Mathf.InverseLerp(fullRect.xMin, fullRect.xMax, quadRect.xMin),
+            Mathf.InverseLerp(fullRect.yMin, fullRect.yMax, quadRect.yMin)));
+        uv.Add(new Vector2(
+            Mathf.InverseLerp(fullRect.xMin, fullRect.xMax, quadRect.xMax),
+            Mathf.InverseLerp(fullRect.yMin, fullRect.yMax, quadRect.yMin)));
+        uv.Add(new Vector2(
+            Mathf.InverseLerp(fullRect.xMin, fullRect.xMax, quadRect.xMax),
+            Mathf.InverseLerp(fullRect.yMin, fullRect.yMax, quadRect.yMax)));
+        uv.Add(new Vector2(
+            Mathf.InverseLerp(fullRect.xMin, fullRect.xMax, quadRect.xMin),
+            Mathf.InverseLerp(fullRect.yMin, fullRect.yMax, quadRect.yMax)));
+
+        triangles.Add(start);
+        triangles.Add(start + 1);
+        triangles.Add(start + 2);
+        triangles.Add(start);
+        triangles.Add(start + 2);
+        triangles.Add(start + 3);
     }
 
     private static Vector2[] CreateWindowVistaUv(Rect rect, float windowVistaAspectRatio, float windowVistaScaleMultiplier)
@@ -563,6 +959,167 @@ public class SurfaceOverrideApplier : MonoBehaviour
         return mesh;
     }
 
+    private static Mesh CreateDoorPanelMesh(Rect rect, float normalOffset, float archDepthRatio)
+    {
+        var width = Mathf.Max(0.05f, rect.width);
+        var height = Mathf.Max(0.05f, rect.height);
+        var archDepth = Mathf.Clamp01(archDepthRatio) * height;
+        if (archDepth <= 0.001f)
+        {
+            return CreateNormalizedPanelMesh(rect, normalOffset);
+        }
+
+        const int archSegments = 8;
+        var points = new List<Vector2>(archSegments + 4)
+        {
+            new(rect.xMin, rect.yMin),
+            new(rect.xMax, rect.yMin),
+            new(rect.xMax, rect.yMax - archDepth),
+        };
+
+        var halfWidth = width * 0.5f;
+        var centerX = rect.center.x;
+        for (var segment = 1; segment < archSegments; segment++)
+        {
+            var t = segment / (float)archSegments;
+            var x = Mathf.Lerp(rect.xMax, rect.xMin, t);
+            var normalized = Mathf.Abs((x - centerX) / halfWidth);
+            var y = rect.yMax - archDepth * normalized * normalized;
+            points.Add(new Vector2(x, y));
+        }
+
+        points.Add(new Vector2(rect.xMin, rect.yMax - archDepth));
+
+        var center = rect.center;
+        var vertices = new List<Vector3>(points.Count + 1)
+        {
+            new(center.x, center.y, normalOffset),
+        };
+        var uv = new List<Vector2>(points.Count + 1)
+        {
+            new(0.5f, 0.5f),
+        };
+        var triangles = new List<int>(points.Count * 3);
+
+        for (var index = 0; index < points.Count; index++)
+        {
+            var point = points[index];
+            vertices.Add(new Vector3(point.x, point.y, normalOffset));
+            uv.Add(new Vector2(
+                Mathf.InverseLerp(rect.xMin, rect.xMax, point.x),
+                Mathf.InverseLerp(rect.yMin, rect.yMax, point.y)));
+        }
+
+        for (var index = 1; index <= points.Count; index++)
+        {
+            var next = index == points.Count ? 1 : index + 1;
+            triangles.Add(0);
+            triangles.Add(index);
+            triangles.Add(next);
+        }
+
+        var mesh = new Mesh
+        {
+            vertices = vertices.ToArray(),
+            uv = uv.ToArray(),
+            triangles = triangles.ToArray(),
+        };
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private static Mesh CreateNormalizedPanelMesh(Rect rect, float normalOffset)
+    {
+        var vertices = new[]
+        {
+            new Vector3(rect.xMin, rect.yMin, normalOffset),
+            new Vector3(rect.xMax, rect.yMin, normalOffset),
+            new Vector3(rect.xMax, rect.yMax, normalOffset),
+            new Vector3(rect.xMin, rect.yMax, normalOffset),
+        };
+        var mesh = new Mesh
+        {
+            vertices = vertices,
+            uv = new[]
+            {
+                Vector2.zero,
+                Vector2.right,
+                Vector2.one,
+                Vector2.up,
+            },
+            triangles = new[] { 0, 1, 2, 0, 2, 3 },
+        };
+
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private int CreateWallTrimOverlays(MRUKAnchor anchor, Material material, int anchorIndex)
+    {
+        if (anchor == null || material == null || !anchor.PlaneRect.HasValue)
+        {
+            return 0;
+        }
+
+        var rect = anchor.PlaneRect.Value;
+        var width = Mathf.Abs(rect.width);
+        var height = Mathf.Abs(rect.height);
+        if (width <= 0.05f || height <= 0.05f)
+        {
+            return 0;
+        }
+
+        var trimScale = Mathf.Clamp01(architecturalTrimVisualScale);
+        if (trimScale <= 0.005f)
+        {
+            return 0;
+        }
+
+        var count = 0;
+        var offset = wallOutwardOffsetMeters + trimAdditionalOffsetMeters;
+        var baseboardHeight = Mathf.Min(baseboardHeightMeters, height * 0.18f) * trimScale;
+        var crownHeight = Mathf.Min(crownTrimHeightMeters, height * 0.14f) * trimScale;
+        var cornerWidth = Mathf.Min(cornerTrimWidthMeters, width * 0.12f) * trimScale;
+        count += TryCreateTrimStrip(anchor, material, anchorIndex, "Baseboard",
+            new Rect(rect.xMin, rect.yMin, rect.width, baseboardHeight), offset);
+        count += TryCreateTrimStrip(anchor, material, anchorIndex, "Crown",
+            new Rect(rect.xMin, rect.yMax - crownHeight, rect.width, crownHeight), offset);
+
+        count += TryCreateTrimStrip(anchor, material, anchorIndex, "LeftCorner",
+            new Rect(rect.xMin, rect.yMin, cornerWidth, rect.height), offset);
+        count += TryCreateTrimStrip(anchor, material, anchorIndex, "RightCorner",
+            new Rect(rect.xMax - cornerWidth, rect.yMin, cornerWidth, rect.height), offset);
+        return count;
+    }
+
+    private int TryCreateTrimStrip(MRUKAnchor anchor, Material material, int anchorIndex, string suffix, Rect rect, float normalOffset)
+    {
+        if (rect.width <= 0.005f || rect.height <= 0.005f)
+        {
+            return 0;
+        }
+
+        var trim = new GameObject($"SurfaceOverride_WallTrim_{suffix}_{anchorIndex:D2}");
+        trim.transform.SetParent(surfaceOverridesRoot, false);
+        trim.transform.position = anchor.transform.position;
+        trim.transform.rotation = anchor.transform.rotation;
+        trim.transform.localScale = Vector3.one;
+
+        var meshFilter = trim.AddComponent<MeshFilter>();
+        var meshRenderer = trim.AddComponent<MeshRenderer>();
+        var mesh = CreatePlaneMesh(rect, normalOffset, ThemeSurfaceKind.Wall, 1f, 1f);
+        mesh.name = $"{trim.name}_Mesh";
+        meshFilter.sharedMesh = mesh;
+        meshRenderer.sharedMaterial = material;
+
+        _runtimeMeshes.Add(mesh);
+        _spawnedOverrides.Add(trim);
+        return 1;
+    }
+
     private static void AddQuad(
         ICollection<Vector3> vertices,
         ICollection<Vector2> uv,
@@ -607,6 +1164,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
         if (sourceMaterial != null)
         {
             material = new Material(sourceMaterial);
+            SetMaterialTextureScale(material, GetTextureTiling(theme, surfaceKind));
         }
         else
         {
@@ -644,15 +1202,18 @@ public class SurfaceOverrideApplier : MonoBehaviour
             return false;
         }
 
-        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, true)
+        var effectiveThemeId = GetEffectiveThemeId(theme);
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
         {
-            name = $"Generated_{theme.ThemeId}_{surfaceKind}_Texture",
-            wrapMode = surfaceKind == ThemeSurfaceKind.WindowVista ? TextureWrapMode.Clamp : TextureWrapMode.Repeat,
+            name = $"Generated_{effectiveThemeId}_{surfaceKind}_Texture",
+            wrapMode = surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowVista
+                ? TextureWrapMode.Clamp
+                : TextureWrapMode.Repeat,
             filterMode = FilterMode.Bilinear,
-            anisoLevel = 4,
+            anisoLevel = 1,
         };
 
-        if (!ImageConversion.LoadImage(texture, bytes, false))
+        if (!ImageConversion.LoadImage(texture, bytes, true))
         {
             SafeDestroy(texture);
             return false;
@@ -660,24 +1221,106 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         _runtimeTextures.Add(texture);
 
-        var shader = GetSurfaceShader(surfaceKind);
+        var shader = GetGeneratedSurfaceShader(surfaceKind);
         material = new Material(shader)
         {
-            name = $"Runtime_{theme.ThemeId}_{surfaceKind}_GeneratedSurface",
+            name = $"Runtime_{effectiveThemeId}_{surfaceKind}_GeneratedSurface",
         };
         ConfigureTransparentDoubleSidedMaterial(material, surfaceKind);
         SetMaterialTexture(material, texture, GetTextureTiling(theme, surfaceKind));
 
-        var tintColor = ApplyVisibilityBoost(theme.SurfaceMaterials.GetTintColor(surfaceKind), surfaceKind);
-        SetMaterialColor(material, new Color(1f, 1f, 1f, tintColor.a));
-        SetEmission(material, tintColor * GetEmissionIntensity(theme, surfaceKind));
+        var surfaceColor = GetGeneratedSurfaceColor(theme, surfaceKind);
+        SetMaterialColor(material, surfaceColor);
+        SetEmission(material, GetGeneratedSurfaceEmission(theme, surfaceKind));
         ConfigureTransparentDoubleSidedMaterial(material, surfaceKind);
         return true;
     }
 
     private float GetTextureTiling(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
     {
-        return surfaceKind == ThemeSurfaceKind.WindowVista ? 1f : theme.SurfaceMaterials.TextureTiling;
+        var tileSize = surfaceKind switch
+        {
+            ThemeSurfaceKind.Wall => wallTextureTileSizeMeters,
+            ThemeSurfaceKind.Floor => floorTextureTileSizeMeters,
+            ThemeSurfaceKind.Ceiling => ceilingTextureTileSizeMeters,
+            ThemeSurfaceKind.DoorFrame => 1f,
+            ThemeSurfaceKind.WindowFrame => openingTextureTileSizeMeters,
+            ThemeSurfaceKind.WindowVista => 1f,
+            _ => Mathf.Max(0.1f, theme.SurfaceMaterials.TextureTiling),
+        };
+
+        return surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowVista
+            ? 1f
+            : 1f / Mathf.Max(0.1f, tileSize);
+    }
+
+    private static Shader GetGeneratedSurfaceShader(ThemeSurfaceKind surfaceKind)
+    {
+        // Generated surface textures are already baked artwork. Unlit preserves their
+        // color across style switches instead of letting room lighting wash out dark themes.
+        return Shader.Find("Universal Render Pipeline/Unlit") ??
+               Shader.Find("Unlit/Texture") ??
+               GetSurfaceShader(surfaceKind);
+    }
+
+    private Material CreateArchitecturalTrimMaterial(ThemeProfile theme)
+    {
+        var shader = GetGeneratedSurfaceShader(ThemeSurfaceKind.WindowFrame);
+        var material = new Material(shader)
+        {
+            name = $"Runtime_{GetEffectiveThemeId(theme)}_ArchitecturalTrim",
+        };
+
+        ConfigureTransparentDoubleSidedMaterial(material, ThemeSurfaceKind.WindowFrame);
+        var color = Color.Lerp(
+            RuntimeStyleColorUtility.ResolveTrimBaseColor(theme, GetCurrentStyleIntent()),
+            GetStyleAccentColor(theme),
+            architecturalTrimAccentBlend);
+        color.a = 1f;
+        SetMaterialColor(material, color);
+        SetEmission(material, GetStyleAccentColor(theme) * Mathf.Max(0f, theme.SurfaceMaterials.EmissionIntensity * architecturalTrimEmissionScale));
+        _runtimeMaterials.Add(material);
+        return material;
+    }
+
+    private Color GetGeneratedSurfaceColor(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
+    {
+        if (surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame)
+        {
+            var color = Color.Lerp(
+                RuntimeStyleColorUtility.ResolveTrimBaseColor(theme, GetCurrentStyleIntent()),
+                GetStyleAccentColor(theme),
+                0.38f);
+            color.a = 1f;
+            return color;
+        }
+
+        return Color.white;
+    }
+
+    private Color GetGeneratedSurfaceEmission(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
+    {
+        if (surfaceKind is ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame)
+        {
+            return GetStyleAccentColor(theme) * Mathf.Max(0f, GetEmissionIntensity(theme, surfaceKind) * 0.18f);
+        }
+
+        if (surfaceKind == ThemeSurfaceKind.WindowVista)
+        {
+            return Color.white * Mathf.Max(0f, windowVistaEmissionIntensity * 0.25f);
+        }
+
+        return Color.black;
+    }
+
+    private Color GetStyleAccentColor(ThemeProfile theme)
+    {
+        return RuntimeStyleColorUtility.ResolveAccentColor(theme, GetCurrentStyleIntent());
+    }
+
+    private RuntimeStyleIntent GetCurrentStyleIntent()
+    {
+        return runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
     }
 
     private float GetEmissionIntensity(ThemeProfile theme, ThemeSurfaceKind surfaceKind)
@@ -713,11 +1356,16 @@ public class SurfaceOverrideApplier : MonoBehaviour
             ThemeSurfaceKind.Wall => wallOutwardOffsetMeters,
             ThemeSurfaceKind.Floor => floorSurfaceOffsetMeters,
             ThemeSurfaceKind.Ceiling => ceilingSurfaceOffsetMeters,
-            ThemeSurfaceKind.DoorFrame => frameOutwardOffsetMeters,
-            ThemeSurfaceKind.WindowFrame => frameOutwardOffsetMeters,
+            ThemeSurfaceKind.DoorFrame => GetInteriorFrameOffset(),
+            ThemeSurfaceKind.WindowFrame => GetInteriorFrameOffset(),
             ThemeSurfaceKind.WindowVista => -windowVistaOutwardOffsetMeters,
             _ => 0f,
         };
+    }
+
+    private float GetInteriorFrameOffset()
+    {
+        return Mathf.Max(frameOutwardOffsetMeters, wallOutwardOffsetMeters + frameInteriorOffsetBeyondWallMeters);
     }
 
     private Color ApplyVisibilityBoost(Color color, ThemeSurfaceKind surfaceKind)
@@ -843,26 +1491,27 @@ public class SurfaceOverrideApplier : MonoBehaviour
         }
 
         var builder = new StringBuilder(256);
-        builder.Append(theme.ThemeId);
+        var effectiveThemeId = GetEffectiveThemeId(theme);
+        builder.Append(effectiveThemeId);
         var styleVariantId = GetActiveStyleVariantId();
         builder.Append('|').Append(styleVariantId);
-        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.Wall);
-        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.Floor);
-        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.Ceiling);
-        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.DoorFrame);
-        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.WindowFrame);
-        AppendGeneratedTextureSignature(builder, jobDirectory, theme, styleVariantId, ThemeSurfaceKind.WindowVista);
+        AppendGeneratedTextureSignature(builder, jobDirectory, effectiveThemeId, styleVariantId, ThemeSurfaceKind.Wall);
+        AppendGeneratedTextureSignature(builder, jobDirectory, effectiveThemeId, styleVariantId, ThemeSurfaceKind.Floor);
+        AppendGeneratedTextureSignature(builder, jobDirectory, effectiveThemeId, styleVariantId, ThemeSurfaceKind.Ceiling);
+        AppendGeneratedTextureSignature(builder, jobDirectory, effectiveThemeId, styleVariantId, ThemeSurfaceKind.DoorFrame);
+        AppendGeneratedTextureSignature(builder, jobDirectory, effectiveThemeId, styleVariantId, ThemeSurfaceKind.WindowFrame);
+        AppendGeneratedTextureSignature(builder, jobDirectory, effectiveThemeId, styleVariantId, ThemeSurfaceKind.WindowVista);
         return builder.ToString();
     }
 
     private static void AppendGeneratedTextureSignature(
         StringBuilder builder,
         string jobDirectory,
-        ThemeProfile theme,
+        string themeId,
         string styleVariantId,
         ThemeSurfaceKind surfaceKind)
     {
-        var requestId = BuildSurfaceRequestId(theme.ThemeId, styleVariantId, surfaceKind);
+        var requestId = BuildSurfaceRequestId(themeId, styleVariantId, surfaceKind);
         var jobPath = System.IO.Path.Combine(jobDirectory, $"{requestId}.surface.job.json");
         builder.Append('|').Append(requestId).Append(':');
         if (!System.IO.File.Exists(jobPath))
@@ -894,7 +1543,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
             return false;
         }
 
-        var requestId = BuildSurfaceRequestId(theme.ThemeId, GetActiveStyleVariantId(), surfaceKind);
+        var requestId = BuildSurfaceRequestId(GetEffectiveThemeId(theme), GetActiveStyleVariantId(), surfaceKind);
         var preferredPath = System.IO.Path.Combine(jobDirectory, $"{requestId}.surface.job.json");
         if (TryLoadGeneratedSurfaceJob(preferredPath, requestId, out imagePath))
         {
@@ -949,6 +1598,13 @@ public class SurfaceOverrideApplier : MonoBehaviour
     private string GetActiveStyleVariantId()
     {
         return SurfaceTexturePromptBuilder.BuildStyleVariantId(
+            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
+    }
+
+    private string GetEffectiveThemeId(ThemeProfile theme)
+    {
+        return RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(
+            theme,
             runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null);
     }
 
@@ -1066,10 +1722,11 @@ public class SurfaceOverrideApplier : MonoBehaviour
         int doorFrameCount,
         int windowFrameCount,
         int windowVistaCount,
+        int trimCount,
         int skippedCount)
     {
         var builder = new StringBuilder(384);
-        var totalCount = wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount;
+        var totalCount = wallCount + floorCount + ceilingCount + doorFrameCount + windowFrameCount + windowVistaCount + trimCount;
         builder.AppendLine("[SurfaceOverrideApplier]");
         builder.AppendLine(visibilityMode == SurfaceVisibilityMode.Off
             ? "State: off"
@@ -1078,10 +1735,15 @@ public class SurfaceOverrideApplier : MonoBehaviour
         builder.AppendLine($"Reason: {reason}");
         builder.AppendLine($"Visibility Mode: {visibilityMode}");
         builder.AppendLine($"Override Planes: {totalCount}");
-        builder.AppendLine($"Coverage: floor={floorCount}, wall={wallCount}, ceiling={ceilingCount}, door={doorFrameCount}, window={windowFrameCount}, vista={windowVistaCount}");
+        builder.AppendLine($"Coverage: floor={floorCount}, wall={wallCount}, ceiling={ceilingCount}, door={doorFrameCount}, window={windowFrameCount}, vista={windowVistaCount}, trim={trimCount}");
         builder.AppendLine($"Skipped: {skippedCount}");
         builder.AppendLine($"Wall Offset: {wallOutwardOffsetMeters:F3}m");
-        builder.AppendLine($"Frame Offset: {frameOutwardOffsetMeters:F3}m, Border: {frameBorderWidthMeters:F3}m");
+        builder.AppendLine($"Frame Offset: configured={frameOutwardOffsetMeters:F3}m, interiorEffective={GetInteriorFrameOffset():F3}m, Border={frameBorderWidthMeters:F3}m");
+        builder.AppendLine($"Texture Tile Size: wall={wallTextureTileSizeMeters:F2}m, floor={floorTextureTileSizeMeters:F2}m, ceiling={ceilingTextureTileSizeMeters:F2}m, openings={openingTextureTileSizeMeters:F2}m");
+        builder.AppendLine($"Seam Overlap: wallX={wallPlaneHorizontalOverlapMeters:F2}m, wallY={wallPlaneVerticalOverlapMeters:F2}m, floor/ceiling={floorCeilingPlaneOverlapMeters:F2}m");
+        builder.AppendLine($"Window Opening Cutouts: enabled={cutOpeningsFromWallOverrides}, doors=false, padding={wallOpeningCutoutPaddingMeters:F2}m, sill={minimumWindowWallSillMeters:F2}m, planeDistance<={wallOpeningPlaneDistanceMeters:F2}m");
+        builder.AppendLine($"Trim: enabled={applyArchitecturalTrimOverlays}, base={baseboardHeightMeters:F2}m, crown={crownTrimHeightMeters:F2}m, corner={cornerTrimWidthMeters:F2}m");
+        builder.AppendLine($"Window Frame: enabled={applyWindowFrameOverrides}, largestOnly={applyWindowFrameToLargestWindowOnly}");
         builder.AppendLine($"Window Vista: enabled={applyWindowVistaOverlays}, outsideOffset={windowVistaOutwardOffsetMeters:F3}m, aspect={windowVistaAspectRatio:F2}, scale={windowVistaScaleMultiplier:F2}x, largestOnly={applyVistaToLargestWindowOnly}");
         builder.AppendLine($"Window Filter: major>={minimumWindowFrameMajorSizeMeters:F2}m, minor>={minimumWindowFrameMinorSizeMeters:F2}m");
         if (visibilityMode == SurfaceVisibilityMode.Background)
@@ -1122,7 +1784,10 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
     private static void ConfigureTransparentDoubleSidedMaterial(Material material, ThemeSurfaceKind surfaceKind = ThemeSurfaceKind.Wall)
     {
-        var forceOpaqueBlend = surfaceKind is ThemeSurfaceKind.DoorFrame
+        var forceOpaqueBlend = surfaceKind is ThemeSurfaceKind.Wall
+            or ThemeSurfaceKind.Floor
+            or ThemeSurfaceKind.Ceiling
+            or ThemeSurfaceKind.DoorFrame
             or ThemeSurfaceKind.WindowFrame
             or ThemeSurfaceKind.WindowVista;
 
@@ -1157,7 +1822,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
 
         if (material.HasProperty("_ZWrite"))
         {
-            material.SetFloat("_ZWrite", 0f);
+            material.SetFloat("_ZWrite", forceOpaqueBlend ? 1f : 0f);
         }
 
         if (material.HasProperty("_Cull"))
@@ -1174,6 +1839,8 @@ public class SurfaceOverrideApplier : MonoBehaviour
         var transparent = (int)UnityEngine.Rendering.RenderQueue.Transparent;
         return surfaceKind switch
         {
+            ThemeSurfaceKind.Wall or ThemeSurfaceKind.Floor or ThemeSurfaceKind.Ceiling =>
+                (int)UnityEngine.Rendering.RenderQueue.GeometryLast,
             ThemeSurfaceKind.WindowVista => transparent + 80,
             ThemeSurfaceKind.DoorFrame or ThemeSurfaceKind.WindowFrame => transparent + 100,
             _ => transparent,
@@ -1205,6 +1872,20 @@ public class SurfaceOverrideApplier : MonoBehaviour
         if (material.HasProperty("_MainTex"))
         {
             material.SetTexture("_MainTex", texture);
+            material.SetTextureScale("_MainTex", textureScale);
+        }
+    }
+
+    private static void SetMaterialTextureScale(Material material, float tiling)
+    {
+        var textureScale = Vector2.one * Mathf.Max(0.1f, tiling);
+        if (material.HasProperty("_BaseMap") && material.GetTexture("_BaseMap") != null)
+        {
+            material.SetTextureScale("_BaseMap", textureScale);
+        }
+
+        if (material.HasProperty("_MainTex") && material.GetTexture("_MainTex") != null)
+        {
             material.SetTextureScale("_MainTex", textureScale);
         }
     }

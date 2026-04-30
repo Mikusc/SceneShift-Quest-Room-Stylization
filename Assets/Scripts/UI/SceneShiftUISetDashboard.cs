@@ -1,14 +1,27 @@
 using System.Collections.Generic;
 using System.Text;
+using Oculus.Interaction.Samples;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 [DisallowMultipleComponent]
 public class SceneShiftUISetDashboard : MonoBehaviour
 {
     private const string BackgroundObjectName = "SceneShiftDashboardBackground";
     private const string ContentObjectName = "SceneShiftDashboardContent";
+    private const string OfficialBackplateObjectName = "UIBackplate";
+    private const string RuntimeButtonLabelName = "SceneShiftButtonLabel";
+    private const string RuntimeDropdownCaptionName = "SceneShiftDropdownCaption";
+#if UNITY_EDITOR
+    private const string MetaUISetPrimaryButtonPrefabPath = "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet/Prefabs/Button/UnityUIButtonBased/PrimaryButton_IconAndLabel_UnityUIButton.prefab";
+    private const string MetaUISetSecondaryButtonPrefabPath = "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet/Prefabs/Button/UnityUIButtonBased/SecondaryButton_IconAndLabel_UnityUIButton.prefab";
+    private const string MetaUISetDestructiveButtonPrefabPath = "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet/Prefabs/Button/UnityUIButtonBased/DestructiveButton_IconAndLabel_UnityUIButton.prefab";
+    private const string MetaUISetDropdownPrefabPath = "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet/Prefabs/DropDown/DropDown1LineTextOnly.prefab";
+#endif
 
     [Header("References")]
     [SerializeField] private Canvas canvas;
@@ -16,12 +29,19 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     [SerializeField] private DevicePassthroughCaptureService captureService;
     [SerializeField] private GenerationQueueStatusService generationQueueStatusService;
     [SerializeField] private ThemeIntentController themeIntentController;
+    [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private SurfaceOverrideApplier surfaceOverrideApplier;
     [SerializeField] private MRUKShellVisibilityToggle shellVisibilityToggle;
     [SerializeField] private GenerationJobWorldStatusOverlay worldStatusOverlay;
     [SerializeField] private RoomStyleCacheService roomStyleCacheService;
+    [SerializeField] private CapturedFurnitureReuseService furnitureReuseService;
+    [SerializeField] private GeneratedObjectRotationCorrectionController rotationCorrectionController;
 
     [Header("Meta UISet Prefabs")]
+    [SerializeField] private bool useMetaUISetPrefabsWhenAvailable = true;
+    [SerializeField] private bool autoLoadMetaUISetPrefabsInEditor = true;
+    [SerializeField, Tooltip("Instantiate official Meta UISet control prefabs when available. Fallback controls are only used when package prefabs are missing.")]
+    private bool instantiateMetaUISetControlPrefabs = true;
     [SerializeField] private GameObject primaryButtonPrefab;
     [SerializeField] private GameObject secondaryButtonPrefab;
     [SerializeField] private GameObject destructiveButtonPrefab;
@@ -31,9 +51,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     [SerializeField] private bool visibleInPlayMode = true;
     [SerializeField] private bool headLocked = true;
     [SerializeField] private bool createContentIfMissing = true;
-    [SerializeField] private bool disableMetaUISetRuntimeComponents = true;
+    [SerializeField] private bool preferOfficialUISetBackplate = true;
+    [SerializeField] private bool disableMetaUISetRuntimeComponents;
     [SerializeField] private bool hideInheritedUISetVisuals = true;
-    [SerializeField] private bool useStableRuntimeControlsOnly = true;
+    [SerializeField] private bool useStableRuntimeControlsOnly;
+    [SerializeField] private bool useUISetInspiredFallbackSkin = true;
+    [SerializeField] private bool preferOfficialCanvasInteractions = true;
     [SerializeField] private bool suppressLegacyHeadsetOverlays = true;
     [SerializeField, Min(0.1f)] private float updateIntervalSeconds = 0.25f;
     [SerializeField] private bool enablePanelVisibilityToggleInPlay = true;
@@ -47,7 +70,6 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     [Header("Controller Pointer")]
     [SerializeField] private bool enableControllerPointerInPlay = true;
-    [SerializeField] private bool showControllerPointerRay = true;
     [SerializeField] private Transform pointerRayOrigin;
     [SerializeField] private OVRInput.Controller pointerController = OVRInput.Controller.RTouch;
     [SerializeField] private OVRInput.Button pointerSelectButton = OVRInput.Button.PrimaryIndexTrigger;
@@ -61,23 +83,37 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     public string LatestSummary => _latestSummary;
 
     private readonly StringBuilder _builder = new(1024);
+    private readonly Dictionary<Graphic, Color> _pointerOriginalGraphicColors = new();
     private Image _backgroundImage;
     private RectTransform _contentRoot;
     private TMP_Text _titleText;
     private TMP_Text _subtitleText;
     private TMP_Text _statusText;
+    private TMP_Text _captureStatusText;
+    private TMP_Text _styleStatusText;
+    private TMP_Text _cacheStatusText;
+    private TMP_Text _queueStatusText;
+    private TMP_Text _reuseStatusText;
+    private TMP_Text _rotationStatusText;
+    private TMP_Text _cleanViewStatusText;
+    private TMP_Text _objectStatusText;
     private TMP_Text _pointerHintText;
+    private TMP_Text _themeDropdownCaptionText;
+    private DropDownGroup _themeMetaDropdown;
     private TMP_Dropdown _themeTmpDropdown;
     private Dropdown _themeDropdown;
     private Button _captureButton;
     private Button _autoTargetButton;
+    private Button _reuseCaptureButton;
     private Button _surfaceButton;
     private Button _shellButton;
     private Button _worldStatusButton;
+    private Button _rotateSelectedButton;
     private Button _hoveredButton;
     private Image _hoveredDropdownImage;
-    private LineRenderer _pointerLine;
-    private Material _pointerLineMaterial;
+    private Sprite _roundedBoxSprite;
+    private Texture2D _roundedBoxTexture;
+    private bool _triedAutoLoadUISetPrefabs;
     private bool _isSyncingThemeDropdown;
     private bool _panelVisibleRuntime = true;
     private float _nextUpdateTime;
@@ -93,6 +129,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     {
         _panelVisibleRuntime = visibleInPlayMode;
         ResolveReferences();
+        TryAutoLoadMetaUISetPrefabs();
         DisableProblematicMetaRuntimeComponents();
         NormalizeCanvasRoot();
         EnsureContent();
@@ -105,6 +142,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     {
         _panelVisibleRuntime = visibleInPlayMode;
         ResolveReferences();
+        TryAutoLoadMetaUISetPrefabs();
         DisableProblematicMetaRuntimeComponents();
         NormalizeCanvasRoot();
         EnsureContent();
@@ -127,12 +165,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         if (!visibleInPlayMode || !_panelVisibleRuntime)
         {
             ClearPointerHover();
-            SetPointerLineVisible(false);
             SetVisible(false);
             return;
         }
 
         ResolveReferences();
+        TryAutoLoadMetaUISetPrefabs();
         DisableProblematicMetaRuntimeComponents();
         NormalizeCanvasRoot();
         EnsureContent();
@@ -146,7 +184,15 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             UpdateHeadLockedPlacement();
         }
 
-        HandleControllerPointer();
+        if (ShouldUseControllerPointerFallback())
+        {
+            HandleControllerPointer();
+        }
+        else
+        {
+            ClearPointerHover();
+            SetPointerHint("Use Interaction SDK ray / poke / hand UI.");
+        }
 
         if (Time.unscaledTime >= _nextUpdateTime)
         {
@@ -167,10 +213,29 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         captureService?.SetTargetSelectionAuto();
     }
 
+    public void RegenerateFurnitureFromCaptures()
+    {
+        ResolveReferences();
+        furnitureReuseService?.RegenerateCurrentRoomForCurrentTheme();
+        generationQueueStatusService?.Refresh();
+        roomStyleCacheService?.Refresh();
+        UpdatePanel();
+    }
+
     public void CycleTheme()
     {
         ResolveReferences();
-        themeIntentController?.CycleTheme(1);
+        if (runtimeStyleIntentController != null && runtimeStyleIntentController.StyleOptionCount > 0)
+        {
+            runtimeStyleIntentController.CycleStyle(1);
+        }
+        else
+        {
+            themeIntentController?.CycleTheme(1);
+        }
+
+        roomStyleCacheService?.Refresh();
+        UpdatePanel();
     }
 
     public void ReapplySurfaces()
@@ -191,13 +256,25 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         worldStatusOverlay?.ToggleOverlayVisible();
     }
 
+    public void RotateSelectedGeneratedObject90()
+    {
+        ResolveReferences();
+        if (rotationCorrectionController == null)
+        {
+            return;
+        }
+
+        rotationCorrectionController.RefreshSelectionFromContext();
+        rotationCorrectionController.RotateSelectedClockwise90();
+        UpdatePanel();
+    }
+
     public void TogglePanelVisibility()
     {
         _panelVisibleRuntime = !_panelVisibleRuntime;
         if (!_panelVisibleRuntime)
         {
             ClearPointerHover();
-            SetPointerLineVisible(false);
         }
 
         SetVisible(_panelVisibleRuntime);
@@ -211,7 +288,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
 
         ResolveReferences();
-        themeIntentController?.SelectThemeByIndex(index);
+        if (runtimeStyleIntentController == null || !runtimeStyleIntentController.SelectStyleByIndex(index))
+        {
+            themeIntentController?.SelectThemeByIndex(index);
+        }
+
         roomStyleCacheService?.Refresh();
         UpdatePanel();
     }
@@ -255,6 +336,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
         }
 
+        if (runtimeStyleIntentController == null)
+        {
+            runtimeStyleIntentController = FindAnyObjectByType<RuntimeStyleIntentController>();
+        }
+
         if (surfaceOverrideApplier == null)
         {
             surfaceOverrideApplier = FindAnyObjectByType<SurfaceOverrideApplier>();
@@ -274,6 +360,102 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             roomStyleCacheService = FindAnyObjectByType<RoomStyleCacheService>();
         }
+
+        if (furnitureReuseService == null)
+        {
+            furnitureReuseService = FindAnyObjectByType<CapturedFurnitureReuseService>();
+        }
+
+        if (furnitureReuseService == null && Application.isPlaying)
+        {
+            furnitureReuseService = gameObject.AddComponent<CapturedFurnitureReuseService>();
+        }
+
+        if (rotationCorrectionController == null)
+        {
+            rotationCorrectionController = FindAnyObjectByType<GeneratedObjectRotationCorrectionController>();
+        }
+
+        if (rotationCorrectionController == null && Application.isPlaying)
+        {
+            rotationCorrectionController = gameObject.AddComponent<GeneratedObjectRotationCorrectionController>();
+        }
+    }
+
+    private void TryAutoLoadMetaUISetPrefabs()
+    {
+        if (_triedAutoLoadUISetPrefabs || !useMetaUISetPrefabsWhenAvailable || !autoLoadMetaUISetPrefabsInEditor)
+        {
+            return;
+        }
+
+        _triedAutoLoadUISetPrefabs = true;
+#if UNITY_EDITOR
+        primaryButtonPrefab ??= AssetDatabase.LoadAssetAtPath<GameObject>(MetaUISetPrimaryButtonPrefabPath);
+        secondaryButtonPrefab ??= AssetDatabase.LoadAssetAtPath<GameObject>(MetaUISetSecondaryButtonPrefabPath);
+        destructiveButtonPrefab ??= AssetDatabase.LoadAssetAtPath<GameObject>(MetaUISetDestructiveButtonPrefabPath);
+        dropdownPrefab ??= AssetDatabase.LoadAssetAtPath<GameObject>(MetaUISetDropdownPrefabPath);
+#endif
+    }
+
+    private bool ShouldInstantiateMetaUISetPrefab(GameObject prefab)
+    {
+        if (!instantiateMetaUISetControlPrefabs)
+        {
+            return false;
+        }
+
+        if (useStableRuntimeControlsOnly && !useMetaUISetPrefabsWhenAvailable)
+        {
+            return false;
+        }
+
+        return useMetaUISetPrefabsWhenAvailable && prefab != null;
+    }
+
+    private bool ShouldUseControllerPointerFallback()
+    {
+        return enableControllerPointerInPlay;
+    }
+
+    private bool HasOfficialCanvasInteractionComponents()
+    {
+        foreach (var behaviour in GetComponentsInChildren<Behaviour>(true))
+        {
+            if (behaviour == null || !behaviour.enabled || Application.isPlaying && !behaviour.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            var typeName = behaviour.GetType().FullName;
+            if (typeName == "Oculus.Interaction.PointableCanvas" ||
+                typeName == "Oculus.Interaction.PokeInteractable" ||
+                typeName == "Oculus.Interaction.RayInteractable" ||
+                typeName == "Oculus.Interaction.PointableCanvasUnityEventWrapper")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasOfficialRayCanvasInteractionComponents()
+    {
+        foreach (var behaviour in GetComponentsInChildren<Behaviour>(true))
+        {
+            if (behaviour == null || !behaviour.enabled || Application.isPlaying && !behaviour.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            if (behaviour.GetType().FullName == "Oculus.Interaction.RayInteractable")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void EnsureContent()
@@ -310,8 +492,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
 
         var layout = _contentRoot.GetComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(34, 34, 28, 28);
-        layout.spacing = 10f;
+        layout.padding = new RectOffset(24, 24, 24, 24);
+        layout.spacing = 14f;
         layout.childAlignment = TextAnchor.UpperLeft;
         layout.childControlWidth = true;
         layout.childControlHeight = true;
@@ -322,17 +504,16 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
         fitter.verticalFit = ContentSizeFitter.FitMode.Unconstrained;
 
-        _titleText = CreateText("Title", "SceneShift Control", 38f, FontStyles.Bold, new Color(0.95f, 0.98f, 1f, 1f));
-        _subtitleText = CreateText("Subtitle", "Room-aware stylization pipeline", 18f, FontStyles.Normal, new Color(0.65f, 0.78f, 0.9f, 1f));
+        CreateHeaderSection();
         CreateThemeDropdown();
-        _statusText = CreateText("Status", "Waiting for Play mode.", 18f, FontStyles.Normal, Color.white);
-        _statusText.textWrappingMode = TextWrappingModes.Normal;
-        SetLayoutSize(_statusText.gameObject, 0f, 180f);
-        _pointerHintText = CreateText("PointerHint", "Point right controller at a button, press Trigger.", 15f, FontStyles.Normal, new Color(0.72f, 0.86f, 0.96f, 1f));
-        SetLayoutSize(_pointerHintText.gameObject, 0f, 28f);
-
+        CreateStatusSection();
         CreateButtonSection("Capture", true);
         CreateButtonSection("Room", false);
+        _pointerHintText = CreateText(_contentRoot, "PointerHint", "Point right controller at the panel, press Trigger.", 15f, FontStyles.Normal, new Color(0.72f, 0.86f, 0.96f, 1f));
+        _pointerHintText.alignment = TextAlignmentOptions.Center;
+        _pointerHintText.textWrappingMode = TextWrappingModes.NoWrap;
+        _pointerHintText.overflowMode = TextOverflowModes.Ellipsis;
+        SetLayoutSize(_pointerHintText.gameObject, 0f, 26f);
         NormalizeContentRoot();
         HideInheritedUISetVisuals();
     }
@@ -341,6 +522,32 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     {
         if (canvas == null)
         {
+            return;
+        }
+
+        var officialBackplate = preferOfficialUISetBackplate ? canvas.transform.Find(OfficialBackplateObjectName) : null;
+        if (officialBackplate != null)
+        {
+            var fallbackBackground = canvas.transform.Find(BackgroundObjectName);
+            if (fallbackBackground != null)
+            {
+                fallbackBackground.gameObject.SetActive(false);
+            }
+
+            officialBackplate.gameObject.SetActive(true);
+            var officialRect = officialBackplate.GetComponent<RectTransform>();
+            if (officialRect != null)
+            {
+                StretchToParent(officialRect);
+            }
+
+            _backgroundImage = officialBackplate.GetComponent<Image>() ?? officialBackplate.GetComponentInChildren<Image>(true);
+            if (_backgroundImage != null)
+            {
+                _backgroundImage.raycastTarget = false;
+            }
+
+            officialBackplate.SetAsFirstSibling();
             return;
         }
 
@@ -364,7 +571,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             StretchToParent(rect);
         }
 
-        _backgroundImage.color = new Color(0.025f, 0.035f, 0.045f, 0.9f);
+        _backgroundImage.color = new Color(0.08f, 0.13f, 0.16f, 0.96f);
+        ApplyUISetInspiredImage(_backgroundImage, true);
         _backgroundImage.raycastTarget = false;
         existing.SetAsFirstSibling();
     }
@@ -436,15 +644,53 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return;
         }
 
+        var hasOfficialBackplate = preferOfficialUISetBackplate && canvas.transform.Find(OfficialBackplateObjectName) != null;
         for (var i = 0; i < canvas.transform.childCount; i++)
         {
             var child = canvas.transform.GetChild(i);
-            var keep = child.name == BackgroundObjectName || child.name == ContentObjectName;
+            var keep = !hasOfficialBackplate && child.name == BackgroundObjectName ||
+                hasOfficialBackplate && child.name == OfficialBackplateObjectName ||
+                child.name == ContentObjectName ||
+                IsCanvasInteractionChild(child);
             if (child.gameObject.activeSelf != keep)
             {
                 child.gameObject.SetActive(keep);
             }
         }
+    }
+
+    private static bool IsCanvasInteractionChild(Transform child)
+    {
+        if (child == null)
+        {
+            return false;
+        }
+
+        if (child.name.Contains("RayCanvasInteraction") ||
+            child.name.Contains("RayInteraction") ||
+            child.name.Contains("PokeInteraction"))
+        {
+            return true;
+        }
+
+        foreach (var behaviour in child.GetComponentsInChildren<Behaviour>(true))
+        {
+            if (behaviour == null)
+            {
+                continue;
+            }
+
+            var typeName = behaviour.GetType().FullName;
+            if (typeName == "Oculus.Interaction.PointableCanvas" ||
+                typeName == "Oculus.Interaction.PokeInteractable" ||
+                typeName == "Oculus.Interaction.RayInteractable" ||
+                typeName == "Oculus.Interaction.PointableCanvasUnityEventWrapper")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void SuppressLegacyHeadsetOverlays()
@@ -533,6 +779,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return;
         }
 
+        if (preferOfficialCanvasInteractions && HasOfficialCanvasInteractionComponents())
+        {
+            return;
+        }
+
         foreach (var behaviour in GetComponentsInChildren<Behaviour>(true))
         {
             var typeName = behaviour.GetType().FullName;
@@ -545,6 +796,104 @@ public class SceneShiftUISetDashboard : MonoBehaviour
                 behaviour.enabled = false;
             }
         }
+    }
+
+    private void CreateHeaderSection()
+    {
+        var headerObject = new GameObject("Header", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
+        headerObject.transform.SetParent(_contentRoot, false);
+
+        var header = headerObject.GetComponent<VerticalLayoutGroup>();
+        header.spacing = 2f;
+        header.childAlignment = TextAnchor.UpperLeft;
+        header.childControlWidth = true;
+        header.childControlHeight = true;
+        header.childForceExpandWidth = true;
+        header.childForceExpandHeight = false;
+
+        var layout = headerObject.GetComponent<LayoutElement>();
+        layout.minHeight = 66f;
+        layout.preferredHeight = 66f;
+
+        _titleText = CreateText(headerObject.transform, "Title", "SceneShift Control", 34f, FontStyles.Bold, new Color(0.95f, 0.98f, 1f, 1f));
+        _titleText.textWrappingMode = TextWrappingModes.NoWrap;
+        _titleText.overflowMode = TextOverflowModes.Ellipsis;
+        SetLayoutSize(_titleText.gameObject, 0f, 38f);
+
+        _subtitleText = CreateText(headerObject.transform, "Subtitle", "Quest Link / headset runtime panel", 16f, FontStyles.Normal, new Color(0.65f, 0.78f, 0.9f, 1f));
+        _subtitleText.textWrappingMode = TextWrappingModes.NoWrap;
+        _subtitleText.overflowMode = TextOverflowModes.Ellipsis;
+        SetLayoutSize(_subtitleText.gameObject, 0f, 24f);
+    }
+
+    private void CreateStatusSection()
+    {
+        var cardObject = new GameObject("StatusCard", typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup), typeof(LayoutElement));
+        cardObject.transform.SetParent(_contentRoot, false);
+
+        var image = cardObject.GetComponent<Image>();
+        image.color = new Color(0.035f, 0.075f, 0.105f, 0.88f);
+        ApplyUISetInspiredImage(image, true);
+        image.raycastTarget = false;
+
+        var layout = cardObject.GetComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(18, 18, 14, 14);
+        layout.spacing = 6f;
+        layout.childAlignment = TextAnchor.UpperLeft;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        var cardLayout = cardObject.GetComponent<LayoutElement>();
+        cardLayout.minHeight = 278f;
+        cardLayout.preferredHeight = 278f;
+
+        _captureStatusText = CreateStatusRow(cardObject.transform, "Capture");
+        _styleStatusText = CreateStatusRow(cardObject.transform, "Style");
+        _cacheStatusText = CreateStatusRow(cardObject.transform, "Cache");
+        _queueStatusText = CreateStatusRow(cardObject.transform, "Jobs");
+        _reuseStatusText = CreateStatusRow(cardObject.transform, "Reuse");
+        _rotationStatusText = CreateStatusRow(cardObject.transform, "Rotate");
+        _cleanViewStatusText = CreateStatusRow(cardObject.transform, "Clean");
+        _objectStatusText = CreateStatusRow(cardObject.transform, "Cards");
+        _statusText = _captureStatusText;
+    }
+
+    private TMP_Text CreateStatusRow(Transform parent, string labelText)
+    {
+        var rowObject = new GameObject($"{labelText}StatusRow", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+        rowObject.transform.SetParent(parent, false);
+
+        var row = rowObject.GetComponent<HorizontalLayoutGroup>();
+        row.spacing = 10f;
+        row.childAlignment = TextAnchor.MiddleLeft;
+        row.childControlWidth = true;
+        row.childControlHeight = true;
+        row.childForceExpandWidth = false;
+        row.childForceExpandHeight = false;
+
+        var rowLayout = rowObject.GetComponent<LayoutElement>();
+        rowLayout.minHeight = 25f;
+        rowLayout.preferredHeight = 25f;
+
+        var label = CreateText(rowObject.transform, $"{labelText}Label", labelText, 14.5f, FontStyles.Bold, new Color(0.68f, 0.8f, 0.9f, 1f));
+        label.alignment = TextAlignmentOptions.MidlineLeft;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.overflowMode = TextOverflowModes.Ellipsis;
+        SetLayoutSize(label.gameObject, 74f, 25f);
+
+        var value = CreateText(rowObject.transform, $"{labelText}Value", "waiting", 14.5f, FontStyles.Normal, Color.white);
+        value.alignment = TextAlignmentOptions.MidlineLeft;
+        value.textWrappingMode = TextWrappingModes.NoWrap;
+        value.overflowMode = TextOverflowModes.Ellipsis;
+        var valueLayout = value.GetComponent<LayoutElement>();
+        valueLayout.minWidth = 0f;
+        valueLayout.preferredWidth = 0f;
+        valueLayout.flexibleWidth = 1f;
+        valueLayout.minHeight = 25f;
+        valueLayout.preferredHeight = 25f;
+        return value;
     }
 
     private void CreateThemeDropdown()
@@ -561,14 +910,17 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         row.childForceExpandHeight = false;
 
         var rowLayout = rowObject.GetComponent<LayoutElement>();
-        rowLayout.minHeight = 68f;
-        rowLayout.preferredHeight = 68f;
+        rowLayout.minHeight = 56f;
+        rowLayout.preferredHeight = 56f;
 
-        var label = CreateText("ThemeLabel", "Theme", 22f, FontStyles.Bold, new Color(0.72f, 0.84f, 0.95f, 1f));
-        label.transform.SetParent(rowObject.transform, false);
+        var label = CreateText(rowObject.transform, "StyleLabel", "Style", 20f, FontStyles.Bold, new Color(0.72f, 0.84f, 0.95f, 1f));
+        label.alignment = TextAlignmentOptions.MidlineLeft;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
         var labelLayout = label.GetComponent<LayoutElement>();
-        labelLayout.minWidth = 95f;
-        labelLayout.preferredWidth = 95f;
+        labelLayout.minWidth = 92f;
+        labelLayout.preferredWidth = 92f;
+        labelLayout.minHeight = 52f;
+        labelLayout.preferredHeight = 52f;
 
         var dropdownObject = CreateDropdownObject(rowObject.transform);
         dropdownObject.name = "ThemeDropdown";
@@ -579,19 +931,24 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             layout = dropdownObject.AddComponent<LayoutElement>();
         }
 
-        layout.minWidth = 380f;
-        layout.preferredWidth = 420f;
-        layout.minHeight = 58f;
-        layout.preferredHeight = 58f;
+        layout.minWidth = 500f;
+        layout.preferredWidth = 560f;
+        layout.flexibleWidth = 1f;
+        layout.minHeight = 52f;
+        layout.preferredHeight = 52f;
 
         _themeTmpDropdown = dropdownObject.GetComponentInChildren<TMP_Dropdown>(true);
         _themeDropdown = dropdownObject.GetComponentInChildren<Dropdown>(true);
-        if (_themeTmpDropdown == null && _themeDropdown == null)
+        _themeMetaDropdown = dropdownObject.GetComponentInChildren<DropDownGroup>(true);
+        _themeDropdownCaptionText = dropdownObject.transform.Find(RuntimeDropdownCaptionName)?.GetComponent<TMP_Text>();
+        if (_themeTmpDropdown == null && _themeDropdown == null && _themeMetaDropdown == null)
         {
             DestroyDropdownObject(dropdownObject);
             dropdownObject = CreateFallbackTmpDropdown(rowObject.transform);
             dropdownObject.name = "ThemeDropdown";
             _themeTmpDropdown = dropdownObject.GetComponent<TMP_Dropdown>();
+            _themeMetaDropdown = null;
+            _themeDropdownCaptionText = null;
         }
 
         WireThemeDropdown();
@@ -600,20 +957,26 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     private GameObject CreateDropdownObject(Transform parent)
     {
-        if (useStableRuntimeControlsOnly || dropdownPrefab == null)
+        if (!ShouldInstantiateMetaUISetPrefab(dropdownPrefab))
         {
             return CreateFallbackTmpDropdown(parent);
         }
 
         var dropdownObject = Instantiate(dropdownPrefab, parent);
         dropdownObject.transform.localScale = Vector3.one;
+        NormalizeDropdownObject(dropdownObject);
         return dropdownObject;
     }
 
     private TMP_Text CreateText(string name, string text, float fontSize, FontStyles fontStyle, Color color)
     {
+        return CreateText(_contentRoot, name, text, fontSize, fontStyle, color);
+    }
+
+    private TMP_Text CreateText(Transform parent, string name, string text, float fontSize, FontStyles fontStyle, Color color)
+    {
         var textObject = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI), typeof(LayoutElement));
-        textObject.transform.SetParent(_contentRoot, false);
+        textObject.transform.SetParent(parent != null ? parent : _contentRoot, false);
 
         var label = textObject.GetComponent<TextMeshProUGUI>();
         label.text = text;
@@ -643,35 +1006,38 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         row.childForceExpandHeight = false;
 
         var layout = rowObject.GetComponent<LayoutElement>();
-        layout.minHeight = 74f;
-        layout.preferredHeight = 74f;
+        layout.minHeight = 56f;
+        layout.preferredHeight = 56f;
 
         if (captureSection)
         {
             _captureButton = CreateButton(rowObject.transform, primaryButtonPrefab, "Capture");
             _autoTargetButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Auto Target");
+            _reuseCaptureButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Reuse Captures");
         }
         else
         {
             _surfaceButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Reapply Room");
             _shellButton = CreateButton(rowObject.transform, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Clean View");
             _worldStatusButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Object Status");
+            _rotateSelectedButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Rotate 90");
         }
     }
 
     private Button CreateButton(Transform parent, GameObject prefab, string label)
     {
-        var buttonObject = !useStableRuntimeControlsOnly && prefab != null
+        var buttonObject = ShouldInstantiateMetaUISetPrefab(prefab)
             ? Instantiate(prefab, parent)
             : CreateFallbackButton(parent);
 
         buttonObject.name = label.Replace(" ", string.Empty) + "Button";
         buttonObject.transform.localScale = Vector3.one;
+        NormalizeButtonObject(buttonObject, label);
 
         var rect = buttonObject.GetComponent<RectTransform>();
         if (rect != null)
         {
-            rect.sizeDelta = new Vector2(180f, 62f);
+            rect.sizeDelta = new Vector2(236f, 52f);
         }
 
         var layout = buttonObject.GetComponent<LayoutElement>();
@@ -680,19 +1046,207 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             layout = buttonObject.AddComponent<LayoutElement>();
         }
 
-        layout.minWidth = 170f;
-        layout.preferredWidth = 180f;
-        layout.minHeight = 62f;
-        layout.preferredHeight = 62f;
-
-        var text = buttonObject.GetComponentInChildren<TMP_Text>(true);
-        if (text != null)
-        {
-            text.text = label;
-            text.fontSize = Mathf.Max(18f, text.fontSize);
-        }
+        layout.minWidth = 0f;
+        layout.preferredWidth = 236f;
+        layout.flexibleWidth = 1f;
+        layout.minHeight = 52f;
+        layout.preferredHeight = 52f;
 
         return buttonObject.GetComponentInChildren<Button>(true);
+    }
+
+    private void NormalizeButtonObject(GameObject buttonObject, string label)
+    {
+        if (buttonObject == null)
+        {
+            return;
+        }
+
+        var button = buttonObject.GetComponentInChildren<Button>(true);
+        var backgroundImage = FindNamedComponent<Image>(buttonObject.transform, "Background")
+            ?? buttonObject.GetComponentInChildren<Image>(true);
+        if (button != null && button.targetGraphic == null && backgroundImage != null)
+        {
+            button.targetGraphic = backgroundImage;
+        }
+
+        if (backgroundImage != null && backgroundImage.sprite == null)
+        {
+            backgroundImage.color = buttonNormalColor;
+            ApplyUISetInspiredImage(backgroundImage, false);
+        }
+
+        HideNamedChild(buttonObject.transform, "Icon");
+        HideNamedChild(buttonObject.transform, "Gap");
+
+        var labelText = FindNamedComponent<TMP_Text>(buttonObject.transform, "Label")
+            ?? FindNamedComponent<TMP_Text>(buttonObject.transform, "Text")
+            ?? buttonObject.GetComponentInChildren<TMP_Text>(true);
+        if (labelText != null)
+        {
+            labelText.text = label;
+            labelText.alignment = TextAlignmentOptions.Center;
+            labelText.color = Color.white;
+            labelText.fontSize = Mathf.Clamp(Mathf.Max(18f, labelText.fontSize), 18f, 22f);
+            labelText.textWrappingMode = TextWrappingModes.NoWrap;
+            labelText.overflowMode = TextOverflowModes.Ellipsis;
+            labelText.raycastTarget = false;
+        }
+
+        foreach (var text in buttonObject.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null || text == labelText)
+            {
+                continue;
+            }
+
+            if (text.name == "Subtitle" || text.name == "Icon")
+            {
+                text.gameObject.SetActive(false);
+            }
+        }
+
+        var runtimeLabel = EnsureRuntimeOverlayText(
+            buttonObject.transform,
+            RuntimeButtonLabelName,
+            TextAlignmentOptions.Center,
+            new Vector2(12f, 0f),
+            new Vector2(-12f, 0f),
+            17f);
+        runtimeLabel.text = label;
+        runtimeLabel.color = GetReadableTextColor(backgroundImage, Color.white);
+        runtimeLabel.fontStyle = FontStyles.Bold;
+        runtimeLabel.transform.SetAsLastSibling();
+    }
+
+    private void NormalizeDropdownObject(GameObject dropdownObject)
+    {
+        if (dropdownObject == null)
+        {
+            return;
+        }
+
+        var image = dropdownObject.GetComponentInChildren<Image>(true);
+        if (image != null && image.sprite == null)
+        {
+            image.color = dropdownNormalColor;
+            ApplyUISetInspiredImage(image, false);
+        }
+
+        foreach (var text in dropdownObject.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null)
+            {
+                continue;
+            }
+
+            text.fontSize = Mathf.Clamp(Mathf.Max(18f, text.fontSize), 18f, 22f);
+            text.color = Color.white;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            text.raycastTarget = false;
+        }
+
+        _themeDropdownCaptionText = EnsureRuntimeOverlayText(
+            dropdownObject.transform,
+            RuntimeDropdownCaptionName,
+            TextAlignmentOptions.MidlineLeft,
+            new Vector2(18f, 0f),
+            new Vector2(-42f, 0f),
+            17f);
+        _themeDropdownCaptionText.fontStyle = FontStyles.Bold;
+        _themeDropdownCaptionText.color = GetReadableTextColor(image, Color.white);
+        _themeDropdownCaptionText.transform.SetAsLastSibling();
+    }
+
+    private static void HideNamedChild(Transform root, string childName)
+    {
+        if (root == null || string.IsNullOrWhiteSpace(childName))
+        {
+            return;
+        }
+
+        foreach (var child in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (child != null && child.name == childName)
+            {
+                child.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    private static TMP_Text EnsureRuntimeOverlayText(
+        Transform parent,
+        string objectName,
+        TextAlignmentOptions alignment,
+        Vector2 offsetMin,
+        Vector2 offsetMax,
+        float fontSize)
+    {
+        var existing = parent.Find(objectName);
+        GameObject textObject;
+        if (existing != null)
+        {
+            textObject = existing.gameObject;
+        }
+        else
+        {
+            textObject = new GameObject(objectName, typeof(RectTransform), typeof(TextMeshProUGUI), typeof(LayoutElement));
+            textObject.transform.SetParent(parent, false);
+        }
+
+        textObject.SetActive(true);
+        var rect = textObject.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = offsetMin;
+        rect.offsetMax = offsetMax;
+
+        var layout = textObject.GetComponent<LayoutElement>();
+        if (layout == null)
+        {
+            layout = textObject.AddComponent<LayoutElement>();
+        }
+
+        layout.ignoreLayout = true;
+
+        var text = textObject.GetComponent<TextMeshProUGUI>();
+        text.alignment = alignment;
+        text.fontSize = fontSize;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Ellipsis;
+        text.raycastTarget = false;
+        return text;
+    }
+
+    private static Color GetReadableTextColor(Image backgroundImage, Color fallback)
+    {
+        if (backgroundImage == null)
+        {
+            return fallback;
+        }
+
+        var color = backgroundImage.color;
+        var luminance = 0.2126f * color.r + 0.7152f * color.g + 0.0722f * color.b;
+        return luminance > 0.56f ? new Color(0.05f, 0.075f, 0.09f, 1f) : Color.white;
+    }
+
+    private static T FindNamedComponent<T>(Transform root, string componentObjectName) where T : Component
+    {
+        if (root == null || string.IsNullOrWhiteSpace(componentObjectName))
+        {
+            return null;
+        }
+
+        foreach (var component in root.GetComponentsInChildren<T>(true))
+        {
+            if (component != null && component.name == componentObjectName)
+            {
+                return component;
+            }
+        }
+
+        return null;
     }
 
     private static void SetLayoutSize(GameObject target, float preferredWidth, float preferredHeight)
@@ -728,16 +1282,21 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         var image = buttonObject.GetComponent<Image>();
         image.color = buttonNormalColor;
+        ApplyUISetInspiredImage(image, false);
 
         var labelObject = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
         labelObject.transform.SetParent(buttonObject.transform, false);
         var labelRect = labelObject.GetComponent<RectTransform>();
         StretchToParent(labelRect);
+        labelRect.offsetMin = new Vector2(12f, 0f);
+        labelRect.offsetMax = new Vector2(-12f, 0f);
 
         var label = labelObject.GetComponent<TextMeshProUGUI>();
         label.alignment = TextAlignmentOptions.Center;
         label.color = Color.white;
-        label.fontSize = 20f;
+        label.fontSize = 19f;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.overflowMode = TextOverflowModes.Ellipsis;
         label.raycastTarget = false;
         return buttonObject;
     }
@@ -748,22 +1307,25 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         root.transform.SetParent(parent, false);
 
         var rect = root.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(420f, 58f);
+        rect.sizeDelta = new Vector2(560f, 52f);
 
         var image = root.GetComponent<Image>();
         image.color = dropdownNormalColor;
+        ApplyUISetInspiredImage(image, false);
 
         var captionObject = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI));
         captionObject.transform.SetParent(root.transform, false);
         var captionRect = captionObject.GetComponent<RectTransform>();
         captionRect.anchorMin = Vector2.zero;
         captionRect.anchorMax = Vector2.one;
-        captionRect.offsetMin = new Vector2(18f, 4f);
+        captionRect.offsetMin = new Vector2(18f, 3f);
         captionRect.offsetMax = new Vector2(-50f, -4f);
         var captionText = captionObject.GetComponent<TextMeshProUGUI>();
         captionText.alignment = TextAlignmentOptions.MidlineLeft;
-        captionText.fontSize = 21f;
+        captionText.fontSize = 19f;
         captionText.color = Color.white;
+        captionText.textWrappingMode = TextWrappingModes.NoWrap;
+        captionText.overflowMode = TextOverflowModes.Ellipsis;
         captionText.raycastTarget = false;
 
         var arrowObject = new GameObject("Arrow", typeof(RectTransform), typeof(TextMeshProUGUI));
@@ -804,7 +1366,9 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         templateRect.anchoredPosition = new Vector2(0f, -6f);
         templateRect.sizeDelta = new Vector2(0f, 190f);
 
-        template.GetComponent<Image>().color = new Color(0.035f, 0.055f, 0.075f, 0.98f);
+        var templateImage = template.GetComponent<Image>();
+        templateImage.color = new Color(0.055f, 0.08f, 0.105f, 0.98f);
+        ApplyUISetInspiredImage(templateImage, true);
 
         var viewport = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(Mask));
         viewport.transform.SetParent(template.transform, false);
@@ -834,7 +1398,9 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         item.transform.SetParent(content.transform, false);
         var itemRect = item.GetComponent<RectTransform>();
         itemRect.sizeDelta = new Vector2(0f, 46f);
-        item.GetComponent<Image>().color = new Color(0.08f, 0.14f, 0.18f, 0.92f);
+        var itemImage = item.GetComponent<Image>();
+        itemImage.color = new Color(0.08f, 0.14f, 0.18f, 0.92f);
+        ApplyUISetInspiredImage(itemImage, false);
 
         var itemLabel = new GameObject("Item Label", typeof(RectTransform), typeof(TextMeshProUGUI));
         itemLabel.transform.SetParent(item.transform, false);
@@ -847,6 +1413,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         itemText.alignment = TextAlignmentOptions.MidlineLeft;
         itemText.fontSize = 20f;
         itemText.color = Color.white;
+        itemText.textWrappingMode = TextWrappingModes.NoWrap;
+        itemText.overflowMode = TextOverflowModes.Ellipsis;
         itemText.raycastTarget = false;
 
         var scrollRect = template.GetComponent<ScrollRect>();
@@ -884,11 +1452,22 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
 
         var buttons = _contentRoot.GetComponentsInChildren<Button>(true);
-        if (buttons.Length > 0) _captureButton = buttons[0];
-        if (buttons.Length > 1) _autoTargetButton = buttons[1];
-        if (buttons.Length > 2) _surfaceButton = buttons[2];
-        if (buttons.Length > 3) _shellButton = buttons[3];
-        if (buttons.Length > 4) _worldStatusButton = buttons[4];
+        _captureButton = FindContentButton("CaptureButtons/CaptureButton") ?? (buttons.Length > 0 ? buttons[0] : null);
+        _autoTargetButton = FindContentButton("CaptureButtons/AutoTargetButton") ?? (buttons.Length > 1 ? buttons[1] : null);
+        _reuseCaptureButton = FindContentButton("CaptureButtons/ReuseCapturesButton");
+        _surfaceButton = FindContentButton("RoomButtons/ReapplyRoomButton");
+        _shellButton = FindContentButton("RoomButtons/CleanViewButton");
+        _worldStatusButton = FindContentButton("RoomButtons/ObjectStatusButton");
+        _rotateSelectedButton = FindContentButton("RoomButtons/Rotate90Button");
+
+        if (_reuseCaptureButton == null)
+        {
+            var captureButtons = _contentRoot.Find("CaptureButtons");
+            if (captureButtons != null)
+            {
+                _reuseCaptureButton = CreateButton(captureButtons, secondaryButtonPrefab, "Reuse Captures");
+            }
+        }
 
         if (_worldStatusButton == null)
         {
@@ -899,9 +1478,20 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             }
         }
 
+        if (_rotateSelectedButton == null)
+        {
+            var roomButtons = _contentRoot.Find("RoomButtons");
+            if (roomButtons != null)
+            {
+                _rotateSelectedButton = CreateButton(roomButtons, secondaryButtonPrefab, "Rotate 90");
+            }
+        }
+
         _themeTmpDropdown = _contentRoot.GetComponentInChildren<TMP_Dropdown>(true);
         _themeDropdown = _contentRoot.GetComponentInChildren<Dropdown>(true);
-        if (_themeTmpDropdown == null && _themeDropdown == null)
+        _themeMetaDropdown = _contentRoot.GetComponentInChildren<DropDownGroup>(true);
+        _themeDropdownCaptionText = _contentRoot.Find($"ThemeDropdown/{RuntimeDropdownCaptionName}")?.GetComponent<TMP_Text>();
+        if (_themeTmpDropdown == null && _themeDropdown == null && _themeMetaDropdown == null)
         {
             CreateThemeDropdown();
         }
@@ -912,13 +1502,26 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
     }
 
+    private Button FindContentButton(string relativePath)
+    {
+        if (_contentRoot == null || string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+
+        var target = _contentRoot.Find(relativePath);
+        return target != null ? target.GetComponentInChildren<Button>(true) : null;
+    }
+
     private void WireButtons()
     {
         WireButton(_captureButton, CaptureCurrentTarget);
         WireButton(_autoTargetButton, SetAutoTargetFromGaze);
+        WireButton(_reuseCaptureButton, RegenerateFurnitureFromCaptures);
         WireButton(_surfaceButton, ReapplySurfaces);
         WireButton(_shellButton, ToggleShells);
         WireButton(_worldStatusButton, ToggleObjectStatusCards);
+        WireButton(_rotateSelectedButton, RotateSelectedGeneratedObject90);
         WireThemeDropdown();
     }
 
@@ -946,6 +1549,13 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             _themeDropdown.onValueChanged.RemoveListener(SelectThemeFromDropdown);
             _themeDropdown.onValueChanged.AddListener(SelectThemeFromDropdown);
         }
+
+        if (_themeMetaDropdown != null)
+        {
+            _themeMetaDropdown.WhenSelectionChanged ??= new UnityEngine.Events.UnityEvent<int>();
+            _themeMetaDropdown.WhenSelectionChanged.RemoveListener(SelectThemeFromDropdown);
+            _themeMetaDropdown.WhenSelectionChanged.AddListener(SelectThemeFromDropdown);
+        }
     }
 
     private void HandleControllerPointer()
@@ -953,7 +1563,6 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         if (!enableControllerPointerInPlay || canvas == null || _contentRoot == null || !Application.isPlaying)
         {
             ClearPointerHover();
-            SetPointerLineVisible(false);
             return;
         }
 
@@ -962,7 +1571,6 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             ClearPointerHover();
             SetPointerHint("Pointer: right controller not found");
-            SetPointerLineVisible(false);
             return;
         }
 
@@ -971,7 +1579,6 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             ClearPointerHover();
             SetPointerHint("Point right controller at the panel, press Trigger.");
-            UpdatePointerLine(ray.origin, ray.origin + ray.direction * Mathf.Min(pointerMaxDistanceMeters, 1.2f), false);
             return;
         }
 
@@ -989,12 +1596,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         SetHoveredButton(hoveredButton);
         SetHoveredDropdown(hoveredDropdownImage);
-        UpdatePointerLine(ray.origin, hitWorldPoint, true);
 
+        var officialRayInteractionActive = preferOfficialCanvasInteractions && HasOfficialRayCanvasInteractionComponents();
         if (hoveredButton != null)
         {
             SetPointerHint($"Trigger: {GetButtonLabel(hoveredButton)}");
-            if (OVRInput.GetDown(pointerSelectButton, pointerController))
+            if (!officialRayInteractionActive && OVRInput.GetDown(pointerSelectButton, pointerController))
             {
                 hoveredButton.onClick.Invoke();
             }
@@ -1004,7 +1611,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         if (hoveredDropdownImage != null)
         {
-            SetPointerHint("Trigger: switch theme");
+            SetPointerHint("Trigger: switch style");
             if (OVRInput.GetDown(pointerSelectButton, pointerController))
             {
                 CycleThemeFromPointer();
@@ -1040,10 +1647,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         var candidates = new[]
         {
-            "RightHandAnchor",
             "RightControllerAnchor",
+            "RightControllerInHandAnchor",
             "RightController",
             "RController",
+            "RightHandAnchor",
         };
 
         foreach (var candidate in candidates)
@@ -1119,7 +1727,9 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             ? _themeTmpDropdown.GetComponent<RectTransform>()
             : _themeDropdown != null
                 ? _themeDropdown.GetComponent<RectTransform>()
-                : null;
+                : _themeMetaDropdown != null
+                    ? _themeMetaDropdown.GetComponent<RectTransform>()
+                    : null;
         return rect != null && RectContainsCanvasLocalPoint(rect, canvasLocalPoint);
     }
 
@@ -1148,9 +1758,9 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return;
         }
 
-        SetButtonColor(_hoveredButton, buttonNormalColor);
+        RestoreGraphicColor(_hoveredButton != null ? _hoveredButton.targetGraphic : null);
         _hoveredButton = button;
-        SetButtonColor(_hoveredButton, buttonHoverColor);
+        ApplyHoverColor(_hoveredButton != null ? _hoveredButton.targetGraphic : null, buttonHoverColor);
     }
 
     private void SetHoveredDropdown(Image image)
@@ -1162,13 +1772,13 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         if (_hoveredDropdownImage != null)
         {
-            _hoveredDropdownImage.color = dropdownNormalColor;
+            RestoreGraphicColor(_hoveredDropdownImage);
         }
 
         _hoveredDropdownImage = image;
         if (_hoveredDropdownImage != null)
         {
-            _hoveredDropdownImage.color = dropdownHoverColor;
+            ApplyHoverColor(_hoveredDropdownImage, dropdownHoverColor);
         }
     }
 
@@ -1178,14 +1788,33 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         SetHoveredDropdown(null);
     }
 
-    private void SetButtonColor(Button button, Color color)
+    private void ApplyHoverColor(Graphic graphic, Color color)
     {
-        if (button == null || button.targetGraphic == null)
+        if (graphic == null)
         {
             return;
         }
 
-        button.targetGraphic.color = color;
+        if (!_pointerOriginalGraphicColors.ContainsKey(graphic))
+        {
+            _pointerOriginalGraphicColors[graphic] = graphic.color;
+        }
+
+        graphic.color = color;
+    }
+
+    private void RestoreGraphicColor(Graphic graphic)
+    {
+        if (graphic == null)
+        {
+            return;
+        }
+
+        if (_pointerOriginalGraphicColors.TryGetValue(graphic, out var originalColor))
+        {
+            graphic.color = originalColor;
+            _pointerOriginalGraphicColors.Remove(graphic);
+        }
     }
 
     private Image GetDropdownImage()
@@ -1200,17 +1829,30 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return image;
         }
 
+        if (_themeMetaDropdown != null)
+        {
+            return FindNamedComponent<Image>(_themeMetaDropdown.transform, "Background")
+                ?? _themeMetaDropdown.GetComponentInChildren<Image>(true);
+        }
+
         return null;
     }
 
     private void CycleThemeFromPointer()
     {
-        if (themeIntentController == null)
+        if (runtimeStyleIntentController != null && runtimeStyleIntentController.StyleOptionCount > 0)
+        {
+            runtimeStyleIntentController.CycleStyle(1);
+        }
+        else if (themeIntentController != null)
+        {
+            themeIntentController.CycleTheme(1);
+        }
+        else
         {
             return;
         }
 
-        themeIntentController.CycleTheme(1);
         roomStyleCacheService?.Refresh();
         PopulateThemeDropdown();
         UpdatePanel();
@@ -1235,69 +1877,35 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
     }
 
-    private void UpdatePointerLine(Vector3 start, Vector3 end, bool hit)
-    {
-        if (!showControllerPointerRay)
-        {
-            SetPointerLineVisible(false);
-            return;
-        }
-
-        EnsurePointerLine();
-        if (_pointerLine == null)
-        {
-            return;
-        }
-
-        _pointerLine.enabled = true;
-        _pointerLine.startColor = hit ? buttonHoverColor : new Color(0.45f, 0.7f, 0.9f, 0.45f);
-        _pointerLine.endColor = _pointerLine.startColor;
-        _pointerLine.SetPosition(0, start);
-        _pointerLine.SetPosition(1, end);
-    }
-
-    private void EnsurePointerLine()
-    {
-        if (_pointerLine != null)
-        {
-            return;
-        }
-
-        var lineObject = new GameObject("SceneShiftDashboardPointerRay", typeof(LineRenderer));
-        lineObject.transform.SetParent(transform, false);
-        _pointerLine = lineObject.GetComponent<LineRenderer>();
-        _pointerLine.useWorldSpace = true;
-        _pointerLine.positionCount = 2;
-        _pointerLine.startWidth = 0.006f;
-        _pointerLine.endWidth = 0.003f;
-        _pointerLineMaterial = new Material(Shader.Find("Sprites/Default"));
-        _pointerLine.sharedMaterial = _pointerLineMaterial;
-    }
-
-    private void SetPointerLineVisible(bool visible)
-    {
-        if (_pointerLine != null)
-        {
-            _pointerLine.enabled = visible;
-        }
-    }
-
     private void PopulateThemeDropdown()
     {
-        if (themeIntentController == null)
-        {
-            return;
-        }
-
         var labels = new List<string>();
-        foreach (var theme in themeIntentController.AvailableThemes)
+        var selectedIndex = 0;
+
+        if (runtimeStyleIntentController != null && runtimeStyleIntentController.StyleOptionCount > 0)
         {
-            labels.Add(theme != null ? theme.DisplayName : "Missing Theme");
+            labels.AddRange(runtimeStyleIntentController.GetStyleOptionLabels());
+            selectedIndex = runtimeStyleIntentController.ActiveStyleIndex;
+        }
+        else if (themeIntentController != null)
+        {
+            foreach (var theme in themeIntentController.AvailableThemes)
+            {
+                if (theme == null)
+                {
+                    labels.Add("Missing Theme");
+                    continue;
+                }
+
+                labels.Add(theme.DisplayName);
+            }
+
+            selectedIndex = themeIntentController.ActiveThemeIndex;
         }
 
         if (labels.Count == 0)
         {
-            labels.Add("No Themes");
+            labels.Add("No Styles");
         }
 
         _isSyncingThemeDropdown = true;
@@ -1305,7 +1913,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             _themeTmpDropdown.ClearOptions();
             _themeTmpDropdown.AddOptions(labels);
-            _themeTmpDropdown.SetValueWithoutNotify(Mathf.Clamp(themeIntentController.ActiveThemeIndex, 0, labels.Count - 1));
+            _themeTmpDropdown.SetValueWithoutNotify(Mathf.Clamp(selectedIndex, 0, labels.Count - 1));
             _themeTmpDropdown.RefreshShownValue();
         }
 
@@ -1313,11 +1921,103 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             _themeDropdown.ClearOptions();
             _themeDropdown.AddOptions(labels);
-            _themeDropdown.SetValueWithoutNotify(Mathf.Clamp(themeIntentController.ActiveThemeIndex, 0, labels.Count - 1));
+            _themeDropdown.SetValueWithoutNotify(Mathf.Clamp(selectedIndex, 0, labels.Count - 1));
             _themeDropdown.RefreshShownValue();
         }
 
+        var clampedIndex = Mathf.Clamp(selectedIndex, 0, labels.Count - 1);
+        SetDropdownCaption(labels[clampedIndex]);
+        PopulateMetaUISetDropdown(labels, selectedIndex);
+
         _isSyncingThemeDropdown = false;
+    }
+
+    private void SetDropdownCaption(string label)
+    {
+        if (_themeDropdownCaptionText != null)
+        {
+            _themeDropdownCaptionText.text = label;
+        }
+    }
+
+    private void PopulateMetaUISetDropdown(IReadOnlyList<string> labels, int selectedIndex)
+    {
+        if (_themeMetaDropdown == null || labels == null || labels.Count == 0)
+        {
+            return;
+        }
+
+        var toggleGroup = _themeMetaDropdown.GetComponentInChildren<ToggleGroup>(true);
+        var toggles = toggleGroup != null
+            ? toggleGroup.GetComponentsInChildren<Toggle>(true)
+            : _themeMetaDropdown.GetComponentsInChildren<Toggle>(true);
+        if (toggles == null || toggles.Length == 0)
+        {
+            return;
+        }
+
+        var clampedIndex = Mathf.Clamp(selectedIndex, 0, labels.Count - 1);
+        var optionIndex = 0;
+        foreach (var toggle in toggles)
+        {
+            if (toggle == null || toggleGroup != null && toggle.group != toggleGroup && !toggle.transform.IsChildOf(toggleGroup.transform))
+            {
+                continue;
+            }
+
+            var active = optionIndex < labels.Count;
+            toggle.gameObject.SetActive(active);
+            if (active)
+            {
+                SetDropdownToggleText(toggle.transform, labels[optionIndex]);
+                toggle.SetIsOnWithoutNotify(optionIndex == clampedIndex);
+            }
+
+            optionIndex++;
+        }
+
+        if (_themeMetaDropdown.Title != null)
+        {
+            _themeMetaDropdown.Title.text = labels[clampedIndex];
+        }
+
+        if (_themeMetaDropdown.Subtitle != null)
+        {
+            _themeMetaDropdown.Subtitle.gameObject.SetActive(false);
+        }
+    }
+
+    private static void SetDropdownToggleText(Transform toggleRoot, string label)
+    {
+        if (toggleRoot == null)
+        {
+            return;
+        }
+
+        TMP_Text title = null;
+        foreach (var text in toggleRoot.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null)
+            {
+                continue;
+            }
+
+            if (text.name == "Title" || text.name == "Label" || text.name == "Text")
+            {
+                title ??= text;
+            }
+
+            if (text.name == "Subtitle")
+            {
+                text.gameObject.SetActive(false);
+            }
+        }
+
+        if (title != null)
+        {
+            title.gameObject.SetActive(true);
+            title.text = label;
+        }
     }
 
     private void UpdatePanel()
@@ -1329,17 +2029,36 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         _builder.Clear();
         PopulateThemeDropdown();
-        _builder.AppendLine(BuildCaptureLine());
-        _builder.AppendLine(BuildThemeLine());
-        _builder.AppendLine(BuildCacheLine());
-        _builder.AppendLine(BuildQueueLine());
-        _builder.AppendLine();
-        _builder.AppendLine($"Clean View: {(shellVisibilityToggle != null && shellVisibilityToggle.CleanViewActive ? "active" : "off")}");
-        _builder.AppendLine($"Object Status Cards: {(worldStatusOverlay != null && worldStatusOverlay.IsOverlayVisible ? "visible" : "hidden")}");
-        _builder.AppendLine("Controls: Capture | Auto Target | Reapply Room | Clean View | Object Status | Left Menu: Panel");
+        var captureLine = BuildCaptureLine();
+        var themeLine = BuildThemeLine();
+        var cacheLine = BuildCacheLine();
+        var queueLine = BuildQueueLine();
+        var reuseLine = BuildReuseLine();
+        var rotationLine = BuildRotationLine();
+        var cleanLine = shellVisibilityToggle != null && shellVisibilityToggle.CleanViewActive ? "active" : "off";
+        var cardsLine = worldStatusOverlay != null && worldStatusOverlay.IsOverlayVisible ? "visible" : "hidden";
 
-        _statusText.text = _builder.ToString().TrimEnd();
-        _latestSummary = $"[SceneShiftUISetDashboard]\nState: visible\n{_statusText.text}";
+        SetStatusValue(_captureStatusText, StripStatusPrefix(captureLine, "Capture"));
+        SetStatusValue(_styleStatusText, StripStatusPrefix(themeLine, "Style"));
+        SetStatusValue(_cacheStatusText, StripStatusPrefix(cacheLine, "Cache"));
+        SetStatusValue(_queueStatusText, StripStatusPrefix(queueLine, "Queue"));
+        SetStatusValue(_reuseStatusText, StripStatusPrefix(reuseLine, "Reuse"));
+        SetStatusValue(_rotationStatusText, StripStatusPrefix(rotationLine, "Rotate"));
+        SetStatusValue(_cleanViewStatusText, cleanLine);
+        SetStatusValue(_objectStatusText, cardsLine);
+
+        _builder.AppendLine(captureLine);
+        _builder.AppendLine(themeLine);
+        _builder.AppendLine(cacheLine);
+        _builder.AppendLine(queueLine);
+        _builder.AppendLine(reuseLine);
+        _builder.AppendLine(rotationLine);
+        _builder.AppendLine();
+        _builder.AppendLine($"Clean View: {cleanLine}");
+        _builder.AppendLine($"Object Status Cards: {cardsLine}");
+        _builder.AppendLine("Controls: Capture | Auto Target | Reuse Captures | Reapply Room | Clean View | Object Status | Rotate 90 | Left Menu: Panel");
+
+        _latestSummary = $"[SceneShiftUISetDashboard]\nState: visible\n{_builder.ToString().TrimEnd()}";
 
         if (_titleText != null)
         {
@@ -1350,6 +2069,25 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             _subtitleText.text = "Quest Link / headset runtime panel";
         }
+    }
+
+    private static void SetStatusValue(TMP_Text target, string value)
+    {
+        if (target != null)
+        {
+            target.text = value;
+        }
+    }
+
+    private static string StripStatusPrefix(string line, string prefix)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return "waiting";
+        }
+
+        var expected = prefix + ":";
+        return line.StartsWith(expected) ? line[expected.Length..].Trim() : line.Trim();
     }
 
     private string BuildCaptureLine()
@@ -1364,18 +2102,25 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var objectId = captureService.HasBestCandidate && !string.IsNullOrWhiteSpace(captureService.BestAnchorObjectId)
             ? captureService.BestAnchorObjectId
             : "none";
-        var anchor = captureService.HasBestCandidate ? captureService.BestAnchorDisplayName : "none";
-        return $"Capture: {captureService.CurrentState} | target={target} | id={objectId} | anchor={anchor} | score={score}";
+        return $"Capture: {captureService.CurrentState} | target={target} | id={objectId} | score={score}";
     }
 
     private string BuildThemeLine()
     {
         if (themeIntentController == null || themeIntentController.ActiveTheme == null)
         {
-            return "Theme: none";
+            return "Style: none";
         }
 
-        return $"Theme: {themeIntentController.ActiveTheme.DisplayName}";
+        var theme = themeIntentController.ActiveTheme;
+        var runtimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
+        var effectiveDisplayName = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(theme, runtimeIntent);
+        if (!RuntimeStyleIntentRequestUtility.HasUserStyleIntent(runtimeIntent))
+        {
+            return $"Style: {effectiveDisplayName}";
+        }
+
+        return $"Style: {effectiveDisplayName} | scaffold={theme.DisplayName}";
     }
 
     private string BuildCacheLine()
@@ -1385,7 +2130,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return "Cache: unavailable";
         }
 
-        return "Cache: " + roomStyleCacheService.GetThemeCacheLine(themeIntentController.ActiveTheme);
+        return "Cache: " + CompactStatusLine(roomStyleCacheService.GetThemeCacheLine(themeIntentController.ActiveTheme), 118);
     }
 
     private string BuildQueueLine()
@@ -1402,7 +2147,44 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
 
         var lines = summary.Split('\n');
-        return lines.Length > 1 ? lines[1].Trim() : summary.Trim();
+        return "Queue: " + CompactStatusLine(lines.Length > 1 ? lines[1].Trim() : summary.Trim(), 118);
+    }
+
+    private string BuildReuseLine()
+    {
+        if (furnitureReuseService == null)
+        {
+            return "Reuse: unavailable";
+        }
+
+        return $"Reuse: queued={furnitureReuseService.LastQueuedCount}, skipped={furnitureReuseService.LastSkippedCount}, failed={furnitureReuseService.LastFailedCount}";
+    }
+
+    private string BuildRotationLine()
+    {
+        if (rotationCorrectionController == null)
+        {
+            return "Rotate: unavailable";
+        }
+
+        rotationCorrectionController.RefreshSelectionFromContext();
+        return $"Rotate: {rotationCorrectionController.StatusLine}";
+    }
+
+    private static string CompactStatusLine(string value, int maxCharacters)
+    {
+        if (string.IsNullOrWhiteSpace(value) || maxCharacters <= 4)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "waiting" : value;
+        }
+
+        value = value.Replace('\n', ' ').Replace('\r', ' ').Trim();
+        while (value.Contains("  "))
+        {
+            value = value.Replace("  ", " ");
+        }
+
+        return value.Length <= maxCharacters ? value : value[..(maxCharacters - 3)] + "...";
     }
 
     private void UpdateHeadLockedPlacement()
@@ -1437,6 +2219,63 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             canvas.gameObject.SetActive(isVisible);
         }
+    }
+
+    private void ApplyUISetInspiredImage(Image image, bool isPanel)
+    {
+        if (!useUISetInspiredFallbackSkin || image == null || image.sprite != null)
+        {
+            return;
+        }
+
+        image.sprite = GetRoundedBoxSprite();
+        image.type = Image.Type.Sliced;
+        image.pixelsPerUnitMultiplier = isPanel ? 0.75f : 1f;
+    }
+
+    private Sprite GetRoundedBoxSprite()
+    {
+        if (_roundedBoxSprite != null)
+        {
+            return _roundedBoxSprite;
+        }
+
+        const int size = 64;
+        const int radius = 18;
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "SceneShift_UISetInspiredRoundedBox",
+            hideFlags = HideFlags.DontSave,
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+
+        var clear = new Color32(255, 255, 255, 0);
+        var solid = new Color32(255, 255, 255, 255);
+        for (var y = 0; y < size; y++)
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var dx = x < radius ? radius - x : x >= size - radius ? x - (size - radius - 1) : 0;
+                var dy = y < radius ? radius - y : y >= size - radius ? y - (size - radius - 1) : 0;
+                var inside = dx == 0 && dy == 0 || dx * dx + dy * dy <= radius * radius;
+                texture.SetPixel(x, y, inside ? solid : clear);
+            }
+        }
+
+        texture.Apply(false, true);
+        _roundedBoxTexture = texture;
+        _roundedBoxSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(radius, radius, radius, radius));
+        _roundedBoxSprite.name = "SceneShift_UISetInspiredRoundedBox";
+        _roundedBoxSprite.hideFlags = HideFlags.DontSave;
+        return _roundedBoxSprite;
     }
 
     private static void StretchToParent(RectTransform rectTransform)

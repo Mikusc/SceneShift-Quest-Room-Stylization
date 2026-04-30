@@ -80,8 +80,8 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     [SerializeField] private bool enableXrControllerCapture = true;
     [SerializeField] private XRNode xrCaptureController = XRNode.RightHand;
     [SerializeField] private XrControllerCaptureButton xrCaptureButton = XrControllerCaptureButton.PrimaryButton;
-    [SerializeField, Tooltip("Quest controller target toggle. Y is used to avoid conflicting with the right-hand B shell visibility toggle.")]
-    private bool enableOvrControllerTargetCycle = true;
+    [SerializeField, Tooltip("Quest controller target toggle. Disabled by default because left-controller Y is reserved for pure passthrough view.")]
+    private bool enableOvrControllerTargetCycle;
     [SerializeField] private OVRInput.RawButton ovrTargetCycleButton = OVRInput.RawButton.Y;
     [SerializeField, Tooltip("Legacy Unity XR fallback. Keep disabled unless a device does not expose OVRInput.")]
     private bool enableXrControllerTargetCycle;
@@ -703,15 +703,15 @@ public class DevicePassthroughCaptureService : MonoBehaviour
     {
         var intrinsics = passthroughCameraAccess.Intrinsics;
         var cameraPose = passthroughCameraAccess.GetCameraPose();
+        var theme = themeIntentController != null ? themeIntentController.ActiveTheme : null;
+        var runtimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
         return new DevicePassthroughCaptureRecord
         {
             CaptureId = captureId,
             RoomId = roomSemanticBootstrap != null && roomSemanticBootstrap.CurrentRoom != null
                 ? roomSemanticBootstrap.CurrentRoom.name
                 : "unknown_room",
-            ThemeId = themeIntentController != null && themeIntentController.ActiveTheme != null
-                ? themeIntentController.ActiveTheme.ThemeId
-                : "no_theme",
+            ThemeId = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(theme, runtimeIntent),
             SemanticLabel = GetSemanticLabel(GetResolvedCaptureCategory()),
             FunctionTag = GetFunctionTag(GetResolvedCaptureCategory()),
             AnchorName = _bestCandidate.Anchor != null ? _bestCandidate.Anchor.name : "unknown_anchor",
@@ -755,8 +755,9 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         var semanticLabel = GetSemanticLabel(captureCategory);
         var functionTag = GetFunctionTag(captureCategory);
         var theme = themeIntentController != null ? themeIntentController.ActiveTheme : null;
+        var runtimeIntent = runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null;
         var plannedEntry = FindMatchingPlanEntry(_bestCandidate.Anchor, _bestCandidate.AnchorIndex);
-        var targetSize = CalculateTargetPhysicalSize(_bestCandidate.Dimensions);
+        var targetSize = CalculateTargetPhysicalSize(_bestCandidate.Dimensions, semanticLabel);
         var cameraPose = passthroughCameraAccess != null && passthroughCameraAccess.IsPlaying
             ? passthroughCameraAccess.GetCameraPose()
             : _bestCandidate.CameraPose;
@@ -770,9 +771,9 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             RoomId = roomSemanticBootstrap != null && roomSemanticBootstrap.CurrentRoom != null
                 ? roomSemanticBootstrap.CurrentRoom.name
                 : "unknown_room",
-            ThemeId = theme != null ? theme.ThemeId : "no_theme",
-            ThemeDisplayName = theme != null ? theme.DisplayName : "No Theme",
-            ThemeShortDescription = theme != null ? theme.ShortDescription : string.Empty,
+            ThemeId = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeId(theme, runtimeIntent),
+            ThemeDisplayName = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(theme, runtimeIntent),
+            ThemeShortDescription = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDescription(theme, runtimeIntent),
             StyleVariantId = SurfaceTexturePromptBuilder.PresetStyleVariantId,
             SemanticLabel = semanticLabel,
             FunctionTag = functionTag,
@@ -810,13 +811,11 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             ScaffoldLongestAxis = GetDominantAxisVector(_bestCandidate.Dimensions),
             VisibilityScore = _bestCandidate.Score,
             PromptVersion = GeneratedObjectPromptBuilder.RoomifyImagePromptVersion,
-            AppearancePrompt = BuildAppearancePrompt(theme, semanticLabel, functionTag, plannedEntry),
+            AppearancePrompt = BuildAppearancePrompt(theme, runtimeIntent, semanticLabel, functionTag, plannedEntry),
             CreatedAtIsoUtc = capturedAtUtc.ToString("O"),
         };
 
-        RuntimeStyleIntentRequestUtility.ApplyToRequest(
-            runtimeStyleIntentController != null ? runtimeStyleIntentController.CurrentIntent : null,
-            request);
+        RuntimeStyleIntentRequestUtility.ApplyThemeIdentityToRequest(theme, runtimeIntent, request);
         request.ImageStylizationPrompt = GeneratedObjectPromptBuilder.BuildImageStylizationPrompt(request);
         return request;
     }
@@ -1414,11 +1413,28 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         return Vector3.forward * dimensions.z;
     }
 
-    private static TargetPhysicalSize CalculateTargetPhysicalSize(Vector3 dimensions)
+    private static TargetPhysicalSize CalculateTargetPhysicalSize(Vector3 dimensions, string semanticLabel)
     {
         var x = Mathf.Max(0.01f, Mathf.Abs(dimensions.x));
         var y = Mathf.Max(0.01f, Mathf.Abs(dimensions.y));
         var z = Mathf.Max(0.01f, Mathf.Abs(dimensions.z));
+        var axes = new[] { x, y, z };
+        Array.Sort(axes);
+
+        if (IsLowProfileFurniture(semanticLabel))
+        {
+            var height = axes[0];
+            var sortedWidth = axes[1];
+            var sortedLength = axes[2];
+            return new TargetPhysicalSize
+            {
+                LengthMeters = sortedLength,
+                WidthMeters = sortedWidth,
+                HeightMeters = height,
+                AspectRatio = sortedWidth > 0.0001f ? sortedLength / sortedWidth : 1f,
+            };
+        }
+
         var length = Mathf.Max(x, z);
         var width = Mathf.Min(x, z);
 
@@ -1431,17 +1447,26 @@ public class DevicePassthroughCaptureService : MonoBehaviour
         };
     }
 
+    private static bool IsLowProfileFurniture(string semanticLabel)
+    {
+        return string.Equals(semanticLabel, "table", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(semanticLabel, "bed", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string BuildAppearancePrompt(
         ThemeProfile theme,
+        RuntimeStyleIntent runtimeIntent,
         string semanticLabel,
         string functionTag,
         StylizationPlanEntry plannedEntry)
     {
         var builder = new StringBuilder(256);
+        var themeDisplayName = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDisplayName(theme, runtimeIntent);
+        var themeDescription = RuntimeStyleIntentRequestUtility.BuildEffectiveThemeDescription(theme, runtimeIntent);
         if (string.Equals(semanticLabel, "other", StringComparison.OrdinalIgnoreCase))
         {
             builder.Append("The spatial system labeled this as an unknown room object. Use the reference image to infer the object's visual category and functional role, then stylize that same physical object for the theme \"");
-            builder.Append(theme != null ? theme.DisplayName : "Unassigned Theme");
+            builder.Append(themeDisplayName);
             builder.Append("\" while preserving its approximate dimensions, dominant yaw, footprint, and contact surface.");
         }
         else
@@ -1449,16 +1474,16 @@ public class DevicePassthroughCaptureService : MonoBehaviour
             builder.Append("Stylize the ");
             builder.Append(semanticLabel);
             builder.Append(" for the theme \"");
-            builder.Append(theme != null ? theme.DisplayName : "Unassigned Theme");
+            builder.Append(themeDisplayName);
             builder.Append("\" while preserving its ");
             builder.Append(functionTag);
             builder.Append(", approximate dimensions, dominant yaw, and walk-around footprint.");
         }
 
-        if (theme != null && !string.IsNullOrWhiteSpace(theme.ShortDescription))
+        if (!string.IsNullOrWhiteSpace(themeDescription))
         {
             builder.Append(" Theme intent: ");
-            builder.Append(theme.ShortDescription.Trim());
+            builder.Append(themeDescription.Trim());
             builder.Append('.');
         }
 

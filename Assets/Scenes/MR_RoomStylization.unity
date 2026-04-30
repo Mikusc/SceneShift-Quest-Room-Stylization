@@ -161,6 +161,7 @@ GameObject:
   - component: {fileID: 110463502}
   - component: {fileID: 110463504}
   - component: {fileID: 110463503}
+  - component: {fileID: 110463505}
   m_Layer: 0
   m_Name: EventSystem
   m_TagString: Untagged
@@ -229,6 +230,21 @@ MonoBehaviour:
   m_FirstSelected: {fileID: 0}
   m_sendNavigationEvents: 1
   m_DragThreshold: 10
+--- !u!114 &110463505
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 110463501}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2518c50cb3fc6a6458d4b743c2f69c7d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.PointableCanvasModule
+  m_SendPointerHoverToParent: 1
+  _useInitialPressPositionForDrag: 1
+  _exclusiveMode: 1
 --- !u!1 &176067253
 GameObject:
   m_ObjectHideFlags: 0
@@ -979,6 +995,102 @@ Camera:
   m_CorrespondingSourceObject: {fileID: 2037080, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
   m_PrefabInstance: {fileID: 432232722}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &790777797
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 790777798}
+  - component: {fileID: 790777801}
+  - component: {fileID: 790777800}
+  - component: {fileID: 790777799}
+  m_Layer: 0
+  m_Name: ISDK_RayCanvasInteraction
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &790777798
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790777797}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 821108149}
+  m_Father: {fileID: 1263636755}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &790777799
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790777797}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306cc8c2b49d7114eaa3623786fc2126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_IgnoreLayout: 1
+  m_MinWidth: -1
+  m_MinHeight: -1
+  m_PreferredWidth: -1
+  m_PreferredHeight: -1
+  m_FlexibleWidth: -1
+  m_FlexibleHeight: -1
+  m_LayoutPriority: 1
+--- !u!114 &790777800
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790777797}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3ffe41fe81087fa41a2062cc69b99615, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _transferOnSecondSelection: 0
+  _addNewPointsToFront: 0
+  _forwardElement: {fileID: 0}
+  _canvas: {fileID: 820369738}
+--- !u!114 &790777801
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790777797}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bb86ba9d4c5126e48bfef9b0c9550e9d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _interactorFilters: []
+  _maxInteractors: -1
+  _maxSelectingInteractors: -1
+  _data: {fileID: 0}
+  _pointableElement: {fileID: 790777800}
+  _surface: {fileID: 821108152}
+  _selectSurface: {fileID: 821108153}
+  _movementProvider: {fileID: 0}
+  _tiebreakerScore: 0
 --- !u!1001 &820369736
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1101,7 +1213,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: 8871935754367020192, guid: 6b196de96e7d16b4297c1980179ae439, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 790777798}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 2121831639775495873, guid: 6b196de96e7d16b4297c1980179ae439, type: 3}
       insertIndex: -1
@@ -1139,10 +1254,15 @@ MonoBehaviour:
   captureService: {fileID: 1336658405}
   generationQueueStatusService: {fileID: 1336658411}
   themeIntentController: {fileID: 1272341564}
+  runtimeStyleIntentController: {fileID: 0}
   surfaceOverrideApplier: {fileID: 1272341568}
   shellVisibilityToggle: {fileID: 0}
   worldStatusOverlay: {fileID: 1912697408}
   roomStyleCacheService: {fileID: 1272341571}
+  furnitureReuseService: {fileID: 0}
+  useMetaUISetPrefabsWhenAvailable: 1
+  autoLoadMetaUISetPrefabsInEditor: 1
+  instantiateMetaUISetControlPrefabs: 1
   primaryButtonPrefab: {fileID: 243424268127923124, guid: 708bb04189b8488418aa725e7f94bbe8, type: 3}
   secondaryButtonPrefab: {fileID: 8427117777238694044, guid: b9b87f4caa5968745bb0a1ee2a51f575, type: 3}
   destructiveButtonPrefab: {fileID: 5475183150643663114, guid: 7b4b3ab309753d842ba0a79751aa1fb8, type: 3}
@@ -1150,12 +1270,126 @@ MonoBehaviour:
   visibleInPlayMode: 1
   headLocked: 1
   createContentIfMissing: 1
-  disableMetaUISetRuntimeComponents: 1
+  preferOfficialUISetBackplate: 1
+  disableMetaUISetRuntimeComponents: 0
+  hideInheritedUISetVisuals: 1
+  useStableRuntimeControlsOnly: 0
+  useUISetInspiredFallbackSkin: 1
+  preferOfficialCanvasInteractions: 1
+  suppressLegacyHeadsetOverlays: 1
   updateIntervalSeconds: 0.25
+  enablePanelVisibilityToggleInPlay: 1
+  panelVisibilityToggleButton: 1048576
   localOffset: {x: 0, y: -0.06, z: 1.15}
   localEulerOffset: {x: 7, y: 0, z: 0}
   panelSizePixels: {x: 840, y: 680}
   worldScale: 0.00105
+  enableControllerPointerInPlay: 1
+  showControllerPointerRay: 1
+  pointerRayOrigin: {fileID: 0}
+  pointerController: 2
+  pointerSelectButton: 8192
+  pointerMaxDistanceMeters: 3
+  pointerPanelHitPaddingPixels: 48
+  buttonNormalColor: {r: 0.035, g: 0.12, b: 0.17, a: 0.95}
+  buttonHoverColor: {r: 0.08, g: 0.28, b: 0.36, a: 0.98}
+  dropdownNormalColor: {r: 0.04, g: 0.09, b: 0.13, a: 0.95}
+  dropdownHoverColor: {r: 0.07, g: 0.2, b: 0.27, a: 0.98}
+--- !u!1 &821108148
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 821108149}
+  - component: {fileID: 821108153}
+  - component: {fileID: 821108152}
+  - component: {fileID: 821108151}
+  - component: {fileID: 821108150}
+  m_Layer: 0
+  m_Name: Surface
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &821108149
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 821108148}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 790777798}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &821108150
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 821108148}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4bd1f1e23a51a7d428dd152466736b7a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _boundsClipper: {fileID: 821108151}
+--- !u!114 &821108151
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 821108148}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e08ab46e8fb05dc46b34e54466dc11e3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _position: {x: 0, y: 0, z: 0}
+  _size: {x: 760, y: 520, z: 0.01}
+--- !u!114 &821108152
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 821108148}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: efd927768041afd4d90e5d822283f0f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _planeSurface: {fileID: 821108153}
+  _clippers:
+  - {fileID: 821108151}
+--- !u!114 &821108153
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 821108148}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9cf2a74d69b1c1e41916d2a7afdff5be, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _facing: 0
+  _doubleSided: 0
 --- !u!1 &845845098
 GameObject:
   m_ObjectHideFlags: 0
@@ -1393,6 +1627,11 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 400006, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
   m_PrefabInstance: {fileID: 432232722}
   m_PrefabAsset: {fileID: 0}
+--- !u!224 &1263636755 stripped
+RectTransform:
+  m_CorrespondingSourceObject: {fileID: 8871935754367020192, guid: 6b196de96e7d16b4297c1980179ae439, type: 3}
+  m_PrefabInstance: {fileID: 820369736}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1272341562
 GameObject:
   m_ObjectHideFlags: 0
@@ -1448,6 +1687,9 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 1a58916aa140444fb6b2f8dd30d81fb3, type: 2}
   - {fileID: 11400000, guid: e2a9efc21d0240d0b28a764c60faf0fb, type: 2}
   defaultThemeIndex: 0
+  useGenericRoomStyleScaffold: 1
+  genericRoomStyleScaffold: {fileID: 0}
+  cloneSourceProxyReferences: 1
   selectDefaultOnEnable: 1
   enableKeyboardShortcuts: 1
   previousThemeKey: 91
@@ -1481,6 +1723,7 @@ MonoBehaviour:
   roomSemanticBootstrap: {fileID: 2144530025}
   themeIntentController: {fileID: 1272341564}
   stylizationPlanner: {fileID: 1272341567}
+  runtimeStyleIntentController: {fileID: 0}
   bestViewCaptureService: {fileID: 1336658400}
   devicePassthroughCaptureService: {fileID: 1336658405}
   proxyObjectsRoot: {fileID: 1918567166}
@@ -1489,6 +1732,11 @@ MonoBehaviour:
   autoRefreshInterval: 0.75
   applyTableProxies: 1
   applyStorageProxies: 1
+  applyScreenGeneratedProxies: 1
+  applySeatingGeneratedProxies: 1
+  applyBedGeneratedProxies: 1
+  applyLampGeneratedProxies: 1
+  applyPlantGeneratedProxies: 1
   applyOtherGeneratedProxies: 1
   storageFitToVisibleShellBounds: 1
   hideOriginalVolumeVisuals: 0
@@ -1570,10 +1818,29 @@ MonoBehaviour:
   floorSurfaceOffsetMeters: 0.012
   ceilingSurfaceOffsetMeters: 0.012
   frameOutwardOffsetMeters: 0.035
+  frameInteriorOffsetBeyondWallMeters: 0.025
   frameBorderWidthMeters: 0.08
+  applyArchitecturalTrimOverlays: 1
+  wallPlaneHorizontalOverlapMeters: 0.14
+  wallPlaneVerticalOverlapMeters: 0.025
+  floorCeilingPlaneOverlapMeters: 0.05
+  cutOpeningsFromWallOverrides: 1
+  wallOpeningCutoutPaddingMeters: 0.06
+  wallOpeningNormalDotThreshold: 0.92
+  wallOpeningPlaneDistanceMeters: 0.18
+  baseboardHeightMeters: 0.1
+  crownTrimHeightMeters: 0.07
+  cornerTrimWidthMeters: 0.14
+  trimAdditionalOffsetMeters: 0.012
+  wallTextureTileSizeMeters: 2.8
+  floorTextureTileSizeMeters: 2.2
+  ceilingTextureTileSizeMeters: 2.6
+  openingTextureTileSizeMeters: 1.1
+  doorPanelArchDepthRatio: 0.08
   windowVistaOutwardOffsetMeters: 0.04
   windowVistaAspectRatio: 1.7777778
   windowVistaScaleMultiplier: 1.12
+  applyWindowFrameToLargestWindowOnly: 1
   applyVistaToLargestWindowOnly: 1
   minimumWindowFrameMajorSizeMeters: 1
   minimumWindowFrameMinorSizeMeters: 0.55
@@ -1817,7 +2084,9 @@ MonoBehaviour:
   authHeaderPrefix: 
   uploadRawPngBody: 1
   formFileFieldName: file
+  seed3DBackendAdapter: {fileID: 0}
   autoProcessJobsInPlay: 1
+  skipUploadWhenSeed3DCanUseLocalBase64: 1
   maxConcurrentUploadJobs: 3
   pollIntervalSeconds: 3
   jobFolderName: GeneratedObjectJobs
@@ -1836,14 +2105,18 @@ MonoBehaviour:
   apiKeyEnvironmentVariable: ARK_API_KEY
   taskEndpoint: https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks
   model: doubao-seed3d-2-0-260328
-  subdivisionLevel: medium
+  subdivisionLevel: low
   fileFormat: glb
+  imageInputMode: 0
+  maxBase64ImageKilobytes: 12288
   extraTextInstruction: Generate one clean 3D model from the isolated stylized object
     image. Preserve proportions, footprint, and support/contact surfaces.
   autoProcessJobsInPlay: 1
-  maxConcurrentSeed3DJobs: 2
+  maxConcurrentSeed3DJobs: 5
   pollIntervalSeconds: 5
   timeoutSeconds: 900
+  useBackgroundPollingAfterTimeout: 1
+  backgroundPollIntervalSeconds: 60
   jobFolderName: GeneratedObjectJobs
   generatedAssetFolder: Assets/Generated/ThemeAssets
   backendModelFolderName: GeneratedObjectModels
@@ -1867,7 +2140,7 @@ MonoBehaviour:
   referenceCamera: {fileID: 0}
   referenceCameraTransform: {fileID: 0}
   autoSelectTargetFromGaze: 1
-  autoTargetCategories: 000000000200000004000000
+  autoTargetCategories: 0000000002000000040000000100000003000000050000000600000007000000
   targetCategory: 0
   maxCaptureDistance: 5
   viewportMargin: 0.08
@@ -1887,7 +2160,7 @@ MonoBehaviour:
   enableXrControllerCapture: 1
   xrCaptureController: 5
   xrCaptureButton: 0
-  enableOvrControllerTargetCycle: 1
+  enableOvrControllerTargetCycle: 0
   ovrTargetCycleButton: 512
   enableXrControllerTargetCycle: 0
   xrTargetCycleController: 4
@@ -1954,42 +2227,87 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3f9a8a62253c4e299c3657202f4d3fd4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RuntimeStyleIntentController
-  userStyleIntent: 
+  userStyleIntent: future research lab
   rebuildOnEnable: 1
   writeLlmHandoffArtifact: 0
   llmJobFolderName: StyleIntentJobs
+  useStyleCatalog: 1
+  builtinStyles:
+  - StyleId: future_research_lab
+    DisplayName: Future Research Lab
+    UserStyleIntent: future research lab
+    Description: A precise high-tech research workspace style with cool panels, cyan
+      accents, clean surfaces, and functional lab readability.
+    StyleIntentSource: builtin_style_catalog
+    StyleVariantIdOverride: preset
+  - StyleId: arcane_knowledge_chamber
+    DisplayName: Arcane Knowledge Chamber
+    UserStyleIntent: arcane knowledge chamber
+    Description: A warm scholarly archive style with carved materials, amber light,
+      brass or wood details, and ritual-study atmosphere.
+    StyleIntentSource: builtin_style_catalog
+    StyleVariantIdOverride: preset
+  activeStyleIndex: 0
+  includeCustomStyleSlot: 1
+  customStyleIntent: 
   useDeepSeekStyleIntentProvider: 1
   deepSeekStyleIntentProvider: {fileID: 1336658409}
   currentIntent:
-    UserIntent: 
-    Source: inspector_preview
-    GlobalStyleSummary: No runtime style intent. Use the active ThemeProfile preset
-      only.
-    StyleKeywords: []
-    MaterialKeywords: []
-    ColorKeywords: []
-    MotifKeywords: []
-    NegativeStyleKeywords: []
-    ObjectStyleDirective: 
+    StyleId: future_research_lab
+    StyleDisplayName: Future Research Lab
+    StyleDescription: A precise high-tech research workspace style with cool panels,
+      cyan accents, clean surfaces, and functional lab readability.
+    StyleVariantIdOverride: preset
+    UserIntent: future research lab
+    Source: builtin_style_catalog
+    GlobalStyleSummary: 'Apply the user style intent "future research lab" through
+      concrete keywords: future research lab, future, research, lab.'
+    StyleKeywords:
+    - future research lab
+    - future
+    - research
+    - lab
+    MaterialKeywords:
+    - theme-consistent material finish
+    - coherent surface language
+    ColorKeywords:
+    - coherent accent lighting
+    - controlled color palette
+    MotifKeywords:
+    - repeated visual motif
+    - consistent trim details
+    NegativeStyleKeywords:
+    - mixed unrelated theme
+    - random decorative clutter
+    ObjectStyleDirective: Use the runtime style keywords as the primary visual style
+      layer while preserving each object's semantic role, footprint, proportions,
+      support/contact surfaces, and dominant yaw.
     LlmHandoffPromptPath: 
-    CreatedAtIsoUtc: 2026-04-28T07:16:01.0379514Z
+    CreatedAtIsoUtc: 2026-04-29T18:39:32.5542424Z
   latestSummary: '[RuntimeStyleIntent]
 
     State: inspector-preview
 
-    Intent:
-    none
+    Style:
+    Future Research Lab
 
-    Source: inspector_preview
+    Style Id: future_research_lab
 
-    Keywords: none
+    Intent: future
+    research lab
 
-    Materials: none
+    Source: builtin_style_catalog
 
-    Colors:
-    none
+    Keywords: future research
+    lab, future, research, lab
 
-    Motifs: none'
+    Materials: theme-consistent material finish,
+    coherent surface language
+
+    Colors: coherent accent lighting, controlled
+    color palette
+
+    Motifs: repeated visual motif, consistent trim details'
 --- !u!114 &1336658409
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2029,7 +2347,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ApimartImageBackendAdapter
   apiKeyEnvironmentVariable: APIMART_API_KEY
   autoProcessJobsInPlay: 1
-  maxConcurrentImageJobs: 2
+  maxConcurrentImageJobs: 5
   generationEndpoint: https://api.apimart.ai/v1/images/generations
   taskEndpointBase: https://api.apimart.ai/v1/tasks
   model: gpt-image-2
@@ -2037,7 +2355,7 @@ MonoBehaviour:
   imageCount: 1
   includeReferenceImage: 1
   pollIntervalSeconds: 5
-  timeoutSeconds: 300
+  timeoutSeconds: 600
   jobFolderName: GeneratedObjectJobs
   outputFolderName: GeneratedObjectOutputs
 --- !u!114 &1336658411
@@ -2779,6 +3097,9 @@ MonoBehaviour:
   retryDeviceLoadOnStartup: 1
   deviceLoadRetryDelaySeconds: 4
   retryRequestSceneCaptureIfNoDataFound: 0
+  refreshCurrentRoomInPlay: 1
+  currentRoomRefreshIntervalSeconds: 0.5
+  logRoomSwitches: 1
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

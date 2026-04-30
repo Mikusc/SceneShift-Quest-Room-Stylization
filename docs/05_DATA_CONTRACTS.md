@@ -7,10 +7,12 @@ Do not hardcode theme rules directly into random scene components. Put them into
 
 ---
 
-# 1. ThemeProfile
+# 1. ThemeProfile / GenericRoomStyleScaffold
 
 ## Purpose
-Defines one coherent room theme.
+Defines the internal room scaffold used for deterministic mappings, proxy fallbacks, safe replacement modes, and prompt hints.
+
+The user-facing visual identity comes from `RuntimeStyleOption` / `RuntimeStyleIntent`, not from switching between multiple room-specific scaffold assets. Built-in styles such as `Future Research Lab` and `Arcane Knowledge Chamber` are style entries layered over the generic scaffold.
 
 ## Recommended representation
 ScriptableObject:
@@ -38,8 +40,61 @@ bool PreserveCollisionSensitiveFootprints = true;
 ```
 
 ## Notes
-- The theme should not know about a specific room instance.
-- It only defines the styling language and preferred replacements.
+- The scaffold should not know about a specific room instance.
+- It defines spatial/functional replacement rules and safe fallbacks.
+- It should not be treated as the user-facing theme identity when a Style is active.
+
+---
+
+# 1A. RuntimeStyleOption
+
+## Purpose
+Defines one selectable user-facing Style.
+
+The script source of truth is:
+- `Assets/Scripts/Stylization/RuntimeStyleIntentController.cs`
+
+## Current fields
+```csharp
+string StyleId;
+string DisplayName;
+string UserStyleIntent;
+string Description;
+string StyleIntentSource;
+string StyleVariantIdOverride;
+```
+
+## Notes
+- Built-in options currently include `Future Research Lab` and `Arcane Knowledge Chamber`.
+- These built-ins use stable IDs (`future_research_lab`, `arcane_knowledge_chamber`) so existing generated surface/furniture caches can still be reused.
+- Custom user text becomes a custom Style slot and gets a generated style-specific variant id.
+- The active Style is what should appear in UI labels, generated prompt artifacts, cache status, and generated-object records.
+
+---
+
+# 1B. RuntimeStyleIntent
+
+## Purpose
+Stores the active Style after local keyword extraction or DeepSeek expansion.
+
+The script source of truth is:
+- `Assets/Scripts/Stylization/RuntimeStyleIntentController.cs`
+
+## Current identity fields
+```csharp
+string StyleId;
+string StyleDisplayName;
+string StyleDescription;
+string StyleVariantIdOverride;
+string UserIntent;
+string Source;
+```
+
+## Notes
+- `StyleId` is used as the effective generated-artifact theme id when present.
+- `StyleDisplayName` is the user-facing label in the headset UI.
+- `StyleVariantIdOverride = "preset"` lets built-in styles reuse stable generated assets.
+- Custom styles normally leave `StyleVariantIdOverride` empty, so their generated artifacts are isolated by a stable custom variant id.
 
 ---
 
@@ -273,7 +328,7 @@ List<SurfaceTexturePromptEntry> Entries;
 
 ## Notes
 - Written by `SurfaceTexturePromptBuilder` under `Library/SurfaceTextureJobs/`.
-- `StyleVariantId` is `preset` when no runtime style text is active. Arbitrary user style text creates a stable style-specific variant id, so cyberpunk / solarpunk / underwater requests do not reuse each other's cached textures.
+- `StyleVariantId` is `preset` for built-in styles that intentionally preserve stable cache identity. Arbitrary custom style text creates a stable style-specific variant id, so cyberpunk / solarpunk / underwater requests do not reuse each other's cached textures.
 - This is now the first automated surface-generation boundary. APIMart can consume matching `.surface.job.json` files, while runtime procedural textures remain the fallback.
 - Runtime procedural textures remain the deterministic fallback.
 
@@ -304,9 +359,10 @@ bool RuntimeFallbackAvailable;
 ```
 
 ## Notes
-- Wall and floor entries request seamless tileable PBR-style materials.
+- Wall, floor, and ceiling entries request large-scale room materials rather than dense wallpaper-like repeats.
 - Ceiling is treated as a lightweight ceiling treatment / optional skybox concept, not a hard Phase 1 dynamic skybox dependency.
-- Door and window entries request trim/frame/decal treatments with open centers. They must not block passage, view, or real-world affordances.
+- Door entries request flat full-door or portal panel treatments fitted to MRUK `DOOR_FRAME` anchors. They should read as a complete door surface, not only a thin trim frame.
+- Window entries request trim/frame/decal treatments with open centers. They must not block view or real-world affordances.
 - Window-vista entries request wide exterior backdrops with `ImageSize = "16:9"`. They are placed behind `WINDOW_FRAME` anchors and must not include window frames, room interiors, people, or text.
 
 # 12. SurfaceTextureJobRecord
@@ -365,7 +421,7 @@ public enum SurfaceTextureJobState
 ---
 
 # Generated-object side branch contracts
-The following contracts support the optional Roomify-like `TABLE` generated-object branch.
+The following contracts support the optional Roomify-like generated-furniture branch.
 They do not replace the deterministic Phase 1 data model.
 
 The script source of truth is:
@@ -384,7 +440,7 @@ Use these contracts only for:
 ## Purpose
 Captures the complete request needed to turn one room object into a stylized generated asset candidate.
 
-This is currently produced by `BestViewCaptureService` for the `TABLE` path.
+This is currently produced by `DevicePassthroughCaptureService` for Quest Link/headset-oriented capture and by `BestViewCaptureService` for simulator/external-screenshot fallback.
 
 ## Current fields
 ```csharp
@@ -447,7 +503,7 @@ string CreatedAtIsoUtc;
 - `PromptVersion` must change when prompt format changes.
 - Current image prompt version for new requests is `roomify_image_asset_v3_style_keywords`.
 - Older artifacts can still show earlier prompt versions such as `roomify_image_v1`; keep those artifacts for reproducibility instead of rewriting them in place.
-- Runtime style fields are optional. When `UserStyleIntent` is empty, the generated-object prompt uses only the active `ThemeProfile`; when present, `StyleKeywords`, material/color/motif keywords, and negative style keywords act as a Roomify-style visual layer over the preset functional mapping.
+- Runtime style fields are optional. When a built-in or custom Style is active, generated-object prompts use the Style as the user-facing identity while `GenericRoomStyleScaffold` acts as the internal scaffold for functional mapping, proxy availability, and deterministic fallback.
 - `ImageStylizationPrompt` must ask for a single isolated object asset suitable for image-to-3D generation. It must not ask the model to edit the original room photo as the final canvas.
 - The final worker output should be a PNG with alpha. If the selected image model cannot produce native transparency, the worker should use the prompt's chroma-key note, remove the key locally, and only then save to `RequestedOutputImagePath`.
 
@@ -507,7 +563,7 @@ string UpdatedAtIsoUtc;
 ```
 
 ## Notes
-- The target size fields are physical scaffold constraints for generated furniture. For the current MRUK table path, `BestViewCaptureService` derives length/width/height from the anchor `Dimensions`, using the larger horizontal axis as length and the smaller horizontal axis as width.
+- The target size fields are physical scaffold constraints for generated furniture. The capture service derives length/width/height from the selected MRUK anchor bounds, using the larger horizontal axis as length and the smaller horizontal axis as width.
 - `TargetAspectRatio` is `length / width`.
 - `SafetyFootprintScale` tells image/model workers how tightly to preserve the collision-sensitive footprint.
 - `VerticalFitMode` tells later workers/importers whether to preserve scaffold height, fit inside height, or only bottom-align the generated asset.
@@ -537,8 +593,7 @@ public enum GeneratedObjectVerticalFitMode
 - `ModelReady` means a Unity-importable model file exists at `GeneratedModelPath`.
 - `Imported` means `GeneratedObjectModelImporter` saved a generated prefab and wrote `ImportedPrefabPath`.
 - `NeedsReview` means a prefab was saved, but the automatic quality gate found suspicious proportions or bounds, so runtime systems should keep using deterministic fallback or a previously accepted generated asset.
-- The current validated imported generated table candidate is `table_18_20260425025836`.
-- Earlier generated table candidates such as `table_18_20260424071758` and `table_18_20260424173938` remain useful for comparison, but new runtime validation should prefer the newest `Imported` job that passes quality review.
+- Do not document one historical generated model as the preferred project asset. New runtime validation should prefer the newest request-locked `Imported` job that matches the active room object, Style, and quality-review state.
 
 ---
 
@@ -648,7 +703,7 @@ For exported debug snapshots, prefer readable JSON like:
 
 ```json
 {
-  "roomId": "library_discussion_room_a",
+  "roomId": "unnc_ieb_office_a",
   "themeId": "future_research_lab",
   "objects": [
     {
@@ -677,11 +732,16 @@ For exported debug snapshots, prefer readable JSON like:
 
 # 19. Strong rules for data ownership
 
-## ThemeProfile owns
-- artistic intent
+## GenericRoomStyleScaffold owns
 - category mappings
-- surface/material choices
+- safe replacement modes
+- proxy/material fallbacks
 - preferred prefabs and mood assets
+
+## RuntimeStyleOption / RuntimeStyleIntent owns
+- user-facing artistic intent
+- style id and display name
+- style keywords and generated prompt identity
 
 ## RoomSemanticSnapshot owns
 - observed room state

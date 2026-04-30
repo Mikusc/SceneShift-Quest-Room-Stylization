@@ -25,7 +25,7 @@ We replace each research-heavy component with the most practical official-tool a
 | Roomify stage | Paper intent | Meta-first implementation | Status in this repository |
 |---|---|---|---|
 | Scene Understanding | understand room geometry + semantics | MRUK room / anchors / labels / scene visuals, optionally enriched with Image Segmentation or Object Detection | Required |
-| Style Extraction and Mapping | turn user intent into coherent object-level style rules | preset `ThemeProfile` assets and a deterministic `StylizationPlanner`; optional LLM later | Required |
+| Style Extraction and Mapping | turn user intent into coherent object-level style rules | one generic `ThemeProfile` scaffold plus built-in/custom user-facing `Style` entries expanded by LLM/local extraction | Required |
 | Content Generation | generate stylized objects/textures/skybox | pre-authored proxy prefabs, materials, decals, VFX, lighting, ambient audio | Required |
 | Scene Composition | register content back into the room | anchor-based placement, bounds fitting, semantics-aware replacement, correction UI | Required |
 | Cross-reality authoring | let user inspect and correct | MR debug overlay + correction mode | Required |
@@ -51,7 +51,7 @@ Use MRUK for:
 - debugging overlays
 
 MRUK is the **main source of truth** for room-scale structure.
-During development, this can be validated first through `MetaXRSimulator`, MRUK prefab rooms, or JSON fallback data. These are iteration scaffolds, not substitutes for final validation in the canonical real room.
+During development, this can be validated first through `MetaXRSimulator`, MRUK prefab rooms, or JSON fallback data. These are iteration scaffolds, not substitutes for final validation in the canonical UNNC IEB office room.
 
 #### B. Image Segmentation as a supplemental visible-object layer
 Use Meta AI Building Blocks `Image Segmentation` when available in the installed SDK to:
@@ -69,8 +69,8 @@ Fallback order:
 2. manual tagging / debug-only semantic overrides
 3. theme application only on room surfaces and major MRUK anchors
 
-For the current one-room prototype, a manual semantic override is an acceptable Phase 1 correction mechanism.
-If MRUK labels the real discussion table as `OTHER` or misses the expected `TABLE` semantic, prefer a small user-visible override keyed by anchor index/name/id before adding heavier perception infrastructure.
+For the current one-office-room prototype, a manual semantic override is an acceptable Phase 1 correction mechanism.
+If MRUK labels the real office table as `OTHER` or misses the expected `TABLE` semantic, prefer a small user-visible override keyed by anchor index/name/id before adding heavier perception infrastructure.
 The debug UI should show the semantic source as `manual_override` so this is not mistaken for automatic recognition.
 
 ## 4. Why Image Segmentation matters here
@@ -98,7 +98,8 @@ Roomify takes text/image intent and derives:
 For Phase 1, use a deterministic stylization pipeline:
 
 #### Input
-- user-selected theme preset
+- user-selected built-in Style or freeform runtime style intent
+- one internal `GenericRoomStyleScaffold` for functional mappings and deterministic fallbacks
 - fused room/object semantics
 
 #### Output
@@ -108,6 +109,8 @@ A `StylizationPlan` made of entries such as:
 - `screen -> holographic board treatment`
 - `storage -> archive cabinet shell`
 - `seat -> themed seating proxy`
+
+Generated artifacts, cache keys, and UI labels should use the user-facing Style as the visible identity, such as `Future Research Lab`, `Arcane Knowledge Chamber`, or `Custom: Underwater Research Lounge`. The selected `ThemeProfile` is now the internal `GenericRoomStyleScaffold` for safe mappings, available proxies, and deterministic fallbacks.
 
 #### Design rule
 Every mapping must answer three questions:
@@ -141,7 +144,7 @@ This keeps the system:
 Do not block the stylization slice on runtime 3D generation.
 
 Optional note:
-The repository now contains a thin generated-object side branch for `TABLE` experiments. That branch may use best-view screenshots, Roomify-inspired prompt artifacts, and a manual/external image worker, but it remains secondary to the deterministic material/proxy path.
+The repository now contains a generated-furniture side branch for MRUK furniture anchors. That branch may use headset/external captures, Roomify-inspired prompt artifacts, APIMart image generation, hosted upload, and Seed3D model generation, but it remains secondary to the deterministic material/proxy path.
 
 ## 7. Scene Composition
 ### Roomify version
@@ -195,14 +198,14 @@ Do not spend current effort on:
 - cloud orchestration for multiple model calls as a blocking dependency,
 - best-view frame selection research code,
 - generated 3D asset registration algorithms,
-- dynamic skybox generation.
+- dynamic skybox generation. Window vistas are acceptable as lightweight opening overlays when they preserve room readability.
 
 These belong to optional extension work. The current repository may keep a thin file-based generated-object experiment as long as deterministic room stylization still runs first.
 
 ## 11. Repository-level interpretation of the four design requirements
 ### Style diversity and consistency
 Implementation target:
-- one or two clearly authored theme presets
+- one generic scaffold plus built-in style entries
 - category-specific mappings that share the same palette / motif / material language
 
 ### Spatial alignment
@@ -213,7 +216,7 @@ Implementation target:
 
 ### Functional consistency
 Implementation target:
-- replacement tables for each semantic category
+- replacement/fallback mapping tables for each semantic category
 - preserve approximate size / footprint for collision-sensitive furniture
 
 ### User editability
@@ -227,8 +230,8 @@ Implement only this chain:
 
 1. load MRUK room
 2. list room semantics and visible proposals
-3. choose `FutureResearchLab`
-4. produce a plan for wall, floor, table, screen, and storage
+3. choose a built-in or custom Style
+4. produce a plan for walls, floor, ceiling, openings, and core furniture
 5. apply materials / proxies
 6. allow one object correction
 
