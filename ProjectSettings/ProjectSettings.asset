@@ -143,7 +143,7 @@ PlayerSettings:
   loadStoreDebugModeEnabled: 0
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
-  bundleVersion: 0.1.0
+  bundleVersion: 0.1.2
   preloadedAssets:
   - {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   - {fileID: 11400000, guid: eb08d5cd17bae4c23bfc185dc00ac704, type: 2}
@@ -166,7 +166,7 @@ PlayerSettings:
   androidMaxAspectRatio: 2.4
   androidMinAspectRatio: 1
   applicationIdentifier:
-    Android: com.mikusc.sceneshiftroom
+    Android: com.mikusc.sceneshiftroom.comp4145
     Standalone: com.Unity-Technologies.com.unity.template.urp-blank
     iPhone: com.Unity-Technologies.com.unity.template.urp-blank
   buildNumber:
@@ -175,7 +175,7 @@ PlayerSettings:
     iPhone: 0
     tvOS: 0
   overrideDefaultApplicationIdentifier: 1
-  AndroidBundleVersionCode: 5
+  AndroidBundleVersionCode: 11
   AndroidMinSdkVersion: 32
   AndroidTargetSdkVersion: 34
   AndroidPreferredInstallLocation: 0
@@ -949,10 +949,10 @@ PlayerSettings:
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
   enableDirectStorage: 0
-  cloudProjectId: 0ee69e75-493d-4bec-9852-36718d4f317a
+  cloudProjectId: c7ea8040-6744-4b11-a927-3d811cba5183
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: SceneShift Discussion Room
+  projectName: SceneShift Discussion Room Latest
   organizationId: miku_sc
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0

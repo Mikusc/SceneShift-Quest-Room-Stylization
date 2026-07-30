@@ -74,7 +74,7 @@
       "url": "https://packages.unity.com"
     },
     "com.meta.xr.unity-mcp.extension": {
-      "version": "https://github.com/meta-quest/Unity-MCP-Extensions.git",
+      "version": "https://github.com/meta-quest/Unity-MCP-Extensions.git#22a736de7ce7d51ef39db0d84f8697bf1fc21aad",
       "depth": 0,
       "source": "git",
       "dependencies": {
@@ -84,13 +84,13 @@
     },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
-      "depth": 2,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {}
     },
     "com.unity.ai.assistant": {
-      "version": "2.0.0-pre.1",
-      "depth": 1,
+      "version": "2.6.0-pre.1",
+      "depth": 0,
       "source": "registry",
       "dependencies": {
         "com.unity.2d.sprite": "1.0.0",
@@ -114,7 +114,7 @@
     },
     "com.unity.burst": {
       "version": "1.8.29",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {
         "com.unity.mathematics": "1.2.1",
@@ -124,7 +124,7 @@
     },
     "com.unity.cloud.gltfast": {
       "version": "6.14.1",
-      "depth": 2,
+      "depth": 0,
       "source": "registry",
       "dependencies": {
         "com.unity.burst": "1.8.24",
@@ -144,7 +144,7 @@
     },
     "com.unity.collections": {
       "version": "6.4.0",
-      "depth": 2,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {
         "com.unity.burst": "1.8.23",
@@ -189,7 +189,7 @@
     },
     "com.unity.mathematics": {
       "version": "1.3.3",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
@@ -204,7 +204,7 @@
     },
     "com.unity.nuget.mono-cecil": {
       "version": "1.11.6",
-      "depth": 3,
+      "depth": 2,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
@@ -256,7 +256,7 @@
     },
     "com.unity.serialization": {
       "version": "3.1.5",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {
         "com.unity.burst": "1.8.13",
@@ -285,7 +285,7 @@
     },
     "com.unity.test-framework.performance": {
       "version": "3.4.0",
-      "depth": 3,
+      "depth": 2,
       "source": "registry",
       "dependencies": {
         "com.unity.test-framework": "1.1.33",

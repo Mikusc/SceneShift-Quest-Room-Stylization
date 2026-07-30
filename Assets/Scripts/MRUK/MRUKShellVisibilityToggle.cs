@@ -47,8 +47,8 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
     private bool includeMrukAnchorRenderers = true;
 
     [Header("Headset Button")]
-    [SerializeField] private bool createRuntimeButtonIfMissing = true;
-    [SerializeField] private bool showRuntimeButtonInPlay = true;
+    [SerializeField] private bool createRuntimeButtonIfMissing;
+    [SerializeField] private bool showRuntimeButtonInPlay;
     [SerializeField] private Transform headTransform;
     [SerializeField] private Canvas canvas;
     [SerializeField] private Button toggleButton;
@@ -367,13 +367,13 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
 
         if (hideLegacyHeadsetOverlaysInCleanView)
         {
-            foreach (var hud in FindObjectsByType<DevicePassthroughCaptureHud>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            foreach (var hud in FindObjectsByType<DevicePassthroughCaptureHud>(FindObjectsInactive.Include))
             {
                 hud.enabled = false;
                 SetChildCanvasesVisible(hud.transform, false);
             }
 
-            foreach (var debugPanel in FindObjectsByType<StylizationDebugPanel>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            foreach (var debugPanel in FindObjectsByType<StylizationDebugPanel>(FindObjectsInactive.Include))
             {
                 debugPanel.enabled = false;
                 SetChildCanvasesVisible(debugPanel.transform, false);
@@ -393,7 +393,7 @@ public class MRUKShellVisibilityToggle : MonoBehaviour
             return;
         }
 
-        foreach (var overlay in FindObjectsByType<GenerationJobWorldStatusOverlay>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        foreach (var overlay in FindObjectsByType<GenerationJobWorldStatusOverlay>(FindObjectsInactive.Include))
         {
             overlay.SetOverlayVisible(visible);
         }

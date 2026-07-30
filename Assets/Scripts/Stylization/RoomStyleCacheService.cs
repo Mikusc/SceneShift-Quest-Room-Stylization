@@ -247,17 +247,26 @@ public class RoomStyleCacheService : MonoBehaviour
                 continue;
             }
 
+            if (record.ReviewState == GeneratedObjectReviewState.Rejected ||
+                record.ReviewState == GeneratedObjectReviewState.ResetToFallback)
+            {
+                continue;
+            }
+
             var counts = GetOrCreateCounts(record.ThemeId, NormalizeStyleVariantId(record.StyleVariantId));
             switch (record.State)
             {
                 case GeneratedObjectJobState.Imported:
-                case GeneratedObjectJobState.NeedsReview:
+                case GeneratedObjectJobState.RuntimeLoaded:
                     counts.FurnitureReady++;
                     break;
                 case GeneratedObjectJobState.BackendSubmitted:
                 case GeneratedObjectJobState.ModelGenerationSubmitted:
                 case GeneratedObjectJobState.ModelReady:
                 case GeneratedObjectJobState.StylizedImageReady:
+                case GeneratedObjectJobState.RuntimeBackendSubmitted:
+                case GeneratedObjectJobState.RuntimeModelReady:
+                case GeneratedObjectJobState.RuntimeModelDownloaded:
                     counts.FurnitureGenerating++;
                     break;
                 case GeneratedObjectJobState.CaptureReady:
@@ -279,14 +288,14 @@ public class RoomStyleCacheService : MonoBehaviour
         }
 
         var request = TryReadJson<GeneratedObjectRequest>(record.SourceRequestPath);
-        if (request == null)
+        if (request == null ||
+            string.IsNullOrWhiteSpace(request.RoomId) ||
+            string.Equals(request.RoomId, "unknown_room", StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return false;
         }
 
-        return string.IsNullOrWhiteSpace(request.RoomId) ||
-               string.Equals(request.RoomId, "unknown_room", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(request.RoomId, currentRoomId, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(request.RoomId, currentRoomId, StringComparison.OrdinalIgnoreCase);
     }
 
     private CacheCounts GetCounts(string themeId, string styleVariantId)

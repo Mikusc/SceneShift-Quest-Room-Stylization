@@ -404,9 +404,9 @@ public class StylizationPlanner : MonoBehaviour
         StylizationPlanEntry entry,
         ICollection<string> warnings)
     {
-        entry.PreserveFootprint = matchedRule.PreserveFootprint;
-        entry.PreserveYawOrientation = matchedRule.PreserveYawOrientation;
-        entry.CollisionSensitive = matchedRule.CollisionSensitive;
+        entry.PreserveFootprint |= matchedRule.PreserveFootprint;
+        entry.PreserveYawOrientation |= matchedRule.PreserveYawOrientation;
+        entry.CollisionSensitive |= matchedRule.CollisionSensitive;
         entry.Rationale = string.IsNullOrWhiteSpace(matchedRule.Notes)
             ? $"Matched theme rule for {semanticLabel}."
             : matchedRule.Notes;

@@ -5,13 +5,27 @@ using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 [DisallowMultipleComponent]
 public class GenerationJobWorldStatusOverlay : MonoBehaviour
 {
+    private const string ProjectUISetStatusCardShellPrefabPath = "Assets/Prefabs/UI/SceneShift_StatusCardBackplate.prefab";
+    private const string UISetCanvasRootName = "CanvasRoot";
+    private const string UISetBackplateName = "UIBackplate";
+    private const string UISetGradientEffectName = "GradientEffect";
+
     [Header("References")]
     [SerializeField] private Camera targetCamera;
     [SerializeField] private Transform overlayRoot;
+    [SerializeField] private GameObject statusCardShellPrefab;
+
+    [Header("Meta UISet Shell")]
+    [SerializeField] private bool useStatusCardShellPrefab = true;
+    [SerializeField] private bool disableStatusCardShellInteraction = true;
+    [SerializeField] private bool applySceneShiftCardColors = true;
 
     [Header("Jobs")]
     [SerializeField] private string generatedObjectJobFolderName = "GeneratedObjectJobs";
@@ -53,19 +67,29 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
     private void Reset()
     {
         ResolveCamera();
+        TryAutoLoadStatusCardShellPrefab();
     }
 
     private void Awake()
     {
+        TryAutoLoadStatusCardShellPrefab();
         ResolveCamera();
         EnsureOverlayRoot();
     }
 
     private void OnEnable()
     {
+        TryAutoLoadStatusCardShellPrefab();
         ResolveCamera();
         EnsureOverlayRoot();
     }
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        TryAutoLoadStatusCardShellPrefab();
+    }
+#endif
 
     private void OnDisable()
     {
@@ -233,30 +257,19 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         EnsureOverlayRoot();
         EnsureStyleResources();
 
-        var labelObject = new GameObject(
-            $"GenerationStatus_{requestId}",
-            typeof(RectTransform),
-            typeof(Canvas),
-            typeof(CanvasScaler));
+        var labelObject = new GameObject($"GenerationStatus_{requestId}");
         labelObject.transform.SetParent(overlayRoot != null ? overlayRoot : transform, false);
-        var rect = labelObject.GetComponent<RectTransform>();
-        var canvas = labelObject.GetComponent<Canvas>();
-        canvas.renderMode = RenderMode.WorldSpace;
-        canvas.overrideSorting = true;
-        canvas.sortingOrder = 32040;
-        canvas.worldCamera = targetCamera;
+        var shell = CreateStatusCardShell(labelObject.transform);
+        if (!shell.IsValid)
+        {
+            DestroyLabelObject(labelObject);
+            return default;
+        }
 
-        var canvasScaler = labelObject.GetComponent<CanvasScaler>();
-        canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
-        canvasScaler.dynamicPixelsPerUnit = 12f;
-
-        var glow = CreateImage("UISetGlow", rect, _roundedCardSprite, cardGlowColor);
-        StretchToParent(glow.rectTransform);
-        glow.rectTransform.offsetMin = new Vector2(-18f, -18f);
-        glow.rectTransform.offsetMax = new Vector2(18f, 18f);
-
-        var background = CreateImage("UISetBackplate", rect, _roundedCardSprite, cardColor);
-        StretchToParent(background.rectTransform);
+        var rect = shell.RectTransform;
+        var canvas = shell.Canvas;
+        var glow = shell.GlowImage;
+        var background = shell.BackgroundImage;
 
         var accent = CreateImage("StatusAccent", rect, _roundedPillSprite, runningColor);
         SetLeftAccentLayout(accent.rectTransform);
@@ -274,6 +287,7 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         contentLayout.childControlHeight = true;
         contentLayout.childForceExpandWidth = true;
         contentLayout.childForceExpandHeight = false;
+        contentRoot.transform.SetAsLastSibling();
 
         var headerRow = CreateLayoutRow("HeaderRow", contentRoot.transform, 8f, 34f);
         var title = CreateText("Title", headerRow.transform, 23f, titleColor, TextAlignmentOptions.MidlineLeft);
@@ -339,6 +353,204 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         ApplyCardTextLayout(card);
         _cardsByRequestId[requestId] = card;
         return card;
+    }
+
+    private StatusCardShell CreateStatusCardShell(Transform parent)
+    {
+        if (useStatusCardShellPrefab && statusCardShellPrefab != null)
+        {
+            var shellObject = Instantiate(statusCardShellPrefab, parent, false);
+            shellObject.name = "UISetStatusCardShell";
+            if (disableStatusCardShellInteraction)
+            {
+                DisableStatusCardShellInteraction(shellObject);
+            }
+
+            var canvasRoot = FindDeepChild(shellObject.transform, UISetCanvasRootName);
+            var rect = (canvasRoot != null ? canvasRoot : shellObject.transform).GetComponent<RectTransform>();
+            var canvas = (canvasRoot != null ? canvasRoot : shellObject.transform).GetComponent<Canvas>() ??
+                shellObject.GetComponentInChildren<Canvas>(true);
+            if (rect == null && canvas != null)
+            {
+                rect = canvas.GetComponent<RectTransform>();
+            }
+
+            ConfigureWorldCanvas(canvas);
+            ConfigureCanvasScaler(canvas != null ? canvas.GetComponent<CanvasScaler>() : null);
+
+            var background = FindDeepChild(shellObject.transform, UISetBackplateName)?.GetComponent<Image>();
+            if (background != null)
+            {
+                ConfigureImage(background, applySceneShiftCardColors ? cardColor : background.color);
+                StretchToParent(background.rectTransform);
+            }
+
+            var gradient = FindDeepChild(shellObject.transform, UISetGradientEffectName)?.GetComponent<Image>();
+            if (gradient != null)
+            {
+                ConfigureImage(gradient, applySceneShiftCardColors ? cardGlowColor : gradient.color);
+                StretchToParent(gradient.rectTransform);
+            }
+
+            DisableGraphicRaycasts(shellObject);
+            var prefabShell = new StatusCardShell
+            {
+                Root = shellObject,
+                RectTransform = rect,
+                Canvas = canvas,
+                BackgroundImage = background,
+                GlowImage = gradient,
+            };
+
+            if (prefabShell.IsValid)
+            {
+                return prefabShell;
+            }
+
+            DestroyLabelObject(shellObject);
+        }
+
+        var canvasObject = new GameObject(UISetCanvasRootName, typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        canvasObject.transform.SetParent(parent, false);
+        var generatedRect = canvasObject.GetComponent<RectTransform>();
+        var generatedCanvas = canvasObject.GetComponent<Canvas>();
+        ConfigureWorldCanvas(generatedCanvas);
+        ConfigureCanvasScaler(canvasObject.GetComponent<CanvasScaler>());
+
+        var generatedGlow = CreateImage("UISetGlow", generatedRect, _roundedCardSprite, cardGlowColor);
+        StretchToParent(generatedGlow.rectTransform);
+        generatedGlow.rectTransform.offsetMin = new Vector2(-18f, -18f);
+        generatedGlow.rectTransform.offsetMax = new Vector2(18f, 18f);
+
+        var generatedBackground = CreateImage("UISetBackplate", generatedRect, _roundedCardSprite, cardColor);
+        StretchToParent(generatedBackground.rectTransform);
+
+        return new StatusCardShell
+        {
+            Root = canvasObject,
+            RectTransform = generatedRect,
+            Canvas = generatedCanvas,
+            BackgroundImage = generatedBackground,
+            GlowImage = generatedGlow,
+        };
+    }
+
+    private void ConfigureWorldCanvas(Canvas canvas)
+    {
+        if (canvas == null)
+        {
+            return;
+        }
+
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 32040;
+        canvas.worldCamera = targetCamera;
+    }
+
+    private static void ConfigureCanvasScaler(CanvasScaler canvasScaler)
+    {
+        if (canvasScaler == null)
+        {
+            return;
+        }
+
+        canvasScaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        canvasScaler.dynamicPixelsPerUnit = 12f;
+    }
+
+    private static void ConfigureImage(Image image, Color color)
+    {
+        if (image == null)
+        {
+            return;
+        }
+
+        image.color = color;
+        image.raycastTarget = false;
+        if (image.sprite != null)
+        {
+            image.type = Image.Type.Sliced;
+            image.pixelsPerUnitMultiplier = 1f;
+        }
+    }
+
+    private static void DisableGraphicRaycasts(GameObject root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        foreach (var graphic in root.GetComponentsInChildren<Graphic>(true))
+        {
+            graphic.raycastTarget = false;
+        }
+    }
+
+    private static void DisableStatusCardShellInteraction(GameObject root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        foreach (var behaviour in root.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            if (behaviour == null)
+            {
+                continue;
+            }
+
+            var typeName = behaviour.GetType().FullName ?? behaviour.GetType().Name;
+            if (typeName.StartsWith("Oculus.Interaction.", StringComparison.Ordinal) ||
+                typeName.Contains("UIThemeManager", StringComparison.Ordinal))
+            {
+                behaviour.enabled = false;
+            }
+        }
+
+        foreach (var audioSource in root.GetComponentsInChildren<AudioSource>(true))
+        {
+            audioSource.enabled = false;
+            audioSource.playOnAwake = false;
+        }
+    }
+
+    private static Transform FindDeepChild(Transform root, string childName)
+    {
+        if (root == null || string.IsNullOrWhiteSpace(childName))
+        {
+            return null;
+        }
+
+        if (root.name == childName)
+        {
+            return root;
+        }
+
+        for (var index = 0; index < root.childCount; index++)
+        {
+            var result = FindDeepChild(root.GetChild(index), childName);
+            if (result != null)
+            {
+                return result;
+            }
+        }
+
+        return null;
+    }
+
+    private void TryAutoLoadStatusCardShellPrefab()
+    {
+#if UNITY_EDITOR
+        if (statusCardShellPrefab != null)
+        {
+            return;
+        }
+
+        statusCardShellPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(ProjectUISetStatusCardShellPrefabPath);
+#endif
     }
 
     private void ApplyCardTextLayout(StatusCard card)
@@ -423,6 +635,10 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
             GeneratedObjectJobState.ModelReady => readyColor,
             GeneratedObjectJobState.Imported => readyColor,
             GeneratedObjectJobState.NeedsReview => reviewColor,
+            GeneratedObjectJobState.RuntimeBackendSubmitted => runningColor,
+            GeneratedObjectJobState.RuntimeModelReady => readyColor,
+            GeneratedObjectJobState.RuntimeModelDownloaded => readyColor,
+            GeneratedObjectJobState.RuntimeLoaded => readyColor,
             GeneratedObjectJobState.Failed => failedColor,
             _ => waitingColor,
         };
@@ -440,6 +656,10 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
             GeneratedObjectJobState.ModelReady => 0.9f,
             GeneratedObjectJobState.Imported => 1f,
             GeneratedObjectJobState.NeedsReview => 0.92f,
+            GeneratedObjectJobState.RuntimeBackendSubmitted => 0.48f,
+            GeneratedObjectJobState.RuntimeModelReady => 0.86f,
+            GeneratedObjectJobState.RuntimeModelDownloaded => 0.93f,
+            GeneratedObjectJobState.RuntimeLoaded => 1f,
             GeneratedObjectJobState.Failed => 1f,
             _ => 0.08f,
         };
@@ -471,6 +691,10 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
             GeneratedObjectJobState.ModelReady => "model ready",
             GeneratedObjectJobState.Imported => "placed",
             GeneratedObjectJobState.NeedsReview => "review",
+            GeneratedObjectJobState.RuntimeBackendSubmitted => "runtime backend",
+            GeneratedObjectJobState.RuntimeModelReady => "runtime model ready",
+            GeneratedObjectJobState.RuntimeModelDownloaded => "downloaded",
+            GeneratedObjectJobState.RuntimeLoaded => "runtime loaded",
             GeneratedObjectJobState.Failed => "failed",
             _ => state.ToString(),
         };
@@ -488,6 +712,10 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
             GeneratedObjectJobState.ModelReady => "Model is ready for Unity import.",
             GeneratedObjectJobState.Imported => "Replacement is placed in the room.",
             GeneratedObjectJobState.NeedsReview => "Generated asset needs visual review.",
+            GeneratedObjectJobState.RuntimeBackendSubmitted => "Headset backend job is running.",
+            GeneratedObjectJobState.RuntimeModelReady => "Runtime model URL is ready for download.",
+            GeneratedObjectJobState.RuntimeModelDownloaded => "Runtime model is downloaded and waiting to load.",
+            GeneratedObjectJobState.RuntimeLoaded => "Runtime model is loaded and waiting for review.",
             GeneratedObjectJobState.Failed => "Generation failed. Check job record.",
             _ => "Waiting for next pipeline step.",
         };
@@ -775,5 +1003,16 @@ public class GenerationJobWorldStatusOverlay : MonoBehaviour
         public TMP_Text Id;
 
         public bool IsValid => Root != null && RectTransform != null && Title != null && State != null && Note != null && Id != null && AccentImage != null;
+    }
+
+    private struct StatusCardShell
+    {
+        public GameObject Root;
+        public RectTransform RectTransform;
+        public Canvas Canvas;
+        public Image BackgroundImage;
+        public Image GlowImage;
+
+        public bool IsValid => Root != null && RectTransform != null && Canvas != null && BackgroundImage != null;
     }
 }

@@ -51,19 +51,19 @@ MonoBehaviour:
       edge etching, parchment-like glow accents, and an open center so the real view
       remains visible. The silhouette can be arched or ceremonial rather than strictly
       square.
-    WindowVistaPromptHint: Wide exterior vista beyond an archive window, showing distant
-      floating book towers, amber mist, and a calm star-lit magical horizon. No window
-      frame, no room interior, no people, no readable text.
+    WindowVistaPromptHint: Wide exterior vista beyond an archive window, showing
+      distant floating book towers, amber mist, and a calm star-lit magical horizon.
+      No window frame, no room interior, no people, no readable text.
   Mood:
     MainLightColor: {r: 1, g: 0.84, b: 0.65, a: 1}
     MainLightIntensity: 0.92
     AmbientSkyColor: {r: 0.31, g: 0.2, b: 0.12, a: 1}
     AmbientEquatorColor: {r: 0.2, g: 0.13, b: 0.08, a: 1}
     AmbientGroundColor: {r: 0.09, g: 0.06, b: 0.04, a: 1}
-  DefaultTableProxy: {fileID: 0}
-  DefaultSeatProxy: {fileID: 0}
-  DefaultStorageProxy: {fileID: 0}
-  DefaultScreenTreatmentPrefab: {fileID: 0}
+  DefaultTableProxy: {fileID: 2314694865039369192, guid: d2738172d076f4221b250b1ef40d63c8, type: 3}
+  DefaultSeatProxy: {fileID: 5490377964871335478, guid: d5b6c4e6c262948bb9c7fd45bd264b44, type: 3}
+  DefaultStorageProxy: {fileID: 8773355016440309329, guid: 16d128a6ce5264018bc8ce75668b9b96, type: 3}
+  DefaultScreenTreatmentPrefab: {fileID: 1761605007022858432, guid: 93ba2e651941c43a79e353142f0d7473, type: 3}
   PreserveCollisionSensitiveFootprints: 1
   ReplacementRules:
   - SemanticLabel: wall

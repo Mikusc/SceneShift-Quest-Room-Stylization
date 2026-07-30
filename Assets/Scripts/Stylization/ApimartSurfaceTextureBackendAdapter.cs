@@ -15,10 +15,11 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
     [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
 
     [Header("APIMart Authentication")]
-    [SerializeField] private string apiKeyEnvironmentVariable = "APIMART_API_KEY";
+    [SerializeField] private string apiKeyEnvironmentVariable = string.Empty;
 
     [Header("Image Generation")]
-    [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField, Tooltip("Opt in only for trusted Editor/Link workflows. Standalone Quest builds should use the secure HTTPS backend.")]
+    private bool autoProcessJobsInPlay;
     [SerializeField, Min(1)] private int maxConcurrentSurfaceImageJobs = 2;
     [SerializeField] private bool processActiveThemeOnly = true;
     [SerializeField] private bool processActiveStyleOnly = true;
@@ -240,10 +241,20 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
         _lastProcessedRecord = record;
         PublishSummary("submitting");
 
+        if (string.IsNullOrWhiteSpace(apiKeyEnvironmentVariable))
+        {
+            record.StatusNote = "Surface image backend API key environment variable is not configured.";
+            record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+            File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+            PublishSummary("missing-api-key-config");
+            _isProcessing = false;
+            yield break;
+        }
+
         var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            record.StatusNote = $"Waiting for environment variable {apiKeyEnvironmentVariable}.";
+            record.StatusNote = "Waiting for configured surface image backend API key environment variable.";
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
             PublishSummary("missing-api-key");
@@ -270,6 +281,7 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
         {
             request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(requestJson));
             request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             request.SetRequestHeader("Content-Type", "application/json");
             request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
 
@@ -316,10 +328,20 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
         _lastProcessedRecord = record;
         PublishSummary("polling");
 
+        if (string.IsNullOrWhiteSpace(apiKeyEnvironmentVariable))
+        {
+            record.StatusNote = "Surface image backend API key environment variable is not configured.";
+            record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+            File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+            PublishSummary("missing-api-key-config");
+            _isProcessing = false;
+            yield break;
+        }
+
         var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            record.StatusNote = $"Waiting for environment variable {apiKeyEnvironmentVariable}.";
+            record.StatusNote = "Waiting for configured surface image backend API key environment variable.";
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
             PublishSummary("missing-api-key");
@@ -344,6 +366,7 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
             string pollResponse;
             using (var pollRequest = UnityWebRequest.Get(queryUrl))
             {
+                pollRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
                 pollRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
                 yield return pollRequest.SendWebRequest();
 
@@ -415,6 +438,7 @@ public class ApimartSurfaceTextureBackendAdapter : MonoBehaviour
         using (var downloadRequest = UnityWebRequest.Get(imageUrl))
         {
             downloadRequest.downloadHandler = new DownloadHandlerFile(outputPath);
+            downloadRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             yield return downloadRequest.SendWebRequest();
 
             if (downloadRequest.result != UnityWebRequest.Result.Success)

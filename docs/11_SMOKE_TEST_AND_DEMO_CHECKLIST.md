@@ -8,6 +8,18 @@ This checklist reflects the current `2026-04-30` project state: generic scaffold
 
 ---
 
+# 0. Validation Route
+
+Current Mac workflow:
+
+- Use `MetaXRSimulator` or Unity Editor Play for fast local regression.
+- Use Meta Quest Developer Hub / test release-channel deployment for true-device closed-loop validation: build or upload the test version, update/install it on the headset, then validate inside the standalone app.
+- Do not count USB `Build And Run` or Editor-only checks as the default true-device path unless that local setup is deliberately changed.
+- Treat `PreDeviceSmokeReportRunner` output as a Mac pre-device gate only. `PassWithManualVisualChecks` means automated scene/wiring checks passed and Game View/Simulator visual checks still need human confirmation.
+- The canonical scene uses MRUK `DeviceWithPrefabFallback` with the official `Office00` prefab so Mac regression can load room semantics without headset scene data. A standalone Quest run must still validate the real device room.
+
+---
+
 # 1. Before Play
 
 Check:
@@ -27,6 +39,7 @@ Check:
 - If testing APIMart image generation, `APIMART_API_KEY` is visible to Unity.
 - If testing hosted upload, `SCENESHIFT_UPLOAD_TOKEN` is visible to Unity and upload uses `x-sceneshift-upload-token`.
 - If testing Seed3D, `ARK_API_KEY` is visible to Unity.
+- If testing standalone Quest surface generation, do not expose image2/APIMart keys to Unity. Confirm the deployed backend has `APIMART_API_KEY` or `IMAGE2_API_KEY` in Azure application settings and the Unity scene uses `QuestSurfaceGenerationClient.backendSubmitUrl=https://www.mikusc.top/api/v1/surface-generations`.
 
 Generated artifact rule:
 
@@ -77,7 +90,14 @@ Fail if:
 
 # 4. Surface Aesthetic Checks
 
-Surface path currently uses `surface_texture_v3_room_scale_openings`.
+Surface path currently uses `surface_texture_v3_room_scale_openings`. On standalone Quest, the expected real-generation path is `QuestSurfaceGenerationClient -> /api/v1/surface-generations -> backend image2 -> SurfaceOverrideApplier`.
+
+Before judging generated surface aesthetics:
+
+- Press dashboard `Generate Room`.
+- Confirm the panel shows `Room Surfaces: submitting`, `polling`, or `ready` rather than only local fallback state.
+- Confirm `GenerationQueueStatusService` reports surface jobs moving from prompt/submitted to ready, or records clear backend failure reasons.
+- Confirm generated PNG files are downloaded under `Application.persistentDataPath/SurfaceTextureOutputs/` on Quest or under `Library/SurfaceTextureOutputs/` in Editor.
 
 Check wall/floor/ceiling:
 
@@ -198,6 +218,65 @@ Placement:
 - Rotation is plausible.
 - It does not block walkable clearance.
 
+Runtime GLB spike:
+
+- `RuntimeState` contains `RuntimeGeneratedModelLoader`, `GeneratedObjectReviewController`, `CorrectionModeController`, and `GeneratedObjectRotationCorrectionController`.
+- `RuntimeState` contains `QuestRuntimeGenerationClient` in `LocalTestModelUrl` mode unless a real secure backend endpoint is being tested.
+- `RuntimeState` contains `PreDeviceRuntimeLoopValidator` for Play Mode pre-device validation on Mac.
+- `RuntimeState` contains `PreDeviceSmokeReportRunner` for the broader Play Mode smoke report.
+- In Play Mode, `PreDeviceRuntimeLoopValidator` can queue one current-room/current-style `TABLE` request, write request/job/prompt artifacts, and submit it through `QuestRuntimeGenerationClient` local test mode.
+- After the room is ready, `PreDeviceSmokeReportRunner.RunSmokeReport()` writes JSON/Markdown reports under `Library/PreDeviceSmokeReports/`.
+- A valid current Mac pre-device smoke result can be `PassWithManualVisualChecks` when only surface visual quality and dashboard visual layout remain manual.
+- Store supporting screenshots or local review notes under `Library/PreDeviceVisualEvidence/` when closing any manual visual item from Mac evidence.
+- Dashboard `Submit+Load` advances the latest generated-object job through the runtime backend boundary and immediately loads the returned model URL when local test mode is active.
+- Dashboard `Load Test GLB` attaches the configured sample GLB URL to the latest generated-object job/request and attempts runtime loading without `AssetDatabase`.
+- Dashboard `Load Latest Job` can load a job that already has `RuntimeModelUrl`, `RuntimeModelLocalPath`, or `GeneratedModelPath`.
+- Runtime row reports the loader state, including download/load failures.
+- A runtime-loaded object is parented under `RuntimeGeneratedModels` and receives `RuntimeGeneratedModelInstance` plus `StylizedFurnitureInstance` markers.
+- The smoke report must validate request/job contract traceability: the runtime-loaded object should map to a matching `.job.json`, `.request.json`, prompt artifact, room id, object id, style id/variant, semantic label, target bounds/physical dimensions, HTTPS model URL, local runtime GLB file, and `RuntimeLoaded` state.
+- The smoke report must validate runtime backend artifact traceability: `LocalTestModelUrl` and later `HttpBackend` runs should write matching `.runtime-submission.json` and `.runtime-result.json` artifacts that preserve request/object/style/semantic identity, source request and prompt paths, target bounds, backend job/result state, and model URL handoff.
+- For true-device closure on the current Mac setup, repeat the successful local spike through a MQDH/test-channel headset install rather than treating Editor Play as final evidence.
+- If a candidate was previously rejected or reset, loading the same runtime-ready job should immediately restore that review state and keep the candidate hidden before the user presses any review button.
+- If a candidate was previously accepted or corrected and its local GLB still exists, the review controller should be able to restore it from `GeneratedObjectReviews` without submitting a new backend generation job.
+- Persisted corrections should be idempotent: selecting or restoring the same corrected candidate repeatedly must not increase its offset, yaw, or scale each time.
+- Reset-to-fallback should hide the runtime generated candidate and reveal a deterministic fallback proxy for the same object id when a theme fallback exists.
+- Reject/reset should release hidden runtime generated model GameObjects after writing review/job state, while keeping local GLB and review/job records available for retry or persisted-state restore.
+- After a pre-device regression, run `SceneShift/Generated Objects/Archive Pre-Device Runtime Artifacts - Keep Latest` when old `predevice_room_loop_*` jobs, runtime model folders, or review records should be removed from the active evidence set but preserved for audit.
+
+Build readiness preflight:
+
+- Run `SceneShift/Validation/Check Serialized Credentials`. Any finding is a build blocker; the
+  report identifies only the field and source location, not the secret value.
+- Run `SceneShift/Validation/Run MQDH Pre-Package Evidence Suite` before creating a MQDH/test-channel package. It runs build readiness, creates the MQDH evidence template, and runs MQDH handoff preflight.
+- The report is written under `Library/PreDeviceBuildReadinessReports/`.
+- The report must pass `android_build_support_installed`; if it fails, install Android Build Support for the exact Unity Editor version before packaging.
+- The report must pass `android_internet_permission`; the runtime GLB loader and backend client use headset-side `UnityWebRequest`.
+- The report must pass the custom Android manifest checks for MRUK scene/anchor permissions, headset camera/PCA permission, passthrough support, supported Quest devices, HorizonOS SDK metadata, permissions dialog behavior, and VR launch metadata.
+- The report must pass `runtime_local_test_model_https` and `runtime_backend_submit_url_https`; use HTTPS for the local test GLB and any configured backend endpoint.
+- The report must pass `runtime_loader_assetdatabase_free` and `runtime_backend_client_runtime_path`; the Quest runtime path must use `Application.persistentDataPath`, `UnityWebRequest`, and glTF runtime loading rather than Editor-only `AssetDatabase` import.
+- The report must read the latest smoke report status as `Pass` or `PassWithManualVisualChecks`.
+- The report must parse the latest smoke report and find a safe `TABLE` target, `stylization_plan warnings=0`, `runtimeLoaded > 0`, runtime-loaded instance metadata with `RuntimeGeneratedModelInstance` plus `StylizedFurnitureInstance`, request/job contract traceability evidence, runtime backend artifact traceability evidence, editability/persistence evidence for bounded correction and temporary review-record roundtrip, reset-to-deterministic-fallback evidence, reject/reset release-policy evidence, and dashboard controls for `Submit+Load`, `Load Test GLB`, `Load Latest Job`, `Accept`, `Reject`, `Reset`, and `Rotate 90`.
+- The report must find local visual review evidence and a screenshot that are newer than or equal to the latest smoke report when manual visual checks remain, and the review note must explicitly reference both the latest smoke report and the paired screenshot.
+- The report must pass the packaged config/assets and generated job JSON secret scans.
+- The report must pass active pre-device runtime artifact checks: one active `predevice_room_loop_*` set, complete job/request/prompt/runtime-submission/runtime-result files, a matching persistent runtime GLB folder, and latest-smoke request-id reference.
+- The report must pass preflight/build tool checks for Android Support recovery, terminal pre-package suite, Unity MQDH package build runner, package build report verifier, local gate, package artifact verification, package-required gate verification, gate self-test, handoff bundle verification, and headset ADB evidence collection/verification scripts.
+- After Android Build Support is installed, the acceptable pre-switch state is `PassWithWarnings` only when the remaining warning is `active_build_target=StandaloneOSX`; switch the Editor to Android before packaging.
+- Treat any other warning or any failure as a packaging blocker unless it is explicitly documented for the current run.
+- After installing Android Build Support from Unity Hub, run `bash Tools/check_android_support_recovery.sh` before reopening Unity to confirm the module files are present and identify stale readiness/template/handoff/terminal-suite/local-gate evidence that must be regenerated. If using Unity Hub CLI, install the required modules with `"/Applications/Unity Hub.app/Contents/MacOS/Unity Hub" -- --headless install-modules --version 6000.4.3f1 -m android android-sdk-ndk-tools android-open-jdk`.
+- Use the generated `Library/MQDHHeadsetEvidence/mqdh_headset_evidence_*.md` file during the headset install/validation pass.
+- The suite should generate `Library/MQDHHeadsetEvidence/mqdh_prepackage_evidence_suite_*.md`; follow its terminal command by running `bash Tools/run_mqdh_terminal_prepackage_suite.sh`.
+- `SceneShift/Validation/Run MQDH Handoff Preflight` should confirm the template, latest terminal-suite/handoff/local-gate evidence fields, final APK/AAB gate commands, ADB helper, smoke evidence, and visual evidence are current; any `Fail` is a package/headset-run blocker.
+- Run `bash Tools/scan_predevice_secrets.sh` before packaging to independently scan packaged config/assets and generated job JSON records for likely long-lived credentials.
+- Run `bash Tools/run_mqdh_terminal_prepackage_suite.sh` before platform switching or packaging to write and verify the handoff bundle, write and verify the pre-package local gate, and record current handoff status in one report.
+- Run `bash Tools/audit_true_device_preflight.sh` after the terminal suite when you need a single current matrix of readiness, handoff, local gate, package build, final package gate, and headset evidence state.
+- Use `bash Tools/run_predevice_local_gate.sh`, `bash Tools/verify_predevice_local_gate.sh`, `bash Tools/show_mqdh_handoff_status.sh`, `bash Tools/write_mqdh_handoff_bundle.sh`, and `bash Tools/verify_mqdh_handoff_bundle.sh` directly only when debugging the individual steps reported by the terminal suite.
+- After Android Support is installed and the Editor build target is Android, prefer `SceneShift/Validation/Build MQDH Test Package`; it builds the current Android APK/AAB mode, writes `Library/MQDHPackageBuildReports/mqdh_package_build_*.md`, and runs the final `--package-artifact` local gate automatically.
+- Before MQDH/test-channel upload, `bash Tools/verify_mqdh_package_build_report.sh` should pass without `--allow-blocked`; the `--allow-blocked` option is only for documenting the current pre-build blocker state.
+- If you create an APK/AAB manually, rerun `bash Tools/run_predevice_local_gate.sh --package-artifact <apk-or-aab-path>` and then `bash Tools/verify_predevice_local_gate.sh --require-package-artifact` before MQDH/test-channel upload so package artifact verification is recorded and enforced in the final local gate report. The final verifier must see `Overall: Pass`; `Fail` and `BlockedAndroidSupport` are not acceptable for upload. Use `bash Tools/verify_mqdh_package_artifact.sh <apk-or-aab-path>` directly only when debugging the package check.
+- If any local gate, package artifact, or package-required verifier script changed, run `bash Tools/test_predevice_gate_scripts.sh` once before trusting the updated gate behavior.
+- When the headset app is installed and open, run `bash Tools/collect_mqdh_headset_evidence.sh --package com.mikusc.sceneshiftroom.comp4145 --template <latest Library/MQDHHeadsetEvidence/*.md>` if ADB is available, then run `bash Tools/verify_mqdh_headset_evidence.sh` to validate the collected `adb_*` evidence directory.
+- Use `docs/14_MQDH_TEST_CHANNEL_RUNBOOK.md` for the MQDH/test-channel handoff steps and headset evidence list.
+
 ---
 
 # 7. UI / Interaction Checks
@@ -210,6 +289,8 @@ Runtime panel:
 - Theme dropdown or selector can be used without layout breaking.
 - Clean View state is clearly visible.
 - Object Status toggles world-space cards.
+- `Submit+Load`, `Load Test GLB`, and `Load Latest Job` are selectable and do not crowd the review buttons.
+- Reloading the same runtime-ready job respects persisted review state; rejected/reset candidates must not visibly reappear after reload or app restart.
 - Rotate 90 is selectable and does not overlap the other room-control buttons.
 - Main panel hide/show input works if enabled.
 - Pure passthrough input works independently of Clean View and does not reuse the furniture target-cycle input.
@@ -270,5 +351,8 @@ A smoke test passes if:
 - New capture does not overwrite unrelated generated furniture.
 - Generated-object file artifacts are created when explicitly tested.
 - The next failure point is documented.
+
+For the current Mac route, do not mark a run as true-device closed unless the same flow has been installed or updated through Meta Quest Developer Hub / the configured test release channel and verified inside the standalone headset app.
+If only local screenshots exist, call the result pre-device `PassWithCaveats` unless surface quality, dashboard readability, and interaction reachability are each visible from the captured viewpoints.
 
 If the test fails, fix only the smallest blocking issue before adding new features.

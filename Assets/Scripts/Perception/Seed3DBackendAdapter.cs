@@ -14,20 +14,19 @@ public class Seed3DBackendAdapter : MonoBehaviour
     private const string LongRunningStatusMarker = "background polling";
 
     [Header("Ark Authentication")]
-    [SerializeField] private string apiKeyEnvironmentVariable = "ARK_API_KEY";
+    [SerializeField] private string apiKeyEnvironmentVariable = string.Empty;
 
     [Header("Seed3D Request")]
     [SerializeField] private string taskEndpoint = "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks";
     [SerializeField] private string model = "doubao-seed3d-2-0-260328";
-    [SerializeField] private string subdivisionLevel = "medium";
+    [SerializeField] private string subdivisionLevel = "low";
     [SerializeField] private string fileFormat = "glb";
     [SerializeField] private Seed3DImageInputMode imageInputMode = Seed3DImageInputMode.PreferBase64DataUri;
     [SerializeField, Min(256)] private int maxBase64ImageKilobytes = 12288;
-    [SerializeField, TextArea(2, 5)] private string extraTextInstruction =
-        "Generate one clean 3D model from the isolated stylized object image. Preserve proportions, footprint, and support/contact surfaces.";
 
     [Header("Polling")]
-    [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField, Tooltip("Opt in only for trusted Editor/Link workflows. Standalone Quest builds should use the secure HTTPS backend.")]
+    private bool autoProcessJobsInPlay;
     [SerializeField, Min(1)] private int maxConcurrentSeed3DJobs = 2;
     [SerializeField, Min(1f)] private float pollIntervalSeconds = 5f;
     [SerializeField, Min(15f)] private float timeoutSeconds = 900f;
@@ -52,7 +51,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
     private float _nextProcessTime;
     private string _lastImageInputSummary = "none";
     private string _latestSummary =
-        "[Seed3DBackendAdapter]\nState: waiting\nHint: provide ARK_API_KEY and a StylizedImageReady job with a local PNG or public image URL.";
+        "[Seed3DBackendAdapter]\nState: waiting\nHint: configure the API key environment variable and provide a StylizedImageReady job with a local PNG or public image URL.";
 
     private void OnEnable()
     {
@@ -191,10 +190,20 @@ public class Seed3DBackendAdapter : MonoBehaviour
         _lastProcessedRecord = record;
         PublishSummary("processing");
 
+        if (string.IsNullOrWhiteSpace(apiKeyEnvironmentVariable))
+        {
+            record.StatusNote = "Seed3D API key environment variable is not configured.";
+            record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+            File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+            PublishSummary("missing-api-key-config");
+            _isProcessing = false;
+            yield break;
+        }
+
         var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            record.StatusNote = $"Waiting for environment variable {apiKeyEnvironmentVariable}.";
+            record.StatusNote = "Waiting for configured Seed3D API key environment variable.";
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
             PublishSummary("missing-api-key");
@@ -250,6 +259,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
         {
             createRequest.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(requestJson));
             createRequest.downloadHandler = new DownloadHandlerBuffer();
+            createRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             createRequest.SetRequestHeader("Content-Type", "application/json");
             createRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
 
@@ -303,6 +313,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
             string pollResponse;
             using (var pollRequest = UnityWebRequest.Get(queryUrl))
             {
+                pollRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
                 pollRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
                 yield return pollRequest.SendWebRequest();
 
@@ -364,6 +375,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
         string pollResponse;
         using (var pollRequest = UnityWebRequest.Get(queryUrl))
         {
+            pollRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             pollRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
             yield return pollRequest.SendWebRequest();
 
@@ -428,6 +440,7 @@ public class Seed3DBackendAdapter : MonoBehaviour
         using (var downloadRequest = UnityWebRequest.Get(modelUrl))
         {
             downloadRequest.downloadHandler = new DownloadHandlerFile(downloadPath);
+            downloadRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             yield return downloadRequest.SendWebRequest();
 
             if (downloadRequest.result != UnityWebRequest.Result.Success)
@@ -537,26 +550,11 @@ public class Seed3DBackendAdapter : MonoBehaviour
 
     private string BuildSeed3DTextPrompt(GeneratedAssetRecord record)
     {
-        var builder = new StringBuilder(512);
-        builder.Append(extraTextInstruction.Trim());
-        builder.Append(' ');
+        var builder = new StringBuilder(96);
         builder.Append("--subdivisionlevel ");
         builder.Append(SanitizeCommandToken(subdivisionLevel));
         builder.Append(" --fileformat ");
         builder.Append(SanitizeCommandToken(fileFormat));
-        builder.Append(". Target physical size: length=");
-        builder.Append(FormatFloat(record.TargetLengthMeters));
-        builder.Append("m, width=");
-        builder.Append(FormatFloat(record.TargetWidthMeters));
-        builder.Append("m, height=");
-        builder.Append(FormatFloat(record.TargetHeightMeters));
-        builder.Append("m, length/width aspect ratio=");
-        builder.Append(FormatFloat(record.TargetAspectRatio));
-        builder.Append(", safety footprint scale=");
-        builder.Append(FormatFloat(record.SafetyFootprintScale));
-        builder.Append(", vertical fit mode=");
-        builder.Append(record.VerticalFitMode);
-        builder.Append(". Preserve bottom support, tabletop/contact surfaces, and dominant yaw for MR scaffold registration.");
         return builder.ToString();
     }
 
@@ -1050,11 +1048,6 @@ public class Seed3DBackendAdapter : MonoBehaviour
             .Replace("\n", "\\n")
             .Replace("\r", "\\r")
             .Replace("\t", "\\t");
-    }
-
-    private static string FormatFloat(float value)
-    {
-        return value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private void PublishSummary(string state)

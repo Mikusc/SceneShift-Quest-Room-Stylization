@@ -33,7 +33,7 @@ public class RuntimeStyleIntentController : MonoBehaviour
     [SerializeField, TextArea(1, 3)] private string customStyleIntent = string.Empty;
 
     [Header("Optional External Provider")]
-    [SerializeField] private bool useDeepSeekStyleIntentProvider = true;
+    [SerializeField] private bool useDeepSeekStyleIntentProvider;
     [SerializeField] private DeepSeekStyleIntentProvider deepSeekStyleIntentProvider;
 
     [Header("Runtime State")]
@@ -243,7 +243,7 @@ public class RuntimeStyleIntentController : MonoBehaviour
 
         if (!deepSeekStyleIntentProvider.HasApiKey())
         {
-            externalProviderStatus = "DeepSeek: missing API key. Set DEEPSEEK_API_KEY or apiKeyOverride.";
+            externalProviderStatus = "DeepSeek: missing API key. Configure the API key environment variable.";
             return;
         }
 

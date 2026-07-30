@@ -85,9 +85,9 @@ public class AnchorThemeApplier : MonoBehaviour
     [SerializeField] private bool preferImportedGeneratedTablePrefabs = true;
     [SerializeField] private bool lockGeneratedTablePrefabsToActiveCapture = true;
     [SerializeField, Tooltip("When no active capture exists, still load the newest generated prefab that matches each table ObjectId. Disable this to require a fresh capture in every Play session.")]
-    private bool allowLatestGeneratedTableWhenNoActiveCapture = true;
+    private bool allowLatestGeneratedTableWhenNoActiveCapture;
     [SerializeField, Tooltip("Allows request-locked generated tables that failed automatic quality review to be placed for visual validation. Some visually acceptable generated assets still land in NeedsReview because the automatic gate is conservative.")]
-    private bool allowNeedsReviewGeneratedTablesForValidation = true;
+    private bool allowNeedsReviewGeneratedTablesForValidation;
     [SerializeField, Tooltip("Debug only: allows the newest generated table to appear on the current best-view target even when ObjectId does not match. Keep disabled for multi-table validation.")]
     private bool allowUnmatchedLatestGeneratedTableForDebug;
     [SerializeField] private string generatedObjectJobFolderName = "GeneratedObjectJobs";
@@ -131,6 +131,7 @@ public class AnchorThemeApplier : MonoBehaviour
     public int LastAppliedTableProxyCount => _lastAppliedTableProxyCount;
     public string LastTableProxyStatus => _lastTableProxyStatus;
     public int LockedGeneratedTableCount => _lockedGeneratedTablePrefabs.Count;
+    public int ForcedDeterministicFallbackCount => _forcedDeterministicFallbackObjectIds.Count;
 
     private readonly Dictionary<Renderer, Material[]> _originalSharedMaterials = new();
     private readonly Dictionary<Renderer, bool> _originalRendererStates = new();
@@ -140,6 +141,7 @@ public class AnchorThemeApplier : MonoBehaviour
     private readonly List<GameObject> _spawnedProxyRoots = new();
     private readonly List<Renderer> _proxyAccentRenderers = new();
     private readonly Dictionary<string, LockedGeneratedFurniturePrefab> _lockedGeneratedTablePrefabs = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _forcedDeterministicFallbackObjectIds = new(StringComparer.OrdinalIgnoreCase);
 
     private string _latestSummary = "[AnchorThemeApplier]\nState: waiting\nHint: enter Play and wait for room + theme.";
     private string _lastTableProxyStatus = "idle";
@@ -248,6 +250,79 @@ public class AnchorThemeApplier : MonoBehaviour
         _lastGeneratedTableSelectionStatus = "locks_cleared";
         _needsRefresh = true;
         RefreshApplication("clear-generated-table-locks");
+    }
+
+    public bool ForceDeterministicFallbackForObject(string objectId, out string detail)
+    {
+        detail = string.Empty;
+        if (string.IsNullOrWhiteSpace(objectId))
+        {
+            detail = "objectId is empty.";
+            return false;
+        }
+
+        var normalizedObjectId = objectId.Trim();
+        _forcedDeterministicFallbackObjectIds.Add(normalizedObjectId);
+        var removedLocks = RemoveGeneratedFurnitureLocksForObject(normalizedObjectId);
+        _lastGeneratedTableSelectionStatus = $"forced_deterministic_fallback(object={normalizedObjectId}, removedLocks={removedLocks})";
+        _needsRefresh = true;
+        RefreshApplication("runtime-reset-fallback");
+
+        var fallbackVisible = HasActiveDeterministicFallbackForObject(normalizedObjectId);
+        detail = $"object={normalizedObjectId}, fallbackVisible={fallbackVisible}, forced={_forcedDeterministicFallbackObjectIds.Count}, removedLocks={removedLocks}, proxies={_lastAppliedTableProxyCount}, status={_lastTableProxyStatus}";
+        return fallbackVisible;
+    }
+
+    public bool HasActiveDeterministicFallbackForObject(string objectId)
+    {
+        if (string.IsNullOrWhiteSpace(objectId))
+        {
+            return false;
+        }
+
+        var normalizedObjectId = objectId.Trim();
+        var instances = FindObjectsByType<StylizedFurnitureInstance>(FindObjectsInactive.Exclude);
+        foreach (var instance in instances)
+        {
+            if (instance == null ||
+                !string.Equals(instance.ObjectId, normalizedObjectId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(instance.PrefabSource, "generated_import", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (instance.gameObject.activeInHierarchy)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool IsDeterministicFallbackForcedForObject(string objectId)
+    {
+        return IsDeterministicFallbackForced(objectId);
+    }
+
+    public bool ClearDeterministicFallbackForObject(string objectId, out string detail)
+    {
+        detail = string.Empty;
+        if (string.IsNullOrWhiteSpace(objectId))
+        {
+            detail = "objectId is empty.";
+            return false;
+        }
+
+        var normalizedObjectId = objectId.Trim();
+        var removed = _forcedDeterministicFallbackObjectIds.Remove(normalizedObjectId);
+        _lastGeneratedTableSelectionStatus = removed
+            ? $"cleared_deterministic_fallback(object={normalizedObjectId})"
+            : $"deterministic_fallback_not_forced(object={normalizedObjectId})";
+        _needsRefresh = true;
+        RefreshApplication("clear-runtime-reset-fallback");
+        detail = $"object={normalizedObjectId}, removed={removed}, forced={_forcedDeterministicFallbackObjectIds.Count}, proxies={_lastAppliedTableProxyCount}, status={_lastTableProxyStatus}";
+        return removed;
     }
 
     private void Subscribe()
@@ -543,11 +618,17 @@ public class AnchorThemeApplier : MonoBehaviour
 
             matchedPlanCount++;
             lastEntryId = planEntry.EntryId;
-            var proxyPrefab = ResolveLockedGeneratedFurniturePrefab(theme, planEntry, out var prefabSource);
+            var forceDeterministicFallback = IsDeterministicFallbackForced(planEntry.ObjectId);
+            var prefabSource = "none";
+            var proxyPrefab = forceDeterministicFallback
+                ? null
+                : ResolveLockedGeneratedFurniturePrefab(theme, planEntry, out prefabSource);
             var usedLockedGeneratedPrefab = proxyPrefab != null;
             if (!usedLockedGeneratedPrefab)
             {
-                proxyPrefab = ResolveProxyPrefab(theme, planEntry, out prefabSource);
+                proxyPrefab = forceDeterministicFallback
+                    ? ResolveDeterministicFallbackProxyPrefab(theme, planEntry, out prefabSource)
+                    : ResolveProxyPrefab(theme, planEntry, out prefabSource);
             }
 
             var usingGeneratedPrefab = string.Equals(prefabSource, "generated_import", StringComparison.Ordinal);
@@ -557,7 +638,7 @@ public class AnchorThemeApplier : MonoBehaviour
                 continue;
             }
 
-            if (onlyReplaceGeneratedTableTarget && !usingGeneratedPrefab)
+            if (onlyReplaceGeneratedTableTarget && !usingGeneratedPrefab && !forceDeterministicFallback)
             {
                 lastFailure = $"not_generated_target_{planEntry.EntryId}";
                 continue;
@@ -648,6 +729,37 @@ public class AnchorThemeApplier : MonoBehaviour
             PrefabName = proxyPrefab.name,
             LockedAtIsoUtc = DateTime.UtcNow.ToString("O"),
         };
+    }
+
+    private int RemoveGeneratedFurnitureLocksForObject(string objectId)
+    {
+        if (string.IsNullOrWhiteSpace(objectId) || _lockedGeneratedTablePrefabs.Count == 0)
+        {
+            return 0;
+        }
+
+        var keysToRemove = new List<string>();
+        foreach (var pair in _lockedGeneratedTablePrefabs)
+        {
+            if (pair.Value != null &&
+                string.Equals(pair.Value.ObjectId, objectId, StringComparison.OrdinalIgnoreCase))
+            {
+                keysToRemove.Add(pair.Key);
+            }
+        }
+
+        foreach (var key in keysToRemove)
+        {
+            _lockedGeneratedTablePrefabs.Remove(key);
+        }
+
+        return keysToRemove.Count;
+    }
+
+    private bool IsDeterministicFallbackForced(string objectId)
+    {
+        return !string.IsNullOrWhiteSpace(objectId) &&
+               _forcedDeterministicFallbackObjectIds.Contains(objectId.Trim());
     }
 
     private static string GetGeneratedFurnitureLockKey(string themeId, string entryId)
@@ -1786,6 +1898,17 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 #endif
 
+        return ResolveDeterministicFallbackProxyPrefab(theme, planEntry, out prefabSource);
+    }
+
+    private GameObject ResolveDeterministicFallbackProxyPrefab(ThemeProfile theme, StylizationPlanEntry planEntry, out string prefabSource)
+    {
+        prefabSource = "none";
+        if (theme == null || planEntry == null)
+        {
+            return null;
+        }
+
         var matchedRule = FindRule(theme, planEntry.OriginalSemanticLabel, planEntry.OriginalFunctionTag);
         if (matchedRule?.ProxyPrefab != null)
         {
@@ -1834,6 +1957,9 @@ public class AnchorThemeApplier : MonoBehaviour
         DateTime bestUpdatedAt = DateTime.MinValue;
         var effectiveThemeId = GetEffectiveThemeId(theme);
         var effectiveStyleVariantId = GetActiveStyleVariantId();
+        var currentRoomId = roomSemanticBootstrap != null && roomSemanticBootstrap.CurrentRoom != null
+            ? roomSemanticBootstrap.CurrentRoom.name
+            : "unknown_room";
         foreach (var jobPath in Directory.GetFiles(jobDirectory, "*.job.json", SearchOption.TopDirectoryOnly))
         {
             var record = TryReadGeneratedAssetRecord(jobPath);
@@ -1843,6 +1969,7 @@ public class AnchorThemeApplier : MonoBehaviour
                     theme,
                     effectiveThemeId,
                     effectiveStyleVariantId,
+                    currentRoomId,
                     planEntry,
                     activeRequest,
                     hasActiveCaptureRequest,
@@ -1959,6 +2086,7 @@ public class AnchorThemeApplier : MonoBehaviour
         ThemeProfile theme,
         string effectiveThemeId,
         string effectiveStyleVariantId,
+        string currentRoomId,
         StylizationPlanEntry planEntry,
         GeneratedObjectRequest activeRequest,
         bool hasActiveCaptureRequest,
@@ -1990,6 +2118,11 @@ public class AnchorThemeApplier : MonoBehaviour
         }
 
         if (string.IsNullOrWhiteSpace(record.ImportedPrefabPath) || !File.Exists(record.ImportedPrefabPath))
+        {
+            return false;
+        }
+
+        if (!DoesRecordMatchCurrentRoom(record, currentRoomId))
         {
             return false;
         }
@@ -2027,30 +2160,48 @@ public class AnchorThemeApplier : MonoBehaviour
 
     private static bool DoesRecordMatchActiveRequest(GeneratedAssetRecord record, GeneratedObjectRequest activeRequest)
     {
-        if (record == null || activeRequest == null)
+        return record != null &&
+               activeRequest != null &&
+               !string.IsNullOrWhiteSpace(record.RequestId) &&
+               !string.IsNullOrWhiteSpace(activeRequest.RequestId) &&
+               string.Equals(record.RequestId, activeRequest.RequestId, StringComparison.OrdinalIgnoreCase) &&
+               !string.IsNullOrWhiteSpace(record.ObjectId) &&
+               !string.IsNullOrWhiteSpace(activeRequest.ObjectId) &&
+               string.Equals(record.ObjectId, activeRequest.ObjectId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool DoesRecordMatchCurrentRoom(GeneratedAssetRecord record, string currentRoomId)
+    {
+        if (string.IsNullOrWhiteSpace(currentRoomId) ||
+            string.Equals(currentRoomId, "unknown_room", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (record == null ||
+            string.IsNullOrWhiteSpace(record.SourceRequestPath) ||
+            !File.Exists(record.SourceRequestPath))
         {
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(record.RequestId) &&
-            string.Equals(record.RequestId, activeRequest.RequestId, StringComparison.OrdinalIgnoreCase))
+        try
         {
-            return true;
+            var json = File.ReadAllText(record.SourceRequestPath);
+            var request = string.IsNullOrWhiteSpace(json)
+                ? null
+                : JsonUtility.FromJson<GeneratedObjectRequest>(json);
+            return request != null &&
+                   !string.IsNullOrWhiteSpace(request.RoomId) &&
+                   !string.Equals(request.RoomId, "unknown_room", StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(request.RoomId, currentRoomId, StringComparison.OrdinalIgnoreCase);
         }
-
-        if (!string.IsNullOrWhiteSpace(record.ObjectId) &&
-            !string.IsNullOrWhiteSpace(activeRequest.ObjectId) &&
-            string.Equals(record.ObjectId, activeRequest.ObjectId, StringComparison.OrdinalIgnoreCase))
+        catch (Exception exception)
         {
-            return true;
+            Debug.LogWarning(
+                $"[AnchorThemeApplier] Failed to verify generated-object room context '{record.SourceRequestPath}': {exception.Message}");
+            return false;
         }
-
-        return !string.IsNullOrWhiteSpace(record.SourceRequestPath) &&
-               !string.IsNullOrWhiteSpace(activeRequest.SourceRequestPath) &&
-               string.Equals(
-                   Path.GetFullPath(record.SourceRequestPath),
-                   Path.GetFullPath(activeRequest.SourceRequestPath),
-                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ShortId(string value)

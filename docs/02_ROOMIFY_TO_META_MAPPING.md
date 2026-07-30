@@ -144,7 +144,9 @@ This keeps the system:
 Do not block the stylization slice on runtime 3D generation.
 
 Optional note:
-The repository now contains a generated-furniture side branch for MRUK furniture anchors. That branch may use headset/external captures, Roomify-inspired prompt artifacts, APIMart image generation, hosted upload, and Seed3D model generation, but it remains secondary to the deterministic material/proxy path.
+The repository now contains a generated-furniture side branch for MRUK furniture anchors. The current stretch demo target is to run that branch end-to-end on a standalone Quest headset: user style intent, headset capture, secure backend generation, runtime model loading, request-locked placement, and in-headset review/editing.
+
+This stretch target should still sit on top of the deterministic material/proxy path. If runtime generation fails, the room must continue to work through surfaces, openings, mood, and safe fallback proxies/materials.
 
 ## 7. Scene Composition
 ### Roomify version
@@ -178,6 +180,7 @@ That should directly influence this repository.
 - show current mapped replacement
 - allow small transform correction
 - allow reset to original mapping
+- allow generated candidates to be accepted or rejected before they become final
 
 ### Not required yet
 - freeform scene editing

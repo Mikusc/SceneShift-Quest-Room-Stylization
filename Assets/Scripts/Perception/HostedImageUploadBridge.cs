@@ -16,10 +16,12 @@ public class HostedImageUploadBridge : MonoBehaviour
     [SerializeField] private string authHeaderPrefix = "Bearer ";
     [SerializeField] private bool uploadRawPngBody = true;
     [SerializeField] private string formFileFieldName = "file";
+    [SerializeField, Min(1)] private int requestTimeoutSeconds = 120;
     [SerializeField] private Seed3DBackendAdapter seed3DBackendAdapter;
 
     [Header("Processing")]
-    [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField, Tooltip("Opt in only for trusted Editor/Link workflows. Standalone Quest builds should use the secure HTTPS backend.")]
+    private bool autoProcessJobsInPlay;
     [SerializeField] private bool skipUploadWhenSeed3DCanUseLocalBase64 = true;
     [SerializeField, Min(1)] private int maxConcurrentUploadJobs = 3;
     [SerializeField, Min(1f)] private float pollIntervalSeconds = 3f;
@@ -167,6 +169,7 @@ public class HostedImageUploadBridge : MonoBehaviour
 
         using (var request = CreateUploadRequest(imageBytes, record.StylizedImagePath))
         {
+            request.timeout = Mathf.Max(1, requestTimeoutSeconds);
             if (!string.IsNullOrWhiteSpace(authToken) && !string.IsNullOrWhiteSpace(authHeaderName))
             {
                 request.SetRequestHeader(authHeaderName, $"{authHeaderPrefix}{authToken}");

@@ -103,6 +103,21 @@ public class GeneratedAssetRecord
     public float QualityScore;
     public string QualityReviewStatus;
     public string QualityReviewWarnings;
+    public string RuntimeBackendJobId;
+    public string RuntimeBackendStatusUrl;
+    public string RuntimeBackendSubmissionPath;
+    public string RuntimeBackendResultPath;
+    public string RuntimeModelUrl;
+    public string RuntimeModelLocalPath;
+    public string RuntimeModelMimeType;
+    public string RuntimeModelHash;
+    public SerializableBounds RuntimeLoadedBounds;
+    public Vector3 RuntimeLoadedScale = Vector3.one;
+    public Vector3 RuntimeLoadedEulerDegrees;
+    public GeneratedObjectReviewState ReviewState = GeneratedObjectReviewState.None;
+    public string ReviewDecisionIsoUtc;
+    public string ReviewNote;
+    public CorrectionDelta PersistedCorrection = CorrectionDelta.Identity;
     public string FailureReason;
     public string UpdatedAtIsoUtc;
 }
@@ -147,6 +162,59 @@ public class GeneratedImageBackendSubmission
     public string CreatedAtIsoUtc;
 }
 
+[Serializable]
+public class RuntimeGenerationBackendSubmission
+{
+    public string ClientSchemaVersion = "runtime-generation-v2";
+    public string RequestId;
+    public string ObjectId;
+    public string RoomId;
+    public string ThemeId;
+    public string StyleVariantId = "preset";
+    public string SourceRequestPath;
+    public string SourceRequestJson;
+    public string SourceInputImagePath;
+    public string SourceImageFileName;
+    public string SourceImageMimeType;
+    public string SourceImageSha256;
+    public long SourceImageByteLength;
+    public string PromptArtifactPath;
+    public string PromptText;
+    public string UserStyleIntent;
+    public string ThemeDisplayName;
+    public string SemanticLabel;
+    public string FunctionTag;
+    public SerializableBounds WorldBounds;
+    public SerializablePose WorldPose;
+    public float TargetLengthMeters;
+    public float TargetWidthMeters;
+    public float TargetHeightMeters;
+    public float TargetAspectRatio;
+    public float SafetyFootprintScale = 1f;
+    public GeneratedObjectVerticalFitMode VerticalFitMode = GeneratedObjectVerticalFitMode.PreserveScaffoldHeight;
+    public string SubmissionNote;
+    public string CreatedAtIsoUtc;
+}
+
+[Serializable]
+public class RuntimeGenerationBackendResult
+{
+    public string RequestId;
+    public string ObjectId;
+    public string ThemeId;
+    public string StyleVariantId = "preset";
+    public string RuntimeBackendJobId;
+    public string RuntimeBackendStatusUrl;
+    public string RuntimeModelUrl;
+    public string RuntimeModelMimeType;
+    public string RuntimeModelHash;
+    public float Progress01;
+    public GeneratedObjectJobState OutputState = GeneratedObjectJobState.RuntimeModelReady;
+    public string FailureReason;
+    public string StatusNote;
+    public string CreatedAtIsoUtc;
+}
+
 public enum GeneratedObjectJobState
 {
     Pending,
@@ -158,6 +226,20 @@ public enum GeneratedObjectJobState
     BackendSubmitted,
     ModelGenerationSubmitted,
     NeedsReview,
+    RuntimeBackendSubmitted,
+    RuntimeModelReady,
+    RuntimeModelDownloaded,
+    RuntimeLoaded,
+}
+
+public enum GeneratedObjectReviewState
+{
+    None,
+    Previewing,
+    Accepted,
+    Rejected,
+    ResetToFallback,
+    Corrected,
 }
 
 public enum BestViewCaptureSourceMode

@@ -329,7 +329,7 @@ List<SurfaceTexturePromptEntry> Entries;
 ## Notes
 - Written by `SurfaceTexturePromptBuilder` under `Library/SurfaceTextureJobs/`.
 - `StyleVariantId` is `preset` for built-in styles that intentionally preserve stable cache identity. Arbitrary custom style text creates a stable style-specific variant id, so cyberpunk / solarpunk / underwater requests do not reuse each other's cached textures.
-- This is now the first automated surface-generation boundary. APIMart can consume matching `.surface.job.json` files, while runtime procedural textures remain the fallback.
+- This is now a shared surface-generation boundary. In Editor/Quest Link, `ApimartSurfaceTextureBackendAdapter` can consume matching `.surface.job.json` files directly. In standalone Quest builds, `QuestSurfaceGenerationClient` should submit the whole `SurfaceTexturePromptSet` to a secure HTTPS backend instead of exposing provider keys in the APK.
 - Runtime procedural textures remain the deterministic fallback.
 
 # 11. SurfaceTexturePromptEntry
@@ -415,6 +415,7 @@ public enum SurfaceTextureJobState
 ## Notes
 - `PromptReady` jobs are written by `SurfaceTexturePromptBuilder` under `Library/SurfaceTextureJobs/`.
 - `ApimartSurfaceTextureBackendAdapter` submits `PromptReady` jobs to APIMart `gpt-image-2`, polls task status, downloads a PNG under `Library/SurfaceTextureOutputs/`, and advances the job to `TextureReady`.
+- `QuestSurfaceGenerationClient` submits the active `SurfaceTexturePromptSet` to `/api/v1/surface-generations`, polls the returned backend job, downloads ready PNGs to `SurfaceTextureOutputs`, and advances matching records to `TextureReady` without storing provider API keys on Quest.
 - `ImageSize` lets material jobs stay square while `window_vista` jobs request a wide image.
 - `SurfaceOverrideApplier` can consume `TextureReady` PNGs directly at runtime. If no generated texture exists, it falls back to theme materials or procedural textures.
 
@@ -431,7 +432,8 @@ Use these contracts only for:
 - best-view capture artifacts,
 - prompt/image backend handoff,
 - local/mock backend results,
-- future generated proxy import and registration.
+- future generated proxy import and registration,
+- true-device runtime generation, loading, review, and correction persistence.
 
 ---
 
@@ -558,6 +560,21 @@ bool QualityReviewPassed;
 float QualityScore;
 string QualityReviewStatus;
 string QualityReviewWarnings;
+string RuntimeBackendJobId;
+string RuntimeBackendStatusUrl;
+string RuntimeBackendSubmissionPath;
+string RuntimeBackendResultPath;
+string RuntimeModelUrl;
+string RuntimeModelLocalPath;
+string RuntimeModelMimeType;
+string RuntimeModelHash;
+SerializableBounds RuntimeLoadedBounds;
+Vector3 RuntimeLoadedScale;
+Vector3 RuntimeLoadedEulerDegrees;
+GeneratedObjectReviewState ReviewState;
+string ReviewDecisionIsoUtc;
+string ReviewNote;
+CorrectionDelta PersistedCorrection;
 string FailureReason;
 string UpdatedAtIsoUtc;
 ```
@@ -593,7 +610,15 @@ public enum GeneratedObjectVerticalFitMode
 - `ModelReady` means a Unity-importable model file exists at `GeneratedModelPath`.
 - `Imported` means `GeneratedObjectModelImporter` saved a generated prefab and wrote `ImportedPrefabPath`.
 - `NeedsReview` means a prefab was saved, but the automatic quality gate found suspicious proportions or bounds, so runtime systems should keep using deterministic fallback or a previously accepted generated asset.
-- Do not document one historical generated model as the preferred project asset. New runtime validation should prefer the newest request-locked `Imported` job that matches the active room object, Style, and quality-review state.
+- Do not document one historical generated model as the preferred project asset. New runtime validation should prefer the newest request-locked `Imported` or `RuntimeLoaded` job that matches the active room object, Style, and quality-review state.
+- Runtime-headset fields were added on `2026-05-24` for the standalone Quest generated-object loop.
+- `RuntimeBackendSubmissionPath` and `RuntimeBackendResultPath` point to the exact runtime backend boundary artifacts written by `QuestRuntimeGenerationClient`. They are expected for both `LocalTestModelUrl` and `HttpBackend` mode so the first fixed-GLB headset spike can be audited with the same payload/result contract as the later secure backend path.
+- `RuntimeModelUrl` is the backend-provided downloadable model URL. It must not contain long-lived secrets when written to persistent job records.
+- `RuntimeModelLocalPath` should live under `Application.persistentDataPath`, not `Assets/`.
+- `RuntimeLoadedBounds` mirrors the editor importer's normalized bounds so `AnchorThemeApplier` can use the same fitting logic for runtime-loaded models.
+- `ReviewState` is separate from `GeneratedObjectJobState`; job state tracks backend/model readiness, review state tracks the user's decision.
+- `GeneratedObjectReviewController` also writes a separate `GeneratedObjectReviewRecord` under `Application.persistentDataPath/GeneratedObjectReviews/`, keyed by room/object/style/request. Runtime-loaded candidates should restore this persisted decision as soon as the loader creates the candidate, so rejected or reset models do not reappear just because the GLB was loaded again. Accepted/corrected records also store enough model and source-request paths to restore a local runtime model without re-submitting generation when the GLB remains available. Persisted corrections must be applied from the model's post-load base transform, not as cumulative offsets, so repeated selection or restore cannot double-apply nudge/yaw/scale.
+- Any signed URL should be short-lived and refreshed through the backend rather than committed, logged publicly, or stored as a durable asset identity.
 
 ---
 
@@ -662,7 +687,79 @@ string CreatedAtIsoUtc;
 
 ---
 
-# 17. Generated-object enums
+# 17. RuntimeGenerationBackendSubmission / RuntimeGenerationBackendResult
+
+## Purpose
+Defines the Quest-side backend boundary for the standalone generated-object loop.
+
+The script source of truth is:
+- `Assets/Scripts/Perception/GeneratedObjectContracts.cs`
+- `Assets/Scripts/Perception/QuestRuntimeGenerationClient.cs`
+
+`QuestRuntimeGenerationClient` must not contain APIMart, Seed3D, DeepSeek, upload, or signing credentials. It either uses `LocalTestModelUrl` mode for the first fixed-GLB spike, or posts a multipart request to a configured HTTPS backend that owns those credentials server-side.
+
+## Current submission fields
+```csharp
+string RequestId;
+string ObjectId;
+string RoomId;
+string ThemeId;
+string StyleVariantId;
+string SourceRequestPath;
+string SourceRequestJson;
+string SourceInputImagePath;
+string SourceImageFileName;
+string SourceImageMimeType;
+string SourceImageSha256;
+long SourceImageByteLength;
+string PromptArtifactPath;
+string PromptText;
+string UserStyleIntent;
+string ThemeDisplayName;
+string SemanticLabel;
+string FunctionTag;
+SerializableBounds WorldBounds;
+SerializablePose WorldPose;
+float TargetLengthMeters;
+float TargetWidthMeters;
+float TargetHeightMeters;
+float TargetAspectRatio;
+float SafetyFootprintScale;
+GeneratedObjectVerticalFitMode VerticalFitMode;
+string SubmissionNote;
+string CreatedAtIsoUtc;
+```
+
+## Current result fields
+```csharp
+string RequestId;
+string ObjectId;
+string ThemeId;
+string StyleVariantId;
+string RuntimeBackendJobId;
+string RuntimeBackendStatusUrl;
+string RuntimeModelUrl;
+string RuntimeModelMimeType;
+string RuntimeModelHash;
+float Progress01;
+GeneratedObjectJobState OutputState;
+string FailureReason;
+string StatusNote;
+string CreatedAtIsoUtc;
+```
+
+## Notes
+- `SourceRequestJson`, `PromptText`, and the uploaded `image` multipart file are the real backend handoff. `SourceRequestPath`, `SourceInputImagePath`, and `PromptArtifactPath` remain local traceability fields; the backend must not assume it can read Quest filesystem paths.
+- `SourceImageSha256` lets the backend reject corrupted multipart uploads before starting paid generation.
+- `RuntimeModelUrl` remains the model handoff the headset consumes. For the true backend path it should be a backend-hosted or short-lived provider URL reachable by the Quest device.
+- `RuntimeModelHash` is expected when the backend can cache/download the generated model. The Quest runtime loader still computes and stores the downloaded file hash after download.
+- `LocalTestModelUrl` mode writes the same runtime submission/result artifact pair as the HTTP path, then advances the job to `RuntimeModelReady` using a fixed public/sample GLB URL. This lets headset UI, loader behavior, and backend-boundary metadata be validated before a secure backend exists.
+- `HttpBackend` mode uploads multipart form fields `metadata`, `request_json`, `prompt_text`, and `image`. It expects a JSON `RuntimeGenerationBackendResult` response. If the backend is still processing, it can return `RuntimeBackendSubmitted` plus `RuntimeBackendJobId` / `RuntimeBackendStatusUrl`; the Quest client polls until `RuntimeModelReady`, `Failed`, or timeout.
+- Signed model URLs must be short-lived. Do not commit them or treat them as durable generated-asset identity.
+
+---
+
+# 18. Generated-object enums
 
 ## `GeneratedObjectJobState`
 ```csharp
@@ -677,8 +774,29 @@ public enum GeneratedObjectJobState
     BackendSubmitted,
     ModelGenerationSubmitted,
     NeedsReview,
+    RuntimeBackendSubmitted,
+    RuntimeModelReady,
+    RuntimeModelDownloaded,
+    RuntimeLoaded,
 }
 ```
+
+Keep old artifacts readable and avoid rewriting historical job JSON in place.
+
+## `GeneratedObjectReviewState`
+```csharp
+public enum GeneratedObjectReviewState
+{
+    None,
+    Previewing,
+    Accepted,
+    Rejected,
+    ResetToFallback,
+    Corrected,
+}
+```
+
+Review state is user-facing. It should only change through explicit dashboard or correction-mode actions.
 
 ## `BestViewCaptureSourceMode`
 ```csharp
@@ -808,10 +926,13 @@ If time is tight, implement at least these first:
 - `StylizationPlanEntry`
 - `AppliedStylizationRecord`
 
-For the optional generated-object branch, also keep:
+For the generated-object stretch path, also keep:
 - `GeneratedObjectRequest`
 - `GeneratedAssetRecord`
 - `GeneratedImageBackendSubmission`
 - `GeneratedImageBackendResult`
+- `RuntimeGenerationBackendSubmission`
+- `RuntimeGenerationBackendResult`
+- runtime model/review fields when standalone Quest loading begins
 
 Everything else can be added after the first working slice.

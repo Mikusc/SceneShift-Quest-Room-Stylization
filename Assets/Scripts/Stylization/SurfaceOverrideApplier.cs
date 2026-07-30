@@ -48,6 +48,10 @@ public class SurfaceOverrideApplier : MonoBehaviour
     [SerializeField, Min(0.01f)] private float baseboardHeightMeters = 0.1f;
     [SerializeField, Min(0.01f)] private float crownTrimHeightMeters = 0.07f;
     [SerializeField, Min(0.01f)] private float cornerTrimWidthMeters = 0.14f;
+    [SerializeField, Tooltip("Vertical corner strips can over-accent protruding MRUK wall corners. Keep this off for the current room-scale material pass; wall plane overlap already hides most gaps.")]
+    private bool applyVerticalCornerTrimOverlays;
+    [SerializeField, Min(0f), Tooltip("If vertical corner strips are enabled later, skip them on narrow wall returns and columns below this width.")]
+    private float minimumWallWidthForVerticalCornerTrimMeters = 1.35f;
     [SerializeField, Min(0f)] private float trimAdditionalOffsetMeters = 0.012f;
     [SerializeField, Range(0f, 1f), Tooltip("Scales visible seam trim after the geometric overlap has already hidden cracks. Lower values keep seams from becoming bright outlines.")]
     private float architecturalTrimVisualScale = 0.38f;
@@ -1088,10 +1092,14 @@ public class SurfaceOverrideApplier : MonoBehaviour
         count += TryCreateTrimStrip(anchor, material, anchorIndex, "Crown",
             new Rect(rect.xMin, rect.yMax - crownHeight, rect.width, crownHeight), offset);
 
-        count += TryCreateTrimStrip(anchor, material, anchorIndex, "LeftCorner",
-            new Rect(rect.xMin, rect.yMin, cornerWidth, rect.height), offset);
-        count += TryCreateTrimStrip(anchor, material, anchorIndex, "RightCorner",
-            new Rect(rect.xMax - cornerWidth, rect.yMin, cornerWidth, rect.height), offset);
+        if (applyVerticalCornerTrimOverlays && width >= minimumWallWidthForVerticalCornerTrimMeters)
+        {
+            count += TryCreateTrimStrip(anchor, material, anchorIndex, "LeftCorner",
+                new Rect(rect.xMin, rect.yMin, cornerWidth, rect.height), offset);
+            count += TryCreateTrimStrip(anchor, material, anchorIndex, "RightCorner",
+                new Rect(rect.xMax - cornerWidth, rect.yMin, cornerWidth, rect.height), offset);
+        }
+
         return count;
     }
 
@@ -1742,7 +1750,7 @@ public class SurfaceOverrideApplier : MonoBehaviour
         builder.AppendLine($"Texture Tile Size: wall={wallTextureTileSizeMeters:F2}m, floor={floorTextureTileSizeMeters:F2}m, ceiling={ceilingTextureTileSizeMeters:F2}m, openings={openingTextureTileSizeMeters:F2}m");
         builder.AppendLine($"Seam Overlap: wallX={wallPlaneHorizontalOverlapMeters:F2}m, wallY={wallPlaneVerticalOverlapMeters:F2}m, floor/ceiling={floorCeilingPlaneOverlapMeters:F2}m");
         builder.AppendLine($"Window Opening Cutouts: enabled={cutOpeningsFromWallOverrides}, doors=false, padding={wallOpeningCutoutPaddingMeters:F2}m, sill={minimumWindowWallSillMeters:F2}m, planeDistance<={wallOpeningPlaneDistanceMeters:F2}m");
-        builder.AppendLine($"Trim: enabled={applyArchitecturalTrimOverlays}, base={baseboardHeightMeters:F2}m, crown={crownTrimHeightMeters:F2}m, corner={cornerTrimWidthMeters:F2}m");
+        builder.AppendLine($"Trim: enabled={applyArchitecturalTrimOverlays}, base={baseboardHeightMeters:F2}m, crown={crownTrimHeightMeters:F2}m, verticalCorners={applyVerticalCornerTrimOverlays}, corner={cornerTrimWidthMeters:F2}m");
         builder.AppendLine($"Window Frame: enabled={applyWindowFrameOverrides}, largestOnly={applyWindowFrameToLargestWindowOnly}");
         builder.AppendLine($"Window Vista: enabled={applyWindowVistaOverlays}, outsideOffset={windowVistaOutwardOffsetMeters:F3}m, aspect={windowVistaAspectRatio:F2}, scale={windowVistaScaleMultiplier:F2}x, largestOnly={applyVistaToLargestWindowOnly}");
         builder.AppendLine($"Window Filter: major>={minimumWindowFrameMajorSizeMeters:F2}m, minor>={minimumWindowFrameMinorSizeMeters:F2}m");

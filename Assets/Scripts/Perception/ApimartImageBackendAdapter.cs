@@ -11,10 +11,11 @@ using UnityEngine.Networking;
 public class ApimartImageBackendAdapter : MonoBehaviour
 {
     [Header("APIMart Authentication")]
-    [SerializeField] private string apiKeyEnvironmentVariable = "APIMART_API_KEY";
+    [SerializeField] private string apiKeyEnvironmentVariable = string.Empty;
 
     [Header("Image Generation")]
-    [SerializeField] private bool autoProcessJobsInPlay = true;
+    [SerializeField, Tooltip("Opt in only for trusted Editor/Link workflows. Standalone Quest builds should use the secure HTTPS backend.")]
+    private bool autoProcessJobsInPlay;
     [SerializeField, Min(1)] private int maxConcurrentImageJobs = 2;
     [SerializeField] private string generationEndpoint = "https://api.apimart.ai/v1/images/generations";
     [SerializeField] private string taskEndpointBase = "https://api.apimart.ai/v1/tasks";
@@ -41,7 +42,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
     private bool _isProcessing;
     private float _nextPollTime;
     private string _latestSummary =
-        "[ApimartImageBackendAdapter]\nState: waiting\nHint: set APIMART_API_KEY, queue a CaptureReady job, then this adapter will request gpt-image-2.";
+        "[ApimartImageBackendAdapter]\nState: waiting\nHint: configure the API key environment variable, queue a CaptureReady job, then this adapter will request the configured image model.";
 
     private void OnEnable()
     {
@@ -163,10 +164,20 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         _lastProcessedRecord = record;
         PublishSummary("submitting");
 
+        if (string.IsNullOrWhiteSpace(apiKeyEnvironmentVariable))
+        {
+            record.StatusNote = "Image backend API key environment variable is not configured.";
+            record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+            File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+            PublishSummary("missing-api-key-config");
+            _isProcessing = false;
+            yield break;
+        }
+
         var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            record.StatusNote = $"Waiting for environment variable {apiKeyEnvironmentVariable}.";
+            record.StatusNote = "Waiting for configured image backend API key environment variable.";
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
             PublishSummary("missing-api-key");
@@ -201,6 +212,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         {
             request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(requestJson));
             request.downloadHandler = new DownloadHandlerBuffer();
+            request.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             request.SetRequestHeader("Content-Type", "application/json");
             request.SetRequestHeader("Authorization", $"Bearer {apiKey}");
 
@@ -247,10 +259,20 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         _lastProcessedRecord = record;
         PublishSummary("polling");
 
+        if (string.IsNullOrWhiteSpace(apiKeyEnvironmentVariable))
+        {
+            record.StatusNote = "Image backend API key environment variable is not configured.";
+            record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
+            File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
+            PublishSummary("missing-api-key-config");
+            _isProcessing = false;
+            yield break;
+        }
+
         var apiKey = Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            record.StatusNote = $"Waiting for environment variable {apiKeyEnvironmentVariable}.";
+            record.StatusNote = "Waiting for configured image backend API key environment variable.";
             record.UpdatedAtIsoUtc = DateTime.UtcNow.ToString("O");
             File.WriteAllText(jobPath, JsonUtility.ToJson(record, true));
             PublishSummary("missing-api-key");
@@ -276,6 +298,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
             string pollResponse;
             using (var pollRequest = UnityWebRequest.Get(queryUrl))
             {
+                pollRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
                 pollRequest.SetRequestHeader("Authorization", $"Bearer {apiKey}");
                 yield return pollRequest.SendWebRequest();
 
@@ -344,6 +367,7 @@ public class ApimartImageBackendAdapter : MonoBehaviour
         using (var downloadRequest = UnityWebRequest.Get(imageUrl))
         {
             downloadRequest.downloadHandler = new DownloadHandlerFile(outputPath);
+            downloadRequest.timeout = Mathf.Max(1, Mathf.CeilToInt(timeoutSeconds));
             yield return downloadRequest.SendWebRequest();
 
             if (downloadRequest.result != UnityWebRequest.Result.Success)

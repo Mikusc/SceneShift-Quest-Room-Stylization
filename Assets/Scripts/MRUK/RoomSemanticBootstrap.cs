@@ -202,7 +202,13 @@ public class RoomSemanticBootstrap : MonoBehaviour
             }
 
             _hasLoggedReadyRoom = true;
-            if (!onlyIfChanged || logRoomSwitches)
+            var shouldLogRoomSummary = !onlyIfChanged || logRoomSwitches;
+            if (string.Equals(reason, "room-created", StringComparison.Ordinal))
+            {
+                shouldLogRoomSummary = shouldLogRoomSummary && logOnRoomCreated;
+            }
+
+            if (shouldLogRoomSummary)
             {
                 LogRoomSummary(reason, room);
             }

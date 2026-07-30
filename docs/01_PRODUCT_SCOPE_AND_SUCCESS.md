@@ -21,6 +21,17 @@ The current implementation must support:
 
 During Phase 1A development, `MetaXRSimulator` may be used as a controlled validation environment for MRUK room loading, semantic visualization, and debug tooling. It accelerates iteration, but it does **not** replace final verification in the canonical UNNC IEB office room.
 
+### Current stretch target — true-device generated-object loop
+The current demo ambition is to run one complete generated-object loop on a standalone Quest headset:
+1. the user enters a freeform style intent in the headset UI,
+2. the app captures a target furniture/object reference from passthrough camera data when supported,
+3. a secure backend generates the stylized image and 3D asset without exposing API keys in the APK,
+4. the headset downloads and runtime-loads the generated 3D asset,
+5. the asset is fitted back to the matching MRUK anchor using request/object/style identity,
+6. the user reviews the result in MR and can accept, reject, reset, or apply bounded transform corrections.
+
+This stretch target raises the generated-object branch from "optional enrichment" to the active demo goal, but it does not remove the deterministic fallback rule. The room must remain usable if capture, network generation, runtime model loading, or review fails.
+
 ### Phase 2 — NPC learning partner
 Only after Phase 1 is stable, add:
 - themed NPC presence
@@ -98,6 +109,11 @@ The system can support a short demo flow:
 - inspect/correct
 - reset or switch style
 
+For the generated-object true-device demo, success additionally means:
+- a headset user can complete `style intent -> capture -> backend generation -> runtime model load -> request-locked placement -> review/edit` without returning to the Unity Editor,
+- cloud API credentials are handled by a backend service, not embedded in the Quest app,
+- generated furniture can be accepted, rejected, reset to deterministic fallback, or corrected within bounded MR controls.
+
 ### Coursework success
 The implementation stays explainable as a proof-of-concept prototype for one setting and one core mixed-reality interaction loop.
 
@@ -110,7 +126,7 @@ Do not treat these as required:
 - multiplayer / colocation
 - full AI conversation system
 
-An optional generated-object side branch may exist for generated furniture, but it is not a Phase 1 success dependency.
+For the core Phase 1 acceptance path, generated furniture is not a dependency; deterministic stylization remains the fallback milestone. For the current stretch demo, however, one request-locked generated-object loop on Quest is an explicit target.
 Window vistas are treated as lightweight opening overlays, not as a full dynamic skybox pipeline.
 The room must still stylize correctly through deterministic materials/proxies if generated images or generated 3D assets are unavailable.
 

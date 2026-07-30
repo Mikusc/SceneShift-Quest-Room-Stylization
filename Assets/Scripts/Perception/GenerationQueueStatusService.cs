@@ -49,7 +49,7 @@ public class GenerationQueueStatusService : MonoBehaviour
 
         var builder = new StringBuilder(768);
         builder.AppendLine("[GenerationQueueStatus]");
-        builder.AppendLine($"Object Jobs: total={objectCounts.Total}, waitingImage={objectCounts.CaptureReady}, imageRunning={objectCounts.BackendSubmitted}, uploadReady={objectCounts.StylizedImageReady}, seed3DRunning={objectCounts.ModelGenerationSubmitted}, modelReady={objectCounts.ModelReady}, imported={objectCounts.Imported}, review={objectCounts.NeedsReview}, failed={objectCounts.Failed}");
+        builder.AppendLine($"Object Jobs: total={objectCounts.Total}, waitingImage={objectCounts.CaptureReady}, imageRunning={objectCounts.BackendSubmitted}, uploadReady={objectCounts.StylizedImageReady}, seed3DRunning={objectCounts.ModelGenerationSubmitted}, modelReady={objectCounts.ModelReady}, imported={objectCounts.Imported}, runtimeBackend={objectCounts.RuntimeBackendSubmitted}, runtimeReady={objectCounts.RuntimeModelReady}, downloaded={objectCounts.RuntimeModelDownloaded}, runtimeLoaded={objectCounts.RuntimeLoaded}, review={objectCounts.NeedsReview}, failed={objectCounts.Failed}");
         builder.AppendLine($"Surface Jobs: total={surfaceCounts.Total}, promptReady={surfaceCounts.PromptReady}, imageRunning={surfaceCounts.BackendSubmitted}, textureReady={surfaceCounts.TextureReady}, materialReady={surfaceCounts.MaterialReady}, failed={surfaceCounts.Failed}");
         builder.AppendLine($"Object Folder: {GetLibraryDirectory(generatedObjectJobFolderName)}");
         builder.Append($"Surface Folder: {GetLibraryDirectory(surfaceTextureJobFolderName)}");
@@ -102,6 +102,18 @@ public class GenerationQueueStatusService : MonoBehaviour
                     break;
                 case GeneratedObjectJobState.NeedsReview:
                     counts.NeedsReview++;
+                    break;
+                case GeneratedObjectJobState.RuntimeBackendSubmitted:
+                    counts.RuntimeBackendSubmitted++;
+                    break;
+                case GeneratedObjectJobState.RuntimeModelReady:
+                    counts.RuntimeModelReady++;
+                    break;
+                case GeneratedObjectJobState.RuntimeModelDownloaded:
+                    counts.RuntimeModelDownloaded++;
+                    break;
+                case GeneratedObjectJobState.RuntimeLoaded:
+                    counts.RuntimeLoaded++;
                     break;
                 case GeneratedObjectJobState.Failed:
                     counts.Failed++;
@@ -188,6 +200,10 @@ public class GenerationQueueStatusService : MonoBehaviour
         public int ModelReady;
         public int Imported;
         public int NeedsReview;
+        public int RuntimeBackendSubmitted;
+        public int RuntimeModelReady;
+        public int RuntimeModelDownloaded;
+        public int RuntimeLoaded;
         public int Failed;
     }
 

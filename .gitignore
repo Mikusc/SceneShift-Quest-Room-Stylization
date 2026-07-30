@@ -112,3 +112,17 @@ InitTestScene*.unity*
 
 # SceneShift generated runtime model outputs are reproducible artifacts and can be large.
 /[Aa]ssets/[Gg]enerated/[Tt]hemeAssets/
+
+# SceneShift backend runtime jobs may contain captured images, generated models, signed URLs, and provider responses.
+/Backend/runtime_jobs/
+/Library/RuntimeBackendJobs/
+*.env
+
+# Local editor and OS artifacts.
+.DS_Store
+*.slnx
+/[Aa]ssets/_Recovery/
+
+# Python backend caches.
+__pycache__/
+*.py[cod]

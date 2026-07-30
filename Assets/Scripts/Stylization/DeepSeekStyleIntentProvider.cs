@@ -9,11 +9,10 @@ using UnityEngine.Networking;
 public class DeepSeekStyleIntentProvider : MonoBehaviour
 {
     [Header("DeepSeek API")]
-    [SerializeField] private bool useDeepSeek = true;
+    [SerializeField] private bool useDeepSeek;
     [SerializeField] private string endpointUrl = "https://api.deepseek.com/chat/completions";
     [SerializeField] private string model = "deepseek-v4-flash";
-    [SerializeField] private string apiKeyEnvironmentVariable = "DEEPSEEK_API_KEY";
-    [SerializeField, TextArea(1, 2)] private string apiKeyOverride = string.Empty;
+    [SerializeField] private string apiKeyEnvironmentVariable = string.Empty;
 
     [Header("Request")]
     [SerializeField, Range(0f, 1f)] private float temperature = 0.2f;
@@ -53,7 +52,7 @@ public class DeepSeekStyleIntentProvider : MonoBehaviour
         var apiKey = ResolveApiKey();
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            onFailure?.Invoke($"Missing API key. Set {apiKeyEnvironmentVariable} or apiKeyOverride.");
+            onFailure?.Invoke("Missing API key. Configure the API key environment variable.");
             return false;
         }
 
@@ -123,11 +122,6 @@ public class DeepSeekStyleIntentProvider : MonoBehaviour
 
     private string ResolveApiKey()
     {
-        if (!string.IsNullOrWhiteSpace(apiKeyOverride))
-        {
-            return apiKeyOverride.Trim();
-        }
-
         return string.IsNullOrWhiteSpace(apiKeyEnvironmentVariable)
             ? string.Empty
             : (Environment.GetEnvironmentVariable(apiKeyEnvironmentVariable) ?? string.Empty).Trim();

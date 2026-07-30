@@ -35,6 +35,22 @@ MRUK furniture anchor
     -> AnchorThemeApplier generated proxy registration
 ```
 
+Target true-device generated-object loop:
+
+```text
+RuntimeStyleIntentController
+    -> DevicePassthroughCaptureService
+    -> QuestRuntimeGenerationClient
+    -> secure backend proxy
+    -> stylized image + image-to-3D backend jobs
+    -> RuntimeGeneratedModelLoader
+    -> AnchorThemeApplier runtime generated proxy registration
+    -> GeneratedObjectReviewController
+    -> persisted accepted/rejected/corrected record
+```
+
+This target loop is the active demo ambition for generated furniture. It must not depend on Unity Editor `AssetDatabase`, local Mac environment variables, or manually importing GLBs into `Assets/` while the headset user is in the demo.
+
 ## 3. Core modules
 
 ### 3.1 `RoomSemanticBootstrap`
@@ -236,6 +252,34 @@ Responsibility:
 
 This service feeds the existing generated-object request contract rather than creating a second pipeline.
 
+### 3.19 `QuestRuntimeGenerationClient`
+Planned responsibility:
+- submit `GeneratedObjectRequest` plus active `RuntimeStyleIntent` to a secure backend service
+- poll backend job status from the headset
+- download the final runtime-loadable model URL or failure reason
+- write local job/status records under `Application.persistentDataPath`
+- keep APIMart, Seed3D, DeepSeek, upload, and signing credentials out of the Quest APK
+
+This component replaces the current direct API-key-in-Unity pattern for standalone-device demos.
+
+### 3.20 `RuntimeGeneratedModelLoader`
+Planned responsibility:
+- download or read a generated `.glb` from `Application.persistentDataPath`
+- load it at runtime on Quest without `AssetDatabase`
+- normalize bounds, bottom pivot, and scale metadata into the same placement contract used by `AnchorThemeApplier`
+- strip or ignore untrusted generated colliders
+- expose load failure states to the dashboard rather than silently falling back
+
+The first spike should load one known test GLB URL and place it on the selected `TABLE` anchor before connecting the full backend.
+
+### 3.21 `GeneratedObjectReviewController`
+Planned responsibility:
+- bind a generated candidate to one request/object/style identity
+- support preview, accept, reject, reset to deterministic fallback, and bounded correction
+- persist the accepted/rejected/corrected decision under `Application.persistentDataPath`
+- restore accepted generated assets for the same room/object/style when available
+- require a clear revert path for collision-sensitive furniture
+
 ## 4. Recommended C# data flow objects
 Use these serializable types or ScriptableObjects:
 - `RoomObjectRecord`
@@ -403,6 +447,10 @@ Recommended controls:
 - rotate around yaw only by default
 - limited scale adjustments
 - reset object to planner output
+- accept generated candidate
+- reject generated candidate
+- reset generated candidate to deterministic fallback
+- persist correction only after explicit confirmation
 
 Avoid full arbitrary editing at first.
 

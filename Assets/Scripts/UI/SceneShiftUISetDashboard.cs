@@ -3,6 +3,7 @@ using System.Text;
 using Oculus.Interaction.Samples;
 using TMPro;
 using UnityEngine;
+using UnityEngine.Events;
 using UnityEngine.UI;
 #if UNITY_EDITOR
 using UnityEditor;
@@ -15,7 +16,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private const string ContentObjectName = "SceneShiftDashboardContent";
     private const string OfficialBackplateObjectName = "UIBackplate";
     private const string RuntimeButtonLabelName = "SceneShiftButtonLabel";
+    private const string RuntimeButtonHitAreaName = "SceneShiftButtonHitArea";
     private const string RuntimeDropdownCaptionName = "SceneShiftDropdownCaption";
+    private const float ButtonInvokeDebounceSeconds = 0.18f;
+    private static readonly Vector2 ButtonLabelOffsetMin = new(12f, 0f);
+    private static readonly Vector2 ButtonLabelOffsetMax = new(-12f, 0f);
 #if UNITY_EDITOR
     private const string MetaUISetPrimaryButtonPrefabPath = "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet/Prefabs/Button/UnityUIButtonBased/PrimaryButton_IconAndLabel_UnityUIButton.prefab";
     private const string MetaUISetSecondaryButtonPrefabPath = "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Objects/UISet/Prefabs/Button/UnityUIButtonBased/SecondaryButton_IconAndLabel_UnityUIButton.prefab";
@@ -28,14 +33,18 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     [SerializeField] private Transform headTransform;
     [SerializeField] private DevicePassthroughCaptureService captureService;
     [SerializeField] private GenerationQueueStatusService generationQueueStatusService;
+    [SerializeField] private QuestRuntimeGenerationClient runtimeGenerationClient;
+    [SerializeField] private RuntimeGeneratedModelLoader runtimeGeneratedModelLoader;
     [SerializeField] private ThemeIntentController themeIntentController;
     [SerializeField] private RuntimeStyleIntentController runtimeStyleIntentController;
     [SerializeField] private SurfaceOverrideApplier surfaceOverrideApplier;
+    [SerializeField] private QuestSurfaceGenerationClient surfaceGenerationClient;
     [SerializeField] private MRUKShellVisibilityToggle shellVisibilityToggle;
     [SerializeField] private GenerationJobWorldStatusOverlay worldStatusOverlay;
     [SerializeField] private RoomStyleCacheService roomStyleCacheService;
     [SerializeField] private CapturedFurnitureReuseService furnitureReuseService;
     [SerializeField] private GeneratedObjectRotationCorrectionController rotationCorrectionController;
+    [SerializeField] private GeneratedObjectReviewController generatedObjectReviewController;
 
     [Header("Meta UISet Prefabs")]
     [SerializeField] private bool useMetaUISetPrefabsWhenAvailable = true;
@@ -57,15 +66,20 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     [SerializeField] private bool useStableRuntimeControlsOnly;
     [SerializeField] private bool useUISetInspiredFallbackSkin = true;
     [SerializeField] private bool preferOfficialCanvasInteractions = true;
+    [SerializeField, Tooltip("Fallback only. Keep disabled for the official Interaction SDK ray path.")]
+    private bool bridgeControllerTriggerToUnityButtons;
     [SerializeField] private bool suppressLegacyHeadsetOverlays = true;
     [SerializeField, Min(0.1f)] private float updateIntervalSeconds = 0.25f;
     [SerializeField] private bool enablePanelVisibilityToggleInPlay = true;
     [SerializeField] private OVRInput.RawButton panelVisibilityToggleButton = OVRInput.RawButton.Start;
 
+    [Header("Advanced Controls")]
+    [SerializeField] private bool showAdvancedControls;
+
     [Header("Head-Locked Placement")]
     [SerializeField] private Vector3 localOffset = new(0f, -0.06f, 1.15f);
     [SerializeField] private Vector3 localEulerOffset = new(7f, 0f, 0f);
-    [SerializeField] private Vector2 panelSizePixels = new(840f, 680f);
+    [SerializeField] private Vector2 panelSizePixels = new(920f, 760f);
     [SerializeField, Min(0.0001f)] private float worldScale = 0.00105f;
 
     [Header("Controller Pointer")]
@@ -84,6 +98,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     private readonly StringBuilder _builder = new(1024);
     private readonly Dictionary<Graphic, Color> _pointerOriginalGraphicColors = new();
+    private readonly Dictionary<Button, UnityAction> _wiredButtonWrappers = new();
+    private readonly Dictionary<Button, float> _lastButtonInvokeTimes = new();
     private Image _backgroundImage;
     private RectTransform _contentRoot;
     private TMP_Text _titleText;
@@ -93,6 +109,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private TMP_Text _styleStatusText;
     private TMP_Text _cacheStatusText;
     private TMP_Text _queueStatusText;
+    private TMP_Text _runtimeModelStatusText;
     private TMP_Text _reuseStatusText;
     private TMP_Text _rotationStatusText;
     private TMP_Text _cleanViewStatusText;
@@ -103,14 +120,22 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private TMP_Dropdown _themeTmpDropdown;
     private Dropdown _themeDropdown;
     private Button _captureButton;
+    private Button _advancedToggleButton;
     private Button _autoTargetButton;
     private Button _reuseCaptureButton;
+    private Button _submitRuntimeGenerationButton;
+    private Button _loadTestRuntimeModelButton;
+    private Button _loadLatestRuntimeModelButton;
     private Button _surfaceButton;
     private Button _shellButton;
     private Button _worldStatusButton;
     private Button _rotateSelectedButton;
+    private Button _acceptGeneratedButton;
+    private Button _rejectGeneratedButton;
+    private Button _resetGeneratedButton;
     private Button _hoveredButton;
     private Image _hoveredDropdownImage;
+    private Transform _advancedControlsRoot;
     private Sprite _roundedBoxSprite;
     private Texture2D _roundedBoxTexture;
     private bool _triedAutoLoadUISetPrefabs;
@@ -135,7 +160,9 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         EnsureContent();
         NormalizeContentRoot();
         HideInheritedUISetVisuals();
+        ApplyAdvancedControlsVisibility();
         WireButtons();
+        ApplyButtonReadability();
     }
 
     private void OnEnable()
@@ -148,7 +175,9 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         EnsureContent();
         NormalizeContentRoot();
         HideInheritedUISetVisuals();
+        ApplyAdvancedControlsVisibility();
         WireButtons();
+        ApplyButtonReadability();
         UpdatePanel();
     }
 
@@ -176,6 +205,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         EnsureContent();
         NormalizeContentRoot();
         HideInheritedUISetVisuals();
+        ApplyAdvancedControlsVisibility();
+        ApplyButtonReadability();
         SetVisible(true);
         SuppressLegacyHeadsetOverlays();
 
@@ -222,6 +253,33 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         UpdatePanel();
     }
 
+    public void SubmitRuntimeGenerationAndLoad()
+    {
+        ResolveReferences();
+        runtimeGenerationClient?.SubmitLatestRequestAndLoad();
+        generationQueueStatusService?.Refresh();
+        roomStyleCacheService?.Refresh();
+        UpdatePanel();
+    }
+
+    public void LoadRuntimeTestModelForLatestRequest()
+    {
+        ResolveReferences();
+        runtimeGeneratedModelLoader?.LoadTestModelForLatestRequest();
+        generationQueueStatusService?.Refresh();
+        roomStyleCacheService?.Refresh();
+        UpdatePanel();
+    }
+
+    public void LoadLatestRuntimeGeneratedModel()
+    {
+        ResolveReferences();
+        runtimeGeneratedModelLoader?.LoadLatestRuntimeReadyJob();
+        generationQueueStatusService?.Refresh();
+        roomStyleCacheService?.Refresh();
+        UpdatePanel();
+    }
+
     public void CycleTheme()
     {
         ResolveReferences();
@@ -241,6 +299,15 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     public void ReapplySurfaces()
     {
         ResolveReferences();
+        if (surfaceGenerationClient != null)
+        {
+            surfaceGenerationClient.SubmitActiveSurfaceGenerationAndReapply();
+            generationQueueStatusService?.Refresh();
+            roomStyleCacheService?.Refresh();
+            UpdatePanel();
+            return;
+        }
+
         surfaceOverrideApplier?.ReapplySurfaceOverrides();
     }
 
@@ -256,6 +323,60 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         worldStatusOverlay?.ToggleOverlayVisible();
     }
 
+    public void ToggleAdvancedControls()
+    {
+        showAdvancedControls = !showAdvancedControls;
+        ApplyAdvancedControlsVisibility();
+        UpdatePanel();
+    }
+
+    private void ApplyAdvancedControlsVisibility()
+    {
+        if (_contentRoot != null && _advancedControlsRoot == null)
+        {
+            _advancedControlsRoot = _contentRoot.Find("AdvancedControls");
+        }
+
+        if (_advancedControlsRoot != null)
+        {
+            _advancedControlsRoot.gameObject.SetActive(showAdvancedControls);
+        }
+
+        SetButtonLabel(_advancedToggleButton, showAdvancedControls ? "Hide Debug" : "Debug");
+    }
+
+    private static void SetButtonLabel(Button button, string label)
+    {
+        if (button == null || string.IsNullOrWhiteSpace(label))
+        {
+            return;
+        }
+
+        TMP_Text firstText = null;
+        foreach (var text in button.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null)
+            {
+                continue;
+            }
+
+            if (text.name == RuntimeButtonLabelName || text.name == "Label" || text.name == "Text" || text.name == "Title")
+            {
+                text.text = label;
+                firstText ??= text;
+            }
+        }
+
+        if (firstText == null)
+        {
+            firstText = button.GetComponentInChildren<TMP_Text>(true);
+            if (firstText != null)
+            {
+                firstText.text = label;
+            }
+        }
+    }
+
     public void RotateSelectedGeneratedObject90()
     {
         ResolveReferences();
@@ -266,6 +387,27 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         rotationCorrectionController.RefreshSelectionFromContext();
         rotationCorrectionController.RotateSelectedClockwise90();
+        UpdatePanel();
+    }
+
+    public void AcceptSelectedGeneratedObject()
+    {
+        ResolveReferences();
+        generatedObjectReviewController?.AcceptSelected();
+        UpdatePanel();
+    }
+
+    public void RejectSelectedGeneratedObject()
+    {
+        ResolveReferences();
+        generatedObjectReviewController?.RejectSelected();
+        UpdatePanel();
+    }
+
+    public void ResetSelectedGeneratedObjectToFallback()
+    {
+        ResolveReferences();
+        generatedObjectReviewController?.ResetSelectedToFallback();
         UpdatePanel();
     }
 
@@ -331,6 +473,16 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             generationQueueStatusService = FindAnyObjectByType<GenerationQueueStatusService>();
         }
 
+        if (runtimeGenerationClient == null)
+        {
+            runtimeGenerationClient = FindAnyObjectByType<QuestRuntimeGenerationClient>();
+        }
+
+        if (runtimeGeneratedModelLoader == null)
+        {
+            runtimeGeneratedModelLoader = FindAnyObjectByType<RuntimeGeneratedModelLoader>();
+        }
+
         if (themeIntentController == null)
         {
             themeIntentController = FindAnyObjectByType<ThemeIntentController>();
@@ -344,6 +496,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         if (surfaceOverrideApplier == null)
         {
             surfaceOverrideApplier = FindAnyObjectByType<SurfaceOverrideApplier>();
+        }
+
+        if (surfaceGenerationClient == null)
+        {
+            surfaceGenerationClient = FindAnyObjectByType<QuestSurfaceGenerationClient>();
         }
 
         if (shellVisibilityToggle == null)
@@ -380,6 +537,16 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             rotationCorrectionController = gameObject.AddComponent<GeneratedObjectRotationCorrectionController>();
         }
+
+        if (generatedObjectReviewController == null)
+        {
+            generatedObjectReviewController = FindAnyObjectByType<GeneratedObjectReviewController>();
+        }
+
+        if (generatedObjectReviewController == null && Application.isPlaying)
+        {
+            generatedObjectReviewController = gameObject.AddComponent<GeneratedObjectReviewController>();
+        }
     }
 
     private void TryAutoLoadMetaUISetPrefabs()
@@ -400,12 +567,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     private bool ShouldInstantiateMetaUISetPrefab(GameObject prefab)
     {
-        if (!instantiateMetaUISetControlPrefabs)
+        if (useStableRuntimeControlsOnly)
         {
             return false;
         }
 
-        if (useStableRuntimeControlsOnly && !useMetaUISetPrefabsWhenAvailable)
+        if (!instantiateMetaUISetControlPrefabs)
         {
             return false;
         }
@@ -415,7 +582,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     private bool ShouldUseControllerPointerFallback()
     {
-        return enableControllerPointerInPlay;
+        if (!enableControllerPointerInPlay)
+        {
+            return false;
+        }
+
+        return bridgeControllerTriggerToUnityButtons || !preferOfficialCanvasInteractions || !HasOfficialCanvasInteractionComponents();
     }
 
     private bool HasOfficialCanvasInteractionComponents()
@@ -471,6 +643,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             EnsureBackground();
             NormalizeContentRoot();
+            ApplyAdvancedControlsVisibility();
             return;
         }
 
@@ -507,13 +680,15 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         CreateHeaderSection();
         CreateThemeDropdown();
         CreateStatusSection();
-        CreateButtonSection("Capture", true);
-        CreateButtonSection("Room", false);
+        CreatePrimaryFlowButtonSection();
+        CreateReviewButtonSection();
+        CreateAdvancedButtonSection();
         _pointerHintText = CreateText(_contentRoot, "PointerHint", "Point right controller at the panel, press Trigger.", 15f, FontStyles.Normal, new Color(0.72f, 0.86f, 0.96f, 1f));
         _pointerHintText.alignment = TextAlignmentOptions.Center;
         _pointerHintText.textWrappingMode = TextWrappingModes.NoWrap;
         _pointerHintText.overflowMode = TextOverflowModes.Ellipsis;
         SetLayoutSize(_pointerHintText.gameObject, 0f, 26f);
+        ApplyAdvancedControlsVisibility();
         NormalizeContentRoot();
         HideInheritedUISetVisuals();
     }
@@ -700,7 +875,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return;
         }
 
-        foreach (var hud in FindObjectsByType<DevicePassthroughCaptureHud>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        foreach (var hud in FindObjectsByType<DevicePassthroughCaptureHud>(FindObjectsInactive.Include))
         {
             if (IsSameOrParentedWithDashboard(hud.transform))
             {
@@ -711,7 +886,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             SetChildCanvasesVisible(hud.transform, false);
         }
 
-        foreach (var debugPanel in FindObjectsByType<StylizationDebugPanel>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        foreach (var debugPanel in FindObjectsByType<StylizationDebugPanel>(FindObjectsInactive.Include))
         {
             if (IsSameOrParentedWithDashboard(debugPanel.transform))
             {
@@ -722,7 +897,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             SetChildCanvasesVisible(debugPanel.transform, false);
         }
 
-        foreach (var shellToggle in FindObjectsByType<MRUKShellVisibilityToggle>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+        foreach (var shellToggle in FindObjectsByType<MRUKShellVisibilityToggle>(FindObjectsInactive.Include))
         {
             if (IsSameOrParentedWithDashboard(shellToggle.transform))
             {
@@ -846,13 +1021,14 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         layout.childForceExpandHeight = false;
 
         var cardLayout = cardObject.GetComponent<LayoutElement>();
-        cardLayout.minHeight = 278f;
-        cardLayout.preferredHeight = 278f;
+        cardLayout.minHeight = 306f;
+        cardLayout.preferredHeight = 306f;
 
         _captureStatusText = CreateStatusRow(cardObject.transform, "Capture");
         _styleStatusText = CreateStatusRow(cardObject.transform, "Style");
         _cacheStatusText = CreateStatusRow(cardObject.transform, "Cache");
         _queueStatusText = CreateStatusRow(cardObject.transform, "Jobs");
+        _runtimeModelStatusText = CreateStatusRow(cardObject.transform, "Runtime");
         _reuseStatusText = CreateStatusRow(cardObject.transform, "Reuse");
         _rotationStatusText = CreateStatusRow(cardObject.transform, "Rotate");
         _cleanViewStatusText = CreateStatusRow(cardObject.transform, "Clean");
@@ -992,9 +1168,54 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         return label;
     }
 
-    private void CreateButtonSection(string name, bool captureSection)
+    private Transform CreateButtonRow(string name, Transform parent)
     {
         var rowObject = new GameObject($"{name}Buttons", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
+        rowObject.transform.SetParent(parent != null ? parent : _contentRoot, false);
+
+        var row = rowObject.GetComponent<HorizontalLayoutGroup>();
+        row.spacing = 12f;
+        row.childAlignment = TextAnchor.MiddleLeft;
+        row.childControlWidth = true;
+        row.childControlHeight = true;
+        row.childForceExpandWidth = false;
+        row.childForceExpandHeight = false;
+
+        var layout = rowObject.GetComponent<LayoutElement>();
+        layout.minHeight = 56f;
+        layout.preferredHeight = 56f;
+        return rowObject.transform;
+    }
+
+    private void CreatePrimaryFlowButtonSection()
+    {
+        var row = CreateButtonRow("PrimaryFlow", _contentRoot);
+        _captureButton = CreateButton(row, primaryButtonPrefab, "Capture");
+        _submitRuntimeGenerationButton = CreateButton(row, primaryButtonPrefab, "Generate & Load");
+        _advancedToggleButton = CreateButton(row, secondaryButtonPrefab, "Debug");
+    }
+
+    private void CreateButtonSection(string name, bool captureSection)
+    {
+        var rowObject = CreateButtonRow(name, _contentRoot);
+        if (captureSection)
+        {
+            _captureButton = CreateButton(rowObject, primaryButtonPrefab, "Capture");
+            _autoTargetButton = CreateButton(rowObject, secondaryButtonPrefab, "Auto Target");
+            _reuseCaptureButton = CreateButton(rowObject, secondaryButtonPrefab, "Reuse Captures");
+        }
+        else
+        {
+            _surfaceButton = CreateButton(rowObject, secondaryButtonPrefab, "Generate Room");
+            _shellButton = CreateButton(rowObject, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Clean View");
+            _worldStatusButton = CreateButton(rowObject, secondaryButtonPrefab, "Object Status");
+            _rotateSelectedButton = CreateButton(rowObject, secondaryButtonPrefab, "Rotate 90");
+        }
+    }
+
+    private void CreateRuntimeLoadButtonSection()
+    {
+        var rowObject = new GameObject("RuntimeLoadButtons", typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
         rowObject.transform.SetParent(_contentRoot, false);
 
         var row = rowObject.GetComponent<HorizontalLayoutGroup>();
@@ -1009,19 +1230,48 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         layout.minHeight = 56f;
         layout.preferredHeight = 56f;
 
-        if (captureSection)
-        {
-            _captureButton = CreateButton(rowObject.transform, primaryButtonPrefab, "Capture");
-            _autoTargetButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Auto Target");
-            _reuseCaptureButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Reuse Captures");
-        }
-        else
-        {
-            _surfaceButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Reapply Room");
-            _shellButton = CreateButton(rowObject.transform, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Clean View");
-            _worldStatusButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Object Status");
-            _rotateSelectedButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Rotate 90");
-        }
+        _submitRuntimeGenerationButton = CreateButton(rowObject.transform, primaryButtonPrefab, "Submit+Load");
+        _loadTestRuntimeModelButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Load Test GLB");
+        _loadLatestRuntimeModelButton = CreateButton(rowObject.transform, secondaryButtonPrefab, "Load Latest Job");
+    }
+
+    private void CreateReviewButtonSection()
+    {
+        var row = CreateButtonRow("Review", _contentRoot);
+        _acceptGeneratedButton = CreateButton(row, primaryButtonPrefab, "Accept");
+        _rejectGeneratedButton = CreateButton(row, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Reject");
+        _resetGeneratedButton = CreateButton(row, secondaryButtonPrefab, "Reset");
+        _rotateSelectedButton = CreateButton(row, secondaryButtonPrefab, "Rotate 90");
+    }
+
+    private void CreateAdvancedButtonSection()
+    {
+        var rootObject = new GameObject("AdvancedControls", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(LayoutElement));
+        rootObject.transform.SetParent(_contentRoot, false);
+        _advancedControlsRoot = rootObject.transform;
+
+        var rootLayout = rootObject.GetComponent<VerticalLayoutGroup>();
+        rootLayout.spacing = 12f;
+        rootLayout.childAlignment = TextAnchor.UpperLeft;
+        rootLayout.childControlWidth = true;
+        rootLayout.childControlHeight = true;
+        rootLayout.childForceExpandWidth = true;
+        rootLayout.childForceExpandHeight = false;
+
+        var rootElement = rootObject.GetComponent<LayoutElement>();
+        rootElement.minHeight = 124f;
+        rootElement.preferredHeight = 124f;
+
+        var captureRow = CreateButtonRow("AdvancedCapture", _advancedControlsRoot);
+        _autoTargetButton = CreateButton(captureRow, secondaryButtonPrefab, "Auto Target");
+        _reuseCaptureButton = CreateButton(captureRow, secondaryButtonPrefab, "Reuse Captures");
+        _loadLatestRuntimeModelButton = CreateButton(captureRow, secondaryButtonPrefab, "Load Latest Job");
+        _worldStatusButton = CreateButton(captureRow, secondaryButtonPrefab, "Object Status");
+
+        var roomRow = CreateButtonRow("AdvancedRoom", _advancedControlsRoot);
+        _loadTestRuntimeModelButton = CreateButton(roomRow, secondaryButtonPrefab, "Load Test GLB");
+        _surfaceButton = CreateButton(roomRow, secondaryButtonPrefab, "Generate Room");
+        _shellButton = CreateButton(roomRow, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Clean View");
     }
 
     private Button CreateButton(Transform parent, GameObject prefab, string label)
@@ -1037,7 +1287,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var rect = buttonObject.GetComponent<RectTransform>();
         if (rect != null)
         {
-            rect.sizeDelta = new Vector2(236f, 52f);
+            rect.sizeDelta = new Vector2(180f, 52f);
         }
 
         var layout = buttonObject.GetComponent<LayoutElement>();
@@ -1047,7 +1297,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
 
         layout.minWidth = 0f;
-        layout.preferredWidth = 236f;
+        layout.preferredWidth = 180f;
         layout.flexibleWidth = 1f;
         layout.minHeight = 52f;
         layout.preferredHeight = 52f;
@@ -1086,11 +1336,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             labelText.text = label;
             labelText.alignment = TextAlignmentOptions.Center;
-            labelText.color = Color.white;
+            labelText.color = GetReadableTextColor(backgroundImage, Color.white);
             labelText.fontSize = Mathf.Clamp(Mathf.Max(18f, labelText.fontSize), 18f, 22f);
             labelText.textWrappingMode = TextWrappingModes.NoWrap;
             labelText.overflowMode = TextOverflowModes.Ellipsis;
             labelText.raycastTarget = false;
+            labelText.gameObject.SetActive(false);
         }
 
         foreach (var text in buttonObject.GetComponentsInChildren<TMP_Text>(true))
@@ -1106,17 +1357,98 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             }
         }
 
+        var labelParent = button != null && button.targetGraphic != null
+            ? button.targetGraphic.transform
+            : buttonObject.transform;
         var runtimeLabel = EnsureRuntimeOverlayText(
-            buttonObject.transform,
+            labelParent,
             RuntimeButtonLabelName,
             TextAlignmentOptions.Center,
-            new Vector2(12f, 0f),
-            new Vector2(-12f, 0f),
+            ButtonLabelOffsetMin,
+            ButtonLabelOffsetMax,
             17f);
         runtimeLabel.text = label;
         runtimeLabel.color = GetReadableTextColor(backgroundImage, Color.white);
         runtimeLabel.fontStyle = FontStyles.Bold;
         runtimeLabel.transform.SetAsLastSibling();
+        ApplyButtonReadability(button);
+    }
+
+    private void ApplyButtonReadability()
+    {
+        if (_contentRoot == null)
+        {
+            return;
+        }
+
+        foreach (var button in _contentRoot.GetComponentsInChildren<Button>(true))
+        {
+            ApplyButtonReadability(button);
+        }
+    }
+
+    private static void ApplyButtonReadability(Button button)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        EnsureButtonHitArea(button);
+
+        var backgroundImage = button.targetGraphic as Image
+            ?? FindNamedComponent<Image>(button.transform, "Background")
+            ?? button.GetComponentInChildren<Image>(true);
+        var readableColor = GetReadableTextColor(backgroundImage, Color.white);
+
+        foreach (var text in button.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text == null)
+            {
+                continue;
+            }
+
+            text.gameObject.tag = "Untagged";
+            text.color = readableColor;
+            text.raycastTarget = false;
+        }
+    }
+
+    private static void EnsureButtonHitArea(Button button)
+    {
+        var buttonRect = button.GetComponent<RectTransform>();
+        if (buttonRect == null)
+        {
+            return;
+        }
+
+        var hitAreaTransform = button.transform.Find(RuntimeButtonHitAreaName);
+        GameObject hitAreaObject;
+        if (hitAreaTransform != null)
+        {
+            hitAreaObject = hitAreaTransform.gameObject;
+        }
+        else
+        {
+            hitAreaObject = new GameObject(RuntimeButtonHitAreaName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            hitAreaObject.transform.SetParent(button.transform, false);
+            hitAreaObject.transform.SetAsFirstSibling();
+        }
+
+        var hitAreaRect = hitAreaObject.GetComponent<RectTransform>();
+        StretchToParent(hitAreaRect);
+
+        var image = hitAreaObject.GetComponent<Image>();
+        image.color = new Color(1f, 1f, 1f, 0.001f);
+        image.raycastTarget = true;
+
+        var layout = hitAreaObject.GetComponent<LayoutElement>();
+        if (layout == null)
+        {
+            layout = hitAreaObject.AddComponent<LayoutElement>();
+        }
+
+        layout.ignoreLayout = true;
     }
 
     private void NormalizeDropdownObject(GameObject dropdownObject)
@@ -1452,40 +1784,67 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         }
 
         var buttons = _contentRoot.GetComponentsInChildren<Button>(true);
-        _captureButton = FindContentButton("CaptureButtons/CaptureButton") ?? (buttons.Length > 0 ? buttons[0] : null);
-        _autoTargetButton = FindContentButton("CaptureButtons/AutoTargetButton") ?? (buttons.Length > 1 ? buttons[1] : null);
-        _reuseCaptureButton = FindContentButton("CaptureButtons/ReuseCapturesButton");
-        _surfaceButton = FindContentButton("RoomButtons/ReapplyRoomButton");
-        _shellButton = FindContentButton("RoomButtons/CleanViewButton");
-        _worldStatusButton = FindContentButton("RoomButtons/ObjectStatusButton");
-        _rotateSelectedButton = FindContentButton("RoomButtons/Rotate90Button");
+        _advancedControlsRoot = _contentRoot.Find("AdvancedControls");
+        _captureButton = FindContentButton("PrimaryFlowButtons/CaptureButton") ??
+            FindContentButton("CaptureButtons/CaptureButton") ??
+            (buttons.Length > 0 ? buttons[0] : null);
+        _submitRuntimeGenerationButton = FindContentButton("PrimaryFlowButtons/Generate&LoadButton") ??
+            FindContentButton("RuntimeLoadButtons/Submit+LoadButton");
+        _advancedToggleButton = FindContentButton("PrimaryFlowButtons/DebugButton");
+        _autoTargetButton = FindContentButton("AdvancedControls/AdvancedCaptureButtons/AutoTargetButton") ??
+            FindContentButton("CaptureButtons/AutoTargetButton") ??
+            (buttons.Length > 1 ? buttons[1] : null);
+        _reuseCaptureButton = FindContentButton("AdvancedControls/AdvancedCaptureButtons/ReuseCapturesButton") ??
+            FindContentButton("CaptureButtons/ReuseCapturesButton");
+        _loadTestRuntimeModelButton = FindContentButton("AdvancedControls/AdvancedRoomButtons/LoadTestGLBButton") ??
+            FindContentButton("RuntimeLoadButtons/LoadTestGLBButton");
+        _loadLatestRuntimeModelButton = FindContentButton("AdvancedControls/AdvancedCaptureButtons/LoadLatestJobButton") ??
+            FindContentButton("RuntimeLoadButtons/LoadLatestJobButton");
+        _surfaceButton = FindContentButton("AdvancedControls/AdvancedRoomButtons/GenerateRoomButton") ??
+            FindContentButton("AdvancedControls/AdvancedRoomButtons/ReapplyRoomButton") ??
+            FindContentButton("RoomButtons/ReapplyRoomButton");
+        _shellButton = FindContentButton("AdvancedControls/AdvancedRoomButtons/CleanViewButton") ??
+            FindContentButton("RoomButtons/CleanViewButton");
+        _worldStatusButton = FindContentButton("AdvancedControls/AdvancedCaptureButtons/ObjectStatusButton") ??
+            FindContentButton("RoomButtons/ObjectStatusButton");
+        _rotateSelectedButton = FindContentButton("ReviewButtons/Rotate90Button") ??
+            FindContentButton("RoomButtons/Rotate90Button");
+        _acceptGeneratedButton = FindContentButton("ReviewButtons/AcceptButton");
+        _rejectGeneratedButton = FindContentButton("ReviewButtons/RejectButton");
+        _resetGeneratedButton = FindContentButton("ReviewButtons/ResetButton");
 
-        if (_reuseCaptureButton == null)
+        if (_acceptGeneratedButton == null || _rejectGeneratedButton == null || _resetGeneratedButton == null)
         {
-            var captureButtons = _contentRoot.Find("CaptureButtons");
-            if (captureButtons != null)
+            var reviewButtons = _contentRoot.Find("ReviewButtons");
+            if (reviewButtons == null)
             {
-                _reuseCaptureButton = CreateButton(captureButtons, secondaryButtonPrefab, "Reuse Captures");
+                CreateReviewButtonSection();
+            }
+            else
+            {
+                if (_acceptGeneratedButton == null)
+                {
+                    _acceptGeneratedButton = CreateButton(reviewButtons, primaryButtonPrefab, "Accept");
+                }
+
+                if (_rejectGeneratedButton == null)
+                {
+                    _rejectGeneratedButton = CreateButton(reviewButtons, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Reject");
+                }
+
+                if (_resetGeneratedButton == null)
+                {
+                    _resetGeneratedButton = CreateButton(reviewButtons, secondaryButtonPrefab, "Reset");
+                }
+
+                if (_rotateSelectedButton == null)
+                {
+                    _rotateSelectedButton = CreateButton(reviewButtons, secondaryButtonPrefab, "Rotate 90");
+                }
             }
         }
 
-        if (_worldStatusButton == null)
-        {
-            var roomButtons = _contentRoot.Find("RoomButtons");
-            if (roomButtons != null)
-            {
-                _worldStatusButton = CreateButton(roomButtons, secondaryButtonPrefab, "Object Status");
-            }
-        }
-
-        if (_rotateSelectedButton == null)
-        {
-            var roomButtons = _contentRoot.Find("RoomButtons");
-            if (roomButtons != null)
-            {
-                _rotateSelectedButton = CreateButton(roomButtons, secondaryButtonPrefab, "Rotate 90");
-            }
-        }
+        ApplyAdvancedControlsVisibility();
 
         _themeTmpDropdown = _contentRoot.GetComponentInChildren<TMP_Dropdown>(true);
         _themeDropdown = _contentRoot.GetComponentInChildren<Dropdown>(true);
@@ -1516,24 +1875,55 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private void WireButtons()
     {
         WireButton(_captureButton, CaptureCurrentTarget);
+        WireButton(_advancedToggleButton, ToggleAdvancedControls);
         WireButton(_autoTargetButton, SetAutoTargetFromGaze);
         WireButton(_reuseCaptureButton, RegenerateFurnitureFromCaptures);
+        WireButton(_submitRuntimeGenerationButton, SubmitRuntimeGenerationAndLoad);
+        WireButton(_loadTestRuntimeModelButton, LoadRuntimeTestModelForLatestRequest);
+        WireButton(_loadLatestRuntimeModelButton, LoadLatestRuntimeGeneratedModel);
         WireButton(_surfaceButton, ReapplySurfaces);
         WireButton(_shellButton, ToggleShells);
         WireButton(_worldStatusButton, ToggleObjectStatusCards);
         WireButton(_rotateSelectedButton, RotateSelectedGeneratedObject90);
+        WireButton(_acceptGeneratedButton, AcceptSelectedGeneratedObject);
+        WireButton(_rejectGeneratedButton, RejectSelectedGeneratedObject);
+        WireButton(_resetGeneratedButton, ResetSelectedGeneratedObjectToFallback);
         WireThemeDropdown();
     }
 
-    private static void WireButton(Button button, UnityEngine.Events.UnityAction action)
+    private void WireButton(Button button, UnityAction action)
     {
-        if (button == null)
+        if (button == null || action == null)
         {
             return;
         }
 
+        if (_wiredButtonWrappers.TryGetValue(button, out var existingWrapper))
+        {
+            button.onClick.RemoveListener(existingWrapper);
+        }
+
         button.onClick.RemoveListener(action);
-        button.onClick.AddListener(action);
+        UnityAction wrapper = () => InvokeButtonActionOnce(button, action);
+        _wiredButtonWrappers[button] = wrapper;
+        button.onClick.AddListener(wrapper);
+    }
+
+    private void InvokeButtonActionOnce(Button button, UnityAction action)
+    {
+        if (Application.isPlaying && button != null)
+        {
+            var now = Time.unscaledTime;
+            if (_lastButtonInvokeTimes.TryGetValue(button, out var lastInvokeTime) &&
+                now - lastInvokeTime < ButtonInvokeDebounceSeconds)
+            {
+                return;
+            }
+
+            _lastButtonInvokeTimes[button] = now;
+        }
+
+        action.Invoke();
     }
 
     private void WireThemeDropdown()
@@ -1601,7 +1991,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         if (hoveredButton != null)
         {
             SetPointerHint($"Trigger: {GetButtonLabel(hoveredButton)}");
-            if (!officialRayInteractionActive && OVRInput.GetDown(pointerSelectButton, pointerController))
+            if ((bridgeControllerTriggerToUnityButtons || !officialRayInteractionActive) &&
+                OVRInput.GetDown(pointerSelectButton, pointerController))
             {
                 hoveredButton.onClick.Invoke();
             }
@@ -2033,8 +2424,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var themeLine = BuildThemeLine();
         var cacheLine = BuildCacheLine();
         var queueLine = BuildQueueLine();
+        var surfaceLine = BuildSurfaceGenerationLine();
+        var runtimeModelLine = BuildRuntimeModelLine();
         var reuseLine = BuildReuseLine();
         var rotationLine = BuildRotationLine();
+        var reviewLine = BuildReviewLine();
         var cleanLine = shellVisibilityToggle != null && shellVisibilityToggle.CleanViewActive ? "active" : "off";
         var cardsLine = worldStatusOverlay != null && worldStatusOverlay.IsOverlayVisible ? "visible" : "hidden";
 
@@ -2042,6 +2436,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         SetStatusValue(_styleStatusText, StripStatusPrefix(themeLine, "Style"));
         SetStatusValue(_cacheStatusText, StripStatusPrefix(cacheLine, "Cache"));
         SetStatusValue(_queueStatusText, StripStatusPrefix(queueLine, "Queue"));
+        SetStatusValue(_runtimeModelStatusText, StripStatusPrefix(runtimeModelLine, "Runtime"));
         SetStatusValue(_reuseStatusText, StripStatusPrefix(reuseLine, "Reuse"));
         SetStatusValue(_rotationStatusText, StripStatusPrefix(rotationLine, "Rotate"));
         SetStatusValue(_cleanViewStatusText, cleanLine);
@@ -2051,12 +2446,16 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         _builder.AppendLine(themeLine);
         _builder.AppendLine(cacheLine);
         _builder.AppendLine(queueLine);
+        _builder.AppendLine(surfaceLine);
+        _builder.AppendLine(runtimeModelLine);
         _builder.AppendLine(reuseLine);
         _builder.AppendLine(rotationLine);
+        _builder.AppendLine(reviewLine);
         _builder.AppendLine();
         _builder.AppendLine($"Clean View: {cleanLine}");
         _builder.AppendLine($"Object Status Cards: {cardsLine}");
-        _builder.AppendLine("Controls: Capture | Auto Target | Reuse Captures | Reapply Room | Clean View | Object Status | Rotate 90 | Left Menu: Panel");
+        _builder.AppendLine($"Debug Controls: {(showAdvancedControls ? "expanded" : "hidden")}");
+        _builder.AppendLine("Controls: Capture | Generate & Load | Generate Room | Accept | Reject | Reset | Rotate 90 | Debug | Left Menu: Panel");
 
         _latestSummary = $"[SceneShiftUISetDashboard]\nState: visible\n{_builder.ToString().TrimEnd()}";
 
@@ -2150,6 +2549,69 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         return "Queue: " + CompactStatusLine(lines.Length > 1 ? lines[1].Trim() : summary.Trim(), 118);
     }
 
+    private string BuildRuntimeModelLine()
+    {
+        if (runtimeGenerationClient == null && runtimeGeneratedModelLoader == null)
+        {
+            return "Runtime: missing runtime generation components";
+        }
+
+        var clientState = ExtractSummaryState(runtimeGenerationClient != null ? runtimeGenerationClient.LatestSummary : string.Empty);
+        var loaderState = ExtractSummaryState(runtimeGeneratedModelLoader != null ? runtimeGeneratedModelLoader.LatestSummary : string.Empty);
+        if (string.IsNullOrWhiteSpace(clientState) && string.IsNullOrWhiteSpace(loaderState))
+        {
+            return "Runtime: waiting";
+        }
+
+        if (string.IsNullOrWhiteSpace(clientState))
+        {
+            return "Runtime: loader " + CompactStatusLine(loaderState, 108);
+        }
+
+        if (string.IsNullOrWhiteSpace(loaderState))
+        {
+            return "Runtime: client " + CompactStatusLine(clientState, 108);
+        }
+
+        return "Runtime: " + CompactStatusLine($"client {clientState} | loader {loaderState}", 118);
+    }
+
+    private string BuildSurfaceGenerationLine()
+    {
+        if (surfaceGenerationClient == null)
+        {
+            return "Room Surfaces: missing backend client";
+        }
+
+        var state = ExtractSummaryState(surfaceGenerationClient.LatestSummary);
+        if (string.IsNullOrWhiteSpace(state))
+        {
+            return "Room Surfaces: waiting";
+        }
+
+        return "Room Surfaces: " + CompactStatusLine(state, 108);
+    }
+
+    private static string ExtractSummaryState(string summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+        {
+            return string.Empty;
+        }
+
+        var lines = summary.Split('\n');
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("State:", System.StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed["State:".Length..].Trim();
+            }
+        }
+
+        return lines.Length > 1 ? lines[1].Trim() : summary.Trim();
+    }
+
     private string BuildReuseLine()
     {
         if (furnitureReuseService == null)
@@ -2169,6 +2631,22 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         rotationCorrectionController.RefreshSelectionFromContext();
         return $"Rotate: {rotationCorrectionController.StatusLine}";
+    }
+
+    private string BuildReviewLine()
+    {
+        if (generatedObjectReviewController == null)
+        {
+            return "Review: unavailable";
+        }
+
+        var selected = generatedObjectReviewController.SelectedInstance;
+        if (selected == null)
+        {
+            return "Review: no runtime candidate";
+        }
+
+        return $"Review: {selected.DisplayLabel} | {selected.ReviewState}";
     }
 
     private static string CompactStatusLine(string value, int maxCharacters)
@@ -2200,7 +2678,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         root.localScale = Vector3.one * worldScale;
 
         canvas.renderMode = RenderMode.WorldSpace;
-        canvas.sortingOrder = 32050;
+        canvas.sortingOrder = 0;
         canvas.worldCamera = headTransform.GetComponent<Camera>();
 
         var rect = canvas.GetComponent<RectTransform>();

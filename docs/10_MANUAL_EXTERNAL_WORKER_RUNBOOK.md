@@ -15,6 +15,20 @@ GeneratedObjectRequest
 -> request-locked runtime placement
 ```
 
+This is the current Editor / Quest Link development chain. It is not yet the final standalone Quest chain because Unity import still depends on the Editor.
+
+Target standalone Quest chain:
+
+```text
+style intent in headset UI
+-> native passthrough capture
+-> secure backend proxy
+-> backend image + 3D generation
+-> Quest runtime GLB download/load
+-> request-locked placement
+-> in-headset review / accept / reject / reset / correction
+```
+
 Manual/external-worker steps are still useful when:
 - APIMart is unavailable
 - Seed3D is unavailable
@@ -40,6 +54,9 @@ Optional style extraction:
 - `DEEPSEEK_API_KEY`
 
 Never commit API keys, signed backend URLs, or generated backend result metadata containing secrets.
+
+For standalone Quest builds, do not put these API keys in the APK, scene fields, resources, or persistent job files. A backend service must own the credentials and expose a narrow SceneShift job API to the headset.
+Before packaging or MQDH handoff, run `bash Tools/scan_predevice_secrets.sh` to check packaged config/assets and generated job JSON records for likely long-lived credentials.
 
 ## Capture Paths
 
@@ -169,6 +186,31 @@ Expected behavior for `ModelReady` jobs:
 
 Runtime placement can only use the generated prefab after import.
 
+## Target Quest Runtime Model Loading
+This section describes the required future path for the standalone headset demo.
+
+Expected behavior:
+1. backend returns a generated model URL, hash, and status metadata,
+2. Quest downloads the model to `Application.persistentDataPath`,
+3. a runtime GLB loader instantiates the model without `AssetDatabase`,
+4. the loader computes render bounds and normalizes the object to a centered bottom pivot,
+5. generated colliders are stripped or ignored,
+6. `AnchorThemeApplier` fits the runtime-loaded object to the matching MRUK anchor,
+7. the review UI exposes preview, accept, reject, reset, and bounded correction.
+
+The smallest useful validation is one known test GLB URL placed on one selected `TABLE` anchor in a Quest build. Do not wait for the full backend before proving runtime loading and placement.
+
+The runtime loader should write enough status for MQDH/ADB log review:
+- request id,
+- room id,
+- object id / anchor id,
+- active Style id,
+- downloaded model path,
+- model hash if available,
+- source bounds,
+- fitted target bounds,
+- load or placement failure reason.
+
 ## Runtime Placement Check
 In Play, the dashboard/object status should show:
 - active target category
@@ -254,6 +296,16 @@ Check:
 - current Style matches the generated style variant
 - `AnchorThemeApplier` has reapplied after import
 
+### Runtime model does not appear on Quest
+Check:
+- backend job reached a model-ready state
+- model URL is reachable from the headset network
+- downloaded GLB exists under `Application.persistentDataPath`
+- runtime loader reported valid render bounds
+- generated object identity matches room/object/style/request
+- `AnchorThemeApplier` received the runtime-loaded object, not an Editor prefab path
+- dashboard shows the failure reason instead of silently hiding it
+
 ### Model quality is poor
 Options:
 - rerun image generation with a stricter prompt
@@ -265,5 +317,6 @@ Options:
 - Do not commit generated GLBs/prefabs by default.
 - Do not commit `Library/` artifacts.
 - Do not commit API keys or signed URLs.
+- Do not embed backend API keys in a Quest APK.
 - Do not silently reuse an old object model for a different object.
 - Do not block the room stylization demo on generated-object success.

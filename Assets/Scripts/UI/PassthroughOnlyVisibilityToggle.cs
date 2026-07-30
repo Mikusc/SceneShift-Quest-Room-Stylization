@@ -36,6 +36,8 @@ public class PassthroughOnlyVisibilityToggle : MonoBehaviour
     private bool suppressRenderers = true;
     [SerializeField, Tooltip("Disable all canvases while pure passthrough is active, including dashboards, HUDs, and object status cards.")]
     private bool suppressCanvases = true;
+    [SerializeField, Tooltip("Keep the main SceneShift dashboard visible when Y enters pure passthrough view.")]
+    private bool keepSceneShiftDashboardVisible = true;
     [SerializeField, Min(0.05f), Tooltip("How often to catch new runtime objects created while pure passthrough is active.")]
     private float refreshIntervalSeconds = 0.2f;
     [SerializeField] private bool logToggleEvents = true;
@@ -144,7 +146,7 @@ public class PassthroughOnlyVisibilityToggle : MonoBehaviour
                     _cameraStates[sceneCamera] = CameraState.From(sceneCamera);
                 }
 
-                sceneCamera.cullingMask = 0;
+                sceneCamera.cullingMask = keepSceneShiftDashboardVisible ? GetVisibleDashboardLayerMask() : 0;
                 if (forceTransparentCameraClear)
                 {
                     sceneCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -158,6 +160,11 @@ public class PassthroughOnlyVisibilityToggle : MonoBehaviour
             foreach (var rendererComponent in FindObjectsByType<Renderer>(FindObjectsInactive.Include))
             {
                 if (rendererComponent == null)
+                {
+                    continue;
+                }
+
+                if (ShouldKeepDashboardObjectVisible(rendererComponent.transform))
                 {
                     continue;
                 }
@@ -180,6 +187,11 @@ public class PassthroughOnlyVisibilityToggle : MonoBehaviour
                     continue;
                 }
 
+                if (ShouldKeepDashboardObjectVisible(canvasComponent.transform))
+                {
+                    continue;
+                }
+
                 if (!_canvasStates.ContainsKey(canvasComponent))
                 {
                     _canvasStates[canvasComponent] = canvasComponent.enabled;
@@ -188,6 +200,40 @@ public class PassthroughOnlyVisibilityToggle : MonoBehaviour
                 canvasComponent.enabled = false;
             }
         }
+    }
+
+    private int GetVisibleDashboardLayerMask()
+    {
+        if (!keepSceneShiftDashboardVisible)
+        {
+            return 0;
+        }
+
+        var mask = 0;
+        foreach (var dashboard in FindObjectsByType<SceneShiftUISetDashboard>(FindObjectsInactive.Include))
+        {
+            if (dashboard == null)
+            {
+                continue;
+            }
+
+            foreach (var child in dashboard.GetComponentsInChildren<Transform>(true))
+            {
+                if (child != null)
+                {
+                    mask |= 1 << child.gameObject.layer;
+                }
+            }
+        }
+
+        return mask;
+    }
+
+    private bool ShouldKeepDashboardObjectVisible(Transform target)
+    {
+        return keepSceneShiftDashboardVisible &&
+            target != null &&
+            target.GetComponentInParent<SceneShiftUISetDashboard>(true) != null;
     }
 
     private void RestoreVirtualVisibility(string reason)

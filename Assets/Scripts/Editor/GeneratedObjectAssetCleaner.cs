@@ -12,6 +12,9 @@ public static class GeneratedObjectAssetCleaner
     private const string JobFolderName = "GeneratedObjectJobs";
     private const string ThemeAssetFolder = "Assets/Generated/ThemeAssets";
     private const string ArchiveFolderName = "GeneratedObjectArchive";
+    private const string RuntimeModelFolderName = "GeneratedObjectRuntimeModels";
+    private const string ReviewFolderName = "GeneratedObjectReviews";
+    private const string PreDeviceRequestPrefix = "predevice_room_loop";
 
     private enum KeepPolicy
     {
@@ -33,6 +36,18 @@ public static class GeneratedObjectAssetCleaner
         public string RequestId => string.IsNullOrWhiteSpace(Record.RequestId) ? Path.GetFileNameWithoutExtension(JobPath) : Record.RequestId;
     }
 
+    private sealed class PreDeviceRuntimeCandidate
+    {
+        public GeneratedAssetRecord Record;
+        public string RequestId;
+        public string JobPath;
+        public string RuntimeModelFolder;
+        public List<string> JobArtifactPaths = new();
+        public List<string> ReviewRecordPaths = new();
+        public DateTime UpdatedAtUtc;
+        public long Bytes;
+    }
+
     [MenuItem("SceneShift/Generated Objects/Report Duplicate Models")]
     public static void ReportDuplicateModels()
     {
@@ -49,6 +64,18 @@ public static class GeneratedObjectAssetCleaner
     public static void CleanDuplicateModelsKeepBestPassed()
     {
         RunDuplicateCleanup(KeepPolicy.BestPassed, execute: true);
+    }
+
+    [MenuItem("SceneShift/Generated Objects/Report Pre-Device Runtime Artifacts")]
+    public static void ReportPreDeviceRuntimeArtifacts()
+    {
+        RunPreDeviceRuntimeArtifactArchive(execute: false);
+    }
+
+    [MenuItem("SceneShift/Generated Objects/Archive Pre-Device Runtime Artifacts - Keep Latest")]
+    public static void ArchivePreDeviceRuntimeArtifactsKeepLatest()
+    {
+        RunPreDeviceRuntimeArtifactArchive(execute: true);
     }
 
     private static void RunDuplicateCleanup(KeepPolicy keepPolicy, bool execute)
@@ -125,6 +152,182 @@ public static class GeneratedObjectAssetCleaner
         File.WriteAllText(Path.Combine(archiveRoot, "cleanup_report.txt"), report);
         AssetDatabase.Refresh();
         Debug.Log($"[GeneratedObjectAssetCleaner] Moved {movedCount}/{staleCandidates.Count} duplicate generated model folder(s) to {archiveRoot}");
+    }
+
+    private static void RunPreDeviceRuntimeArtifactArchive(bool execute)
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+        {
+            Debug.LogWarning("[GeneratedObjectAssetCleaner] Exit Play Mode before archiving pre-device runtime artifacts.");
+            return;
+        }
+
+        var projectRoot = GetProjectRoot();
+        var candidates = LoadPreDeviceRuntimeCandidates(projectRoot)
+            .OrderByDescending(candidate => candidate.UpdatedAtUtc)
+            .ThenByDescending(candidate => candidate.RequestId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var keepCandidate = candidates.FirstOrDefault();
+        var staleCandidates = keepCandidate == null
+            ? new List<PreDeviceRuntimeCandidate>()
+            : candidates.Where(candidate => !ReferenceEquals(candidate, keepCandidate)).ToList();
+        var report = BuildPreDeviceRuntimeArtifactReport(candidates, keepCandidate, staleCandidates, execute);
+        var reportPath = WritePreDeviceRuntimeArtifactReport(projectRoot, report, execute);
+        Debug.Log($"[GeneratedObjectAssetCleaner] Pre-device runtime artifact report written: {reportPath}");
+
+        if (!execute || staleCandidates.Count == 0)
+        {
+            return;
+        }
+
+        var archiveRoot = Path.Combine(
+            projectRoot,
+            "Library",
+            ArchiveFolderName,
+            "PreDeviceRuntimeArtifacts",
+            DateTime.UtcNow.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(archiveRoot);
+
+        var archivedCount = 0;
+        foreach (var staleCandidate in staleCandidates)
+        {
+            if (ArchivePreDeviceRuntimeCandidate(staleCandidate, archiveRoot))
+            {
+                archivedCount++;
+            }
+        }
+
+        File.WriteAllText(Path.Combine(archiveRoot, "archive_report.txt"), report);
+        AssetDatabase.Refresh();
+        Debug.Log($"[GeneratedObjectAssetCleaner] Archived {archivedCount}/{staleCandidates.Count} pre-device runtime artifact set(s) to {archiveRoot}");
+    }
+
+    private static List<PreDeviceRuntimeCandidate> LoadPreDeviceRuntimeCandidates(string projectRoot)
+    {
+        var candidates = new List<PreDeviceRuntimeCandidate>();
+        var jobDirectory = Path.Combine(projectRoot, "Library", JobFolderName);
+        if (!Directory.Exists(jobDirectory))
+        {
+            return candidates;
+        }
+
+        var runtimeModelRoot = Path.Combine(Application.persistentDataPath, RuntimeModelFolderName);
+        var reviewRoot = Path.Combine(Application.persistentDataPath, ReviewFolderName);
+        foreach (var jobPath in Directory.GetFiles(jobDirectory, $"{PreDeviceRequestPrefix}_*.job.json", SearchOption.TopDirectoryOnly))
+        {
+            var record = TryReadRecord(jobPath);
+            if (record == null || string.IsNullOrWhiteSpace(record.RequestId))
+            {
+                continue;
+            }
+
+            if (!record.RequestId.StartsWith(PreDeviceRequestPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var jobArtifactPaths = Directory.GetFiles(jobDirectory, $"{record.RequestId}.*", SearchOption.TopDirectoryOnly)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var runtimeModelFolder = Path.Combine(runtimeModelRoot, record.RequestId);
+            var reviewRecordPaths = Directory.Exists(reviewRoot)
+                ? Directory.GetFiles(reviewRoot, $"*{record.RequestId}*.review.json", SearchOption.TopDirectoryOnly)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                : new List<string>();
+            var bytes = jobArtifactPaths.Sum(GetFileBytes) +
+                        (Directory.Exists(runtimeModelFolder) ? GetDirectoryBytes(runtimeModelFolder) : 0) +
+                        reviewRecordPaths.Sum(GetFileBytes);
+            candidates.Add(new PreDeviceRuntimeCandidate
+            {
+                Record = record,
+                RequestId = record.RequestId,
+                JobPath = jobPath,
+                RuntimeModelFolder = runtimeModelFolder,
+                JobArtifactPaths = jobArtifactPaths,
+                ReviewRecordPaths = reviewRecordPaths,
+                UpdatedAtUtc = ParseUtc(record.UpdatedAtIsoUtc),
+                Bytes = bytes,
+            });
+        }
+
+        return candidates;
+    }
+
+    private static bool ArchivePreDeviceRuntimeCandidate(PreDeviceRuntimeCandidate candidate, string archiveRoot)
+    {
+        if (candidate == null || string.IsNullOrWhiteSpace(candidate.RequestId))
+        {
+            return false;
+        }
+
+        var movedAny = false;
+        var jobArchive = Path.Combine(archiveRoot, "Library", JobFolderName, candidate.RequestId);
+        foreach (var path in candidate.JobArtifactPaths)
+        {
+            movedAny |= MoveFileToArchive(path, jobArchive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidate.RuntimeModelFolder) && Directory.Exists(candidate.RuntimeModelFolder))
+        {
+            var runtimeArchive = Path.Combine(
+                archiveRoot,
+                "PersistentDataPath",
+                RuntimeModelFolderName,
+                Path.GetFileName(candidate.RuntimeModelFolder));
+            movedAny |= MoveDirectoryToArchive(candidate.RuntimeModelFolder, runtimeArchive);
+        }
+
+        var reviewArchive = Path.Combine(archiveRoot, "PersistentDataPath", ReviewFolderName, candidate.RequestId);
+        foreach (var path in candidate.ReviewRecordPaths)
+        {
+            movedAny |= MoveFileToArchive(path, reviewArchive);
+        }
+
+        return movedAny;
+    }
+
+    private static string BuildPreDeviceRuntimeArtifactReport(
+        IReadOnlyCollection<PreDeviceRuntimeCandidate> candidates,
+        PreDeviceRuntimeCandidate keepCandidate,
+        IReadOnlyCollection<PreDeviceRuntimeCandidate> staleCandidates,
+        bool execute)
+    {
+        var builder = new StringBuilder(4096);
+        builder.AppendLine("SceneShift Pre-Device Runtime Artifact Report");
+        builder.AppendLine($"CreatedUtc: {DateTime.UtcNow:O}");
+        builder.AppendLine($"Mode: {(execute ? "archive" : "report")}");
+        builder.AppendLine($"CandidateSets: {candidates.Count}");
+        builder.AppendLine($"KeptRequestId: {keepCandidate?.RequestId ?? "none"}");
+        builder.AppendLine($"ArchivedSets: {staleCandidates.Count}");
+        builder.AppendLine($"ArchivedMegabytes: {staleCandidates.Sum(candidate => candidate.Bytes) / (1024f * 1024f):0.0}");
+        builder.AppendLine();
+        foreach (var candidate in candidates.OrderByDescending(candidate => candidate.UpdatedAtUtc))
+        {
+            var action = ReferenceEquals(candidate, keepCandidate) ? "KEEP" : execute ? "ARCHIVE" : "WOULD_ARCHIVE";
+            builder.AppendLine($"{action} {FormatPreDeviceRuntimeCandidate(candidate)}");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string FormatPreDeviceRuntimeCandidate(PreDeviceRuntimeCandidate candidate)
+    {
+        return $"{candidate.RequestId} | state={candidate.Record.State} | updated={candidate.UpdatedAtUtc:O} | " +
+               $"jobArtifacts={candidate.JobArtifactPaths.Count} | runtimeModel={Directory.Exists(candidate.RuntimeModelFolder)} | " +
+               $"reviewRecords={candidate.ReviewRecordPaths.Count} | mb={candidate.Bytes / (1024f * 1024f):0.0}";
+    }
+
+    private static string WritePreDeviceRuntimeArtifactReport(string projectRoot, string report, bool execute)
+    {
+        var reportDirectory = Path.Combine(projectRoot, "Library", ArchiveFolderName, "Reports");
+        Directory.CreateDirectory(reportDirectory);
+        var prefix = execute ? "archive" : "report";
+        var reportPath = Path.Combine(
+            reportDirectory,
+            $"{prefix}_predevice_runtime_artifacts_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt");
+        File.WriteAllText(reportPath, report);
+        return reportPath;
     }
 
     private static List<Candidate> LoadCandidates(string projectRoot)
@@ -235,10 +438,14 @@ public static class GeneratedObjectAssetCleaner
     {
         return state switch
         {
+            GeneratedObjectJobState.RuntimeLoaded => 5,
             GeneratedObjectJobState.Imported => 4,
             GeneratedObjectJobState.NeedsReview => 3,
+            GeneratedObjectJobState.RuntimeModelDownloaded => 3,
             GeneratedObjectJobState.ModelReady => 2,
+            GeneratedObjectJobState.RuntimeModelReady => 2,
             GeneratedObjectJobState.ModelGenerationSubmitted => 1,
+            GeneratedObjectJobState.RuntimeBackendSubmitted => 1,
             _ => 0,
         };
     }
@@ -433,6 +640,57 @@ public static class GeneratedObjectAssetCleaner
 
         return Directory.GetFiles(folder, "*", SearchOption.AllDirectories)
             .Sum(path => new FileInfo(path).Length);
+    }
+
+    private static long GetFileBytes(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path) && File.Exists(path) ? new FileInfo(path).Length : 0;
+    }
+
+    private static bool MoveFileToArchive(string sourcePath, string archiveDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(archiveDirectory);
+            var destinationPath = GetUniquePath(Path.Combine(archiveDirectory, Path.GetFileName(sourcePath)));
+            File.Move(sourcePath, destinationPath);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[GeneratedObjectAssetCleaner] Failed to archive file '{sourcePath}': {exception.Message}");
+            return false;
+        }
+    }
+
+    private static bool MoveDirectoryToArchive(string sourceDirectory, string destinationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+        {
+            return false;
+        }
+
+        try
+        {
+            var parent = Path.GetDirectoryName(destinationDirectory);
+            if (!string.IsNullOrWhiteSpace(parent))
+            {
+                Directory.CreateDirectory(parent);
+            }
+
+            Directory.Move(sourceDirectory, GetUniquePath(destinationDirectory));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[GeneratedObjectAssetCleaner] Failed to archive folder '{sourceDirectory}': {exception.Message}");
+            return false;
+        }
     }
 
     private static string ToFullPath(string projectRoot, string path)
