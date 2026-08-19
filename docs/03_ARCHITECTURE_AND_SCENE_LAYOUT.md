@@ -195,7 +195,8 @@ Responsibility:
 ### 3.11b `SceneShiftUISetDashboard`
 Responsibility:
 - provide the headset-facing main control panel through the current stable SceneShift dashboard
-- preserve official Interaction SDK ray/poke interaction where available, but avoid dynamic official UISet sample controls that have caused layout problems
+- keep the dashboard content instantiated under `SceneShiftDashboardContent` in the canonical scene so its layout is inspectable and editable in the Editor
+- preserve official UISet button/dropdown prefab instances and Interaction SDK ray/poke interaction; rebuild the hierarchy explicitly through the dashboard Inspector or `SceneShift/UI` menu, with runtime creation only as a missing-content fallback
 - expose demo-critical controls: capture current target, auto gaze target, style selection, reapply room surfaces, clean view, object status cards, and generated-furniture `Rotate 90`
 - keep the old debug panel available for dense developer diagnostics while this panel serves as the cleaner user-facing entry point
 

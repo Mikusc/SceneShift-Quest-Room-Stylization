@@ -307,7 +307,8 @@ Object status cards:
 
 Known issue:
 
-- Direct dynamic instantiation of complex official UISet sample controls has caused layout problems. The stable fallback dashboard is preferred until a dedicated hand-authored UI scene/prefab is built.
+- Direct dynamic instantiation of complex official UISet sample controls previously caused layout problems. The canonical scene now uses an explicitly baked `SceneShiftDashboardContent` hierarchy; runtime creation is only the recovery path when that hierarchy is missing.
+- After rebuilding the Editor hierarchy, save the scene and confirm the baked controls remain present after a scene reload before entering Play Mode.
 - The dashboard may still contain hidden legacy/debug HUD suppression logic. Do not delete those components until the UISet panel, status cards, and clean-view flow have passed headset validation.
 
 ---

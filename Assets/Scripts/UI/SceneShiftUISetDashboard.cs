@@ -60,6 +60,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     [SerializeField] private bool visibleInPlayMode = true;
     [SerializeField] private bool headLocked = true;
     [SerializeField] private bool createContentIfMissing = true;
+    [SerializeField, Tooltip("Reuse a complete SceneShiftDashboardContent hierarchy saved in the scene instead of rebuilding it on Play.")]
+    private bool preferBakedSceneHierarchy = true;
     [SerializeField] private bool preferOfficialUISetBackplate = true;
     [SerializeField] private bool disableMetaUISetRuntimeComponents;
     [SerializeField] private bool hideInheritedUISetVisuals = true;
@@ -95,6 +97,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     [SerializeField] private Color dropdownHoverColor = new(0.07f, 0.2f, 0.27f, 0.98f);
 
     public string LatestSummary => _latestSummary;
+    public bool HasBakedSceneHierarchy => canvas != null &&
+        HasCompleteDashboardHierarchy(canvas.transform.Find(ContentObjectName));
 
     private readonly StringBuilder _builder = new(1024);
     private readonly Dictionary<Graphic, Color> _pointerOriginalGraphicColors = new();
@@ -150,6 +154,73 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         ResolveReferences();
     }
 
+#if UNITY_EDITOR
+    [ContextMenu("SceneShift UI/Rebuild Editor Hierarchy")]
+    public void RebuildEditorHierarchy()
+    {
+        if (Application.isPlaying)
+        {
+            Debug.LogWarning("[SceneShiftUISetDashboard] Stop Play Mode before rebuilding the editor hierarchy.", this);
+            return;
+        }
+
+        ResolveReferences();
+        TryAutoLoadMetaUISetPrefabs();
+        if (canvas == null)
+        {
+            Debug.LogError("[SceneShiftUISetDashboard] Cannot rebuild editor hierarchy because no Canvas was resolved.", this);
+            return;
+        }
+
+        Undo.RegisterFullObjectHierarchyUndo(canvas.gameObject, "Rebuild SceneShift Dashboard Hierarchy");
+        var existing = canvas.transform.Find(ContentObjectName);
+        if (existing != null)
+        {
+            Undo.DestroyObjectImmediate(existing.gameObject);
+        }
+
+        ResetContentReferences();
+        NormalizeCanvasRoot();
+        EnsureContent();
+        NormalizeContentRoot();
+        HideInheritedUISetVisuals();
+        ApplyAdvancedControlsVisibility();
+        ApplyButtonReadability();
+        canvas.gameObject.SetActive(true);
+
+        EditorUtility.SetDirty(this);
+        EditorUtility.SetDirty(canvas.gameObject);
+        PrefabUtility.RecordPrefabInstancePropertyModifications(this);
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameObject.scene);
+        Debug.Log("[SceneShiftUISetDashboard] Editor hierarchy rebuilt. Save the scene to keep it.", this);
+    }
+
+    [ContextMenu("SceneShift UI/Remove Baked Editor Hierarchy")]
+    public void RemoveBakedEditorHierarchy()
+    {
+        if (Application.isPlaying)
+        {
+            Debug.LogWarning("[SceneShiftUISetDashboard] Stop Play Mode before removing the editor hierarchy.", this);
+            return;
+        }
+
+        ResolveReferences();
+        var existing = canvas != null ? canvas.transform.Find(ContentObjectName) : null;
+        if (existing == null)
+        {
+            return;
+        }
+
+        Undo.RegisterFullObjectHierarchyUndo(canvas.gameObject, "Remove SceneShift Dashboard Hierarchy");
+        Undo.DestroyObjectImmediate(existing.gameObject);
+        ResetContentReferences();
+        EditorUtility.SetDirty(this);
+        EditorUtility.SetDirty(canvas.gameObject);
+        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(gameObject.scene);
+        Debug.Log("[SceneShiftUISetDashboard] Baked editor hierarchy removed. Runtime fallback remains enabled.", this);
+    }
+#endif
+
     private void Awake()
     {
         _panelVisibleRuntime = visibleInPlayMode;
@@ -179,6 +250,46 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         WireButtons();
         ApplyButtonReadability();
         UpdatePanel();
+    }
+
+    private void ResetContentReferences()
+    {
+        _contentRoot = null;
+        _titleText = null;
+        _subtitleText = null;
+        _statusText = null;
+        _captureStatusText = null;
+        _styleStatusText = null;
+        _cacheStatusText = null;
+        _queueStatusText = null;
+        _runtimeModelStatusText = null;
+        _reuseStatusText = null;
+        _rotationStatusText = null;
+        _cleanViewStatusText = null;
+        _objectStatusText = null;
+        _pointerHintText = null;
+        _themeDropdownCaptionText = null;
+        _themeMetaDropdown = null;
+        _themeTmpDropdown = null;
+        _themeDropdown = null;
+        _captureButton = null;
+        _advancedToggleButton = null;
+        _autoTargetButton = null;
+        _reuseCaptureButton = null;
+        _submitRuntimeGenerationButton = null;
+        _loadTestRuntimeModelButton = null;
+        _loadLatestRuntimeModelButton = null;
+        _surfaceButton = null;
+        _shellButton = null;
+        _worldStatusButton = null;
+        _rotateSelectedButton = null;
+        _acceptGeneratedButton = null;
+        _rejectGeneratedButton = null;
+        _resetGeneratedButton = null;
+        _advancedControlsRoot = null;
+        _wiredButtonWrappers.Clear();
+        _lastButtonInvokeTimes.Clear();
+        _pointerOriginalGraphicColors.Clear();
     }
 
     private void LateUpdate()
@@ -643,6 +754,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         {
             EnsureBackground();
             NormalizeContentRoot();
+            ResolveContentReferences();
             ApplyAdvancedControlsVisibility();
             return;
         }
@@ -653,6 +765,15 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         if (existing != null)
         {
             _contentRoot = existing as RectTransform;
+            if (preferBakedSceneHierarchy && HasCompleteDashboardHierarchy(_contentRoot))
+            {
+                NormalizeContentRoot();
+                ResolveContentReferences();
+                ApplyAdvancedControlsVisibility();
+                HideInheritedUISetVisuals();
+                return;
+            }
+
             ClearChildren(_contentRoot);
             NormalizeContentRoot();
         }
@@ -690,7 +811,19 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         SetLayoutSize(_pointerHintText.gameObject, 0f, 26f);
         ApplyAdvancedControlsVisibility();
         NormalizeContentRoot();
+        ResolveContentReferences();
         HideInheritedUISetVisuals();
+    }
+
+    private static bool HasCompleteDashboardHierarchy(Transform root)
+    {
+        return root != null &&
+            root.Find("Header/Title") != null &&
+            root.Find("ThemeDropdownRow/ThemeDropdown") != null &&
+            root.Find("StatusCard/CaptureStatusRow/CaptureValue") != null &&
+            root.Find("PrimaryFlowButtons/CaptureButton") != null &&
+            root.Find("ReviewButtons/AcceptButton") != null &&
+            root.Find("AdvancedControls") != null;
     }
 
     private void EnsureBackground()
@@ -1138,7 +1271,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return CreateFallbackTmpDropdown(parent);
         }
 
-        var dropdownObject = Instantiate(dropdownPrefab, parent);
+        var dropdownObject = InstantiateControlPrefab(dropdownPrefab, parent);
         dropdownObject.transform.localScale = Vector3.one;
         NormalizeDropdownObject(dropdownObject);
         return dropdownObject;
@@ -1277,7 +1410,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private Button CreateButton(Transform parent, GameObject prefab, string label)
     {
         var buttonObject = ShouldInstantiateMetaUISetPrefab(prefab)
-            ? Instantiate(prefab, parent)
+            ? InstantiateControlPrefab(prefab, parent)
             : CreateFallbackButton(parent);
 
         buttonObject.name = label.Replace(" ", string.Empty) + "Button";
@@ -1303,6 +1436,22 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         layout.preferredHeight = 52f;
 
         return buttonObject.GetComponentInChildren<Button>(true);
+    }
+
+    private static GameObject InstantiateControlPrefab(GameObject prefab, Transform parent)
+    {
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            var editorInstance = PrefabUtility.InstantiatePrefab(prefab, parent) as GameObject;
+            if (editorInstance != null)
+            {
+                return editorInstance;
+            }
+        }
+#endif
+
+        return Instantiate(prefab, parent);
     }
 
     private void NormalizeButtonObject(GameObject buttonObject, string label)
@@ -1760,28 +1909,27 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     private void ResolveContentReferences()
     {
+        if (_contentRoot == null)
+        {
+            return;
+        }
+
         RemoveLegacyThemeButton();
 
         var texts = _contentRoot.GetComponentsInChildren<TMP_Text>(true);
-        if (texts.Length > 0)
-        {
-            _titleText = texts[0];
-        }
-
-        if (texts.Length > 1)
-        {
-            _subtitleText = texts[1];
-        }
-
-        if (texts.Length > 2)
-        {
-            _statusText = texts[2];
-        }
-
-        if (texts.Length > 3)
-        {
-            _pointerHintText = texts[3];
-        }
+        _titleText = FindContentText("Header/Title") ?? (texts.Length > 0 ? texts[0] : null);
+        _subtitleText = FindContentText("Header/Subtitle") ?? (texts.Length > 1 ? texts[1] : null);
+        _captureStatusText = FindContentText("StatusCard/CaptureStatusRow/CaptureValue");
+        _styleStatusText = FindContentText("StatusCard/StyleStatusRow/StyleValue");
+        _cacheStatusText = FindContentText("StatusCard/CacheStatusRow/CacheValue");
+        _queueStatusText = FindContentText("StatusCard/JobsStatusRow/JobsValue");
+        _runtimeModelStatusText = FindContentText("StatusCard/RuntimeStatusRow/RuntimeValue");
+        _reuseStatusText = FindContentText("StatusCard/ReuseStatusRow/ReuseValue");
+        _rotationStatusText = FindContentText("StatusCard/RotateStatusRow/RotateValue");
+        _cleanViewStatusText = FindContentText("StatusCard/CleanStatusRow/CleanValue");
+        _objectStatusText = FindContentText("StatusCard/CardsStatusRow/CardsValue");
+        _statusText = _captureStatusText ?? (texts.Length > 2 ? texts[2] : null);
+        _pointerHintText = FindContentText("PointerHint") ?? (texts.Length > 3 ? texts[3] : null);
 
         var buttons = _contentRoot.GetComponentsInChildren<Button>(true);
         _advancedControlsRoot = _contentRoot.Find("AdvancedControls");
@@ -1849,7 +1997,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         _themeTmpDropdown = _contentRoot.GetComponentInChildren<TMP_Dropdown>(true);
         _themeDropdown = _contentRoot.GetComponentInChildren<Dropdown>(true);
         _themeMetaDropdown = _contentRoot.GetComponentInChildren<DropDownGroup>(true);
-        _themeDropdownCaptionText = _contentRoot.Find($"ThemeDropdown/{RuntimeDropdownCaptionName}")?.GetComponent<TMP_Text>();
+        _themeDropdownCaptionText = FindContentText($"ThemeDropdownRow/ThemeDropdown/{RuntimeDropdownCaptionName}");
         if (_themeTmpDropdown == null && _themeDropdown == null && _themeMetaDropdown == null)
         {
             CreateThemeDropdown();
@@ -1859,6 +2007,17 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             WireThemeDropdown();
             PopulateThemeDropdown();
         }
+    }
+
+    private TMP_Text FindContentText(string relativePath)
+    {
+        if (_contentRoot == null || string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+
+        var target = _contentRoot.Find(relativePath);
+        return target != null ? target.GetComponent<TMP_Text>() : null;
     }
 
     private Button FindContentButton(string relativePath)

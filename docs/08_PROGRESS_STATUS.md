@@ -72,7 +72,8 @@ This file is the rolling implementation tracker for the current vertical slice. 
 - Window anchors can still cut a valid window opening out of the wall override so the open-center frame and 16:9 exterior vista remain visible.
 - `RoomMoodController` applies theme-linked lighting/ambient mood.
 - `SceneShiftUISetDashboard` provides the runtime control panel with theme selection, capture, auto target, reapply, clean view, and object status controls.
-- The dashboard currently uses a stable UISet-inspired fallback implementation because dynamic official UISet sample controls mis-layout when instantiated into the runtime panel.
+- The canonical scene now stores a baked `SceneShiftDashboardContent` hierarchy built from official UISet button/dropdown prefab instances, so the complete panel can be inspected and edited before Play Mode. `SceneShiftUISetDashboard` reuses that hierarchy at runtime and retains a missing-content fallback.
+- The dashboard Inspector and `SceneShift/UI` Editor menu can rebuild or remove the baked hierarchy without touching the official ray/poke interaction children.
 - `GeneratedObjectRotationCorrectionController` adds a dashboard `Rotate 90` action for the currently selected/generated furniture target, using `ObjectId` first and gaze/viewport fallback second.
 - `PassthroughOnlyVisibilityToggle` provides a left-controller `Y` / keyboard `Y` safety view that hides all virtual renderers, canvases, rays, shells, generated assets, and surface overlays, then restores them on the next press.
 - `GenerationQueueStatusService` summarizes object and surface queue counts for the HUD/panel.
