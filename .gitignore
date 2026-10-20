@@ -126,3 +126,10 @@ InitTestScene*.unity*
 # Python backend caches.
 __pycache__/
 *.py[cod]
+
+# Local assistant credentials, device/session identifiers, and private automation.
+/Assets/Resources/DevAgentSettings.asset*
+/Assets/\#Meta/
+/Assets/\#Meta.meta
+/.codex/
+/Tools/meta_xr_mcp_stdio_bridge.py

@@ -1,16 +1,11 @@
 # AGENTS.md
 
-## Read this first
-Before doing any work in this repository, read these files in order:
-1. `docs/01_PRODUCT_SCOPE_AND_SUCCESS.md`
-2. `docs/02_ROOMIFY_TO_META_MAPPING.md`
-3. `docs/04_BACKLOG_AND_MILESTONES.md`
-4. `docs/05_DATA_CONTRACTS.md` when editing data models
-5. `docs/06_CUSTOM_MCP_TOOLS.md` when implementing custom Unity MCP tools
-6. `docs/09_GENERATIVE_OBJECT_PIPELINE.md` when working on the optional Roomify-like generated-object branch
-7. `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md` when using the manual GPT/image worker flow
-8. `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md` before demo or regression validation
-9. `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md` before Quest headset validation
+## Read for the task
+
+- For a narrow fix, inspect the affected implementation and its applicable rules; do not read a fixed document stack first.
+- Read `docs/01_PRODUCT_SCOPE_AND_SUCCESS.md` when onboarding or changing scope; `docs/02_ROOMIFY_TO_META_MAPPING.md` for architectural/Meta mapping decisions; `docs/04_BACKLOG_AND_MILESTONES.md` only for priorities or planning.
+- Read `docs/05_DATA_CONTRACTS.md` for data-model changes, `docs/06_CUSTOM_MCP_TOOLS.md` for custom Unity MCP, `docs/09_GENERATIVE_OBJECT_PIPELINE.md` for the optional generation branch, and `docs/10_MANUAL_EXTERNAL_WORKER_RUNBOOK.md` for that worker flow.
+- Use `docs/11_SMOKE_TEST_AND_DEMO_CHECKLIST.md` for relevant demo/regression checks and `docs/12_TRUE_DEVICE_VALIDATION_PLAN.md` for Quest validation. These are conditional routes, not a required reading sequence.
 
 ## Project identity
 This project builds a **scene-aware mixed-reality office room stylization prototype** for Meta Quest.
@@ -118,7 +113,7 @@ When creating systems, prefer these responsibilities:
 - `StylizationDebugPanel` — show room objects, confidence, mappings, errors
 
 ## Rules for code changes
-1. **Inspect first.** Before editing, inspect the current package state, project structure, scene list, and console.
+1. **Inspect relevant state.** Read the affected code/scene first. Inspect packages, broader structure or Console only when they can affect the requested change.
 2. **Smallest useful step.** Prefer the smallest vertical slice over large speculative refactors.
 3. **Compile cleanliness.** After each change set, read Unity console output and fix introduced compile/runtime errors before adding features.
 4. **No silent package churn.** Do not add/change/remove packages, Player settings, or XR settings unless the task requires it. Explain those changes clearly.
@@ -160,13 +155,12 @@ When creating systems, prefer these responsibilities:
 ### Phase 2: NPC
 Only begin after 1A–1D are stable.
 
-## Definition of done for any task
-A task is not done unless all are true:
-- project compiles after the change
-- no newly introduced console errors remain
-- affected inspector fields are sensible and documented inline
-- there is a manual verification step
-- the diff summary names created/updated files and the next smallest follow-up
+## Completion by task
+- Runtime C#/scene changes: compile, fix introduced Console errors, and verify the affected behavior. Check changed Inspector wiring when relevant.
+- Docs, comments or read-only work: validate the requested text or findings; no Unity launch, compile or manual runtime test is required solely for these tasks.
+- Package/XR configuration changes and formal demos: run the applicable smoke/device checks. Keep Editor, build and Quest observations separate.
+- Continue through the authorized implementation and relevant checks. Stop broadening verification once they pass unless new failures or uncertain impact justify more work.
+- Report the result, changed files, validation and actual remaining limitations.
 
 ## How to respond to the user
 - Give concise summaries.

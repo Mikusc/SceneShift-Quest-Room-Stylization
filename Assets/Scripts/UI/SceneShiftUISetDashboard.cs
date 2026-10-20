@@ -19,6 +19,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private const string RuntimeButtonHitAreaName = "SceneShiftButtonHitArea";
     private const string RuntimeDropdownCaptionName = "SceneShiftDropdownCaption";
     private const float ButtonInvokeDebounceSeconds = 0.18f;
+    private const float CollapsedPanelHeightPixels = 640f;
+    private const float ExpandedPanelHeightPixels = 980f;
     private static readonly Vector2 ButtonLabelOffsetMin = new(12f, 0f);
     private static readonly Vector2 ButtonLabelOffsetMax = new(-12f, 0f);
 #if UNITY_EDITOR
@@ -114,6 +116,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     private TMP_Text _cacheStatusText;
     private TMP_Text _queueStatusText;
     private TMP_Text _runtimeModelStatusText;
+    private TMP_Text _reviewStatusText;
     private TMP_Text _reuseStatusText;
     private TMP_Text _rotationStatusText;
     private TMP_Text _cleanViewStatusText;
@@ -263,6 +266,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         _cacheStatusText = null;
         _queueStatusText = null;
         _runtimeModelStatusText = null;
+        _reviewStatusText = null;
         _reuseStatusText = null;
         _rotationStatusText = null;
         _cleanViewStatusText = null;
@@ -438,6 +442,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
     {
         showAdvancedControls = !showAdvancedControls;
         ApplyAdvancedControlsVisibility();
+        NormalizeCanvasRoot();
+        NormalizeContentRoot();
         UpdatePanel();
     }
 
@@ -453,7 +459,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             _advancedControlsRoot.gameObject.SetActive(showAdvancedControls);
         }
 
-        SetButtonLabel(_advancedToggleButton, showAdvancedControls ? "Hide Debug" : "Debug");
+        SetButtonLabel(_advancedToggleButton, showAdvancedControls ? "Hide Details" : "Details");
     }
 
     private static void SetButtonLabel(Button button, string label)
@@ -804,11 +810,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         CreatePrimaryFlowButtonSection();
         CreateReviewButtonSection();
         CreateAdvancedButtonSection();
-        _pointerHintText = CreateText(_contentRoot, "PointerHint", "Point right controller at the panel, press Trigger.", 15f, FontStyles.Normal, new Color(0.72f, 0.86f, 0.96f, 1f));
+        _pointerHintText = CreateText(_contentRoot, "PointerHint", string.Empty, 14f, FontStyles.Normal, new Color(0.72f, 0.86f, 0.96f, 0.82f));
         _pointerHintText.alignment = TextAlignmentOptions.Center;
         _pointerHintText.textWrappingMode = TextWrappingModes.NoWrap;
         _pointerHintText.overflowMode = TextOverflowModes.Ellipsis;
-        SetLayoutSize(_pointerHintText.gameObject, 0f, 26f);
+        SetLayoutSize(_pointerHintText.gameObject, 0f, 20f);
         ApplyAdvancedControlsVisibility();
         NormalizeContentRoot();
         ResolveContentReferences();
@@ -820,10 +826,11 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         return root != null &&
             root.Find("Header/Title") != null &&
             root.Find("ThemeDropdownRow/ThemeDropdown") != null &&
-            root.Find("StatusCard/CaptureStatusRow/CaptureValue") != null &&
+            root.Find("StatusCard/TargetStatusRow/TargetValue") != null &&
+            root.Find("StatusCard/ReviewStatusRow/ReviewValue") != null &&
             root.Find("PrimaryFlowButtons/CaptureButton") != null &&
             root.Find("ReviewButtons/AcceptButton") != null &&
-            root.Find("AdvancedControls") != null;
+            root.Find("AdvancedControls/AdvancedStatusCard") != null;
     }
 
     private void EnsureBackground()
@@ -911,7 +918,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             canvasRect.anchorMax = new Vector2(0.5f, 0.5f);
             canvasRect.pivot = new Vector2(0.5f, 0.5f);
             canvasRect.anchoredPosition = Vector2.zero;
-            canvasRect.sizeDelta = panelSizePixels;
+            canvasRect.sizeDelta = GetActivePanelSizePixels();
         }
 
         // UISet prefabs can carry root layout/scale settings that make this generated panel
@@ -942,7 +949,16 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         _contentRoot.localPosition = Vector3.zero;
         _contentRoot.localRotation = Quaternion.identity;
         _contentRoot.localScale = Vector3.one;
-        _contentRoot.sizeDelta = panelSizePixels;
+        _contentRoot.sizeDelta = GetActivePanelSizePixels();
+    }
+
+    private Vector2 GetActivePanelSizePixels()
+    {
+        var width = Mathf.Max(760f, panelSizePixels.x);
+        var height = showAdvancedControls
+            ? Mathf.Max(ExpandedPanelHeightPixels, panelSizePixels.y)
+            : Mathf.Max(560f, Mathf.Min(CollapsedPanelHeightPixels, panelSizePixels.y));
+        return new Vector2(width, height);
     }
 
     private void HideInheritedUISetVisuals()
@@ -1123,12 +1139,12 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         layout.minHeight = 66f;
         layout.preferredHeight = 66f;
 
-        _titleText = CreateText(headerObject.transform, "Title", "SceneShift Control", 34f, FontStyles.Bold, new Color(0.95f, 0.98f, 1f, 1f));
+        _titleText = CreateText(headerObject.transform, "Title", "SceneShift", 34f, FontStyles.Bold, new Color(0.95f, 0.98f, 1f, 1f));
         _titleText.textWrappingMode = TextWrappingModes.NoWrap;
         _titleText.overflowMode = TextOverflowModes.Ellipsis;
         SetLayoutSize(_titleText.gameObject, 0f, 38f);
 
-        _subtitleText = CreateText(headerObject.transform, "Subtitle", "Quest Link / headset runtime panel", 16f, FontStyles.Normal, new Color(0.65f, 0.78f, 0.9f, 1f));
+        _subtitleText = CreateText(headerObject.transform, "Subtitle", "Room stylization | Ready", 16f, FontStyles.Normal, new Color(0.65f, 0.78f, 0.9f, 1f));
         _subtitleText.textWrappingMode = TextWrappingModes.NoWrap;
         _subtitleText.overflowMode = TextOverflowModes.Ellipsis;
         SetLayoutSize(_subtitleText.gameObject, 0f, 24f);
@@ -1136,8 +1152,20 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
     private void CreateStatusSection()
     {
-        var cardObject = new GameObject("StatusCard", typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup), typeof(LayoutElement));
-        cardObject.transform.SetParent(_contentRoot, false);
+        var card = CreateStatusCardContainer("StatusCard", _contentRoot, 224f);
+        CreateSectionLabel(card, "Workflow");
+        _captureStatusText = CreateStatusRow(card, "Target");
+        _styleStatusText = CreateStatusRow(card, "Style");
+        _queueStatusText = CreateStatusRow(card, "Progress");
+        _runtimeModelStatusText = CreateStatusRow(card, "Model");
+        _reviewStatusText = CreateStatusRow(card, "Review");
+        _statusText = _captureStatusText;
+    }
+
+    private Transform CreateStatusCardContainer(string name, Transform parent, float preferredHeight)
+    {
+        var cardObject = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(VerticalLayoutGroup), typeof(LayoutElement));
+        cardObject.transform.SetParent(parent, false);
 
         var image = cardObject.GetComponent<Image>();
         image.color = new Color(0.035f, 0.075f, 0.105f, 0.88f);
@@ -1154,19 +1182,18 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         layout.childForceExpandHeight = false;
 
         var cardLayout = cardObject.GetComponent<LayoutElement>();
-        cardLayout.minHeight = 306f;
-        cardLayout.preferredHeight = 306f;
+        cardLayout.minHeight = preferredHeight;
+        cardLayout.preferredHeight = preferredHeight;
+        return cardObject.transform;
+    }
 
-        _captureStatusText = CreateStatusRow(cardObject.transform, "Capture");
-        _styleStatusText = CreateStatusRow(cardObject.transform, "Style");
-        _cacheStatusText = CreateStatusRow(cardObject.transform, "Cache");
-        _queueStatusText = CreateStatusRow(cardObject.transform, "Jobs");
-        _runtimeModelStatusText = CreateStatusRow(cardObject.transform, "Runtime");
-        _reuseStatusText = CreateStatusRow(cardObject.transform, "Reuse");
-        _rotationStatusText = CreateStatusRow(cardObject.transform, "Rotate");
-        _cleanViewStatusText = CreateStatusRow(cardObject.transform, "Clean");
-        _objectStatusText = CreateStatusRow(cardObject.transform, "Cards");
-        _statusText = _captureStatusText;
+    private void CreateSectionLabel(Transform parent, string text)
+    {
+        var label = CreateText(parent, "SectionTitle", text, 16f, FontStyles.Bold, new Color(0.5f, 0.72f, 0.86f, 1f));
+        label.alignment = TextAlignmentOptions.MidlineLeft;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.characterSpacing = 0f;
+        SetLayoutSize(label.gameObject, 0f, 22f);
     }
 
     private TMP_Text CreateStatusRow(Transform parent, string labelText)
@@ -1183,16 +1210,16 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         row.childForceExpandHeight = false;
 
         var rowLayout = rowObject.GetComponent<LayoutElement>();
-        rowLayout.minHeight = 25f;
-        rowLayout.preferredHeight = 25f;
+        rowLayout.minHeight = 28f;
+        rowLayout.preferredHeight = 28f;
 
-        var label = CreateText(rowObject.transform, $"{labelText}Label", labelText, 14.5f, FontStyles.Bold, new Color(0.68f, 0.8f, 0.9f, 1f));
+        var label = CreateText(rowObject.transform, $"{labelText}Label", labelText, 15f, FontStyles.Bold, new Color(0.68f, 0.8f, 0.9f, 1f));
         label.alignment = TextAlignmentOptions.MidlineLeft;
         label.textWrappingMode = TextWrappingModes.NoWrap;
         label.overflowMode = TextOverflowModes.Ellipsis;
-        SetLayoutSize(label.gameObject, 74f, 25f);
+        SetLayoutSize(label.gameObject, 92f, 28f);
 
-        var value = CreateText(rowObject.transform, $"{labelText}Value", "waiting", 14.5f, FontStyles.Normal, Color.white);
+        var value = CreateText(rowObject.transform, $"{labelText}Value", "waiting", 15f, FontStyles.Normal, Color.white);
         value.alignment = TextAlignmentOptions.MidlineLeft;
         value.textWrappingMode = TextWrappingModes.NoWrap;
         value.overflowMode = TextOverflowModes.Ellipsis;
@@ -1200,8 +1227,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         valueLayout.minWidth = 0f;
         valueLayout.preferredWidth = 0f;
         valueLayout.flexibleWidth = 1f;
-        valueLayout.minHeight = 25f;
-        valueLayout.preferredHeight = 25f;
+        valueLayout.minHeight = 28f;
+        valueLayout.preferredHeight = 28f;
         return value;
     }
 
@@ -1325,7 +1352,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var row = CreateButtonRow("PrimaryFlow", _contentRoot);
         _captureButton = CreateButton(row, primaryButtonPrefab, "Capture");
         _submitRuntimeGenerationButton = CreateButton(row, primaryButtonPrefab, "Generate & Load");
-        _advancedToggleButton = CreateButton(row, secondaryButtonPrefab, "Debug");
+        _advancedToggleButton = CreateButton(row, secondaryButtonPrefab, "Details");
     }
 
     private void CreateButtonSection(string name, bool captureSection)
@@ -1392,8 +1419,20 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         rootLayout.childForceExpandHeight = false;
 
         var rootElement = rootObject.GetComponent<LayoutElement>();
-        rootElement.minHeight = 124f;
-        rootElement.preferredHeight = 124f;
+        rootElement.minHeight = 356f;
+        rootElement.preferredHeight = 356f;
+
+        var heading = CreateText(_advancedControlsRoot, "AdvancedHeading", "Diagnostics & recovery", 18f, FontStyles.Bold, new Color(0.72f, 0.84f, 0.95f, 1f));
+        heading.alignment = TextAlignmentOptions.MidlineLeft;
+        heading.textWrappingMode = TextWrappingModes.NoWrap;
+        SetLayoutSize(heading.gameObject, 0f, 28f);
+
+        var statusCard = CreateStatusCardContainer("AdvancedStatusCard", _advancedControlsRoot, 176f);
+        _cacheStatusText = CreateStatusRow(statusCard, "Cache");
+        _reuseStatusText = CreateStatusRow(statusCard, "Reuse");
+        _rotationStatusText = CreateStatusRow(statusCard, "Rotate");
+        _cleanViewStatusText = CreateStatusRow(statusCard, "Clean");
+        _objectStatusText = CreateStatusRow(statusCard, "Cards");
 
         var captureRow = CreateButtonRow("AdvancedCapture", _advancedControlsRoot);
         _autoTargetButton = CreateButton(captureRow, secondaryButtonPrefab, "Auto Target");
@@ -1404,7 +1443,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var roomRow = CreateButtonRow("AdvancedRoom", _advancedControlsRoot);
         _loadTestRuntimeModelButton = CreateButton(roomRow, secondaryButtonPrefab, "Load Test GLB");
         _surfaceButton = CreateButton(roomRow, secondaryButtonPrefab, "Generate Room");
-        _shellButton = CreateButton(roomRow, destructiveButtonPrefab != null ? destructiveButtonPrefab : secondaryButtonPrefab, "Clean View");
+        _shellButton = CreateButton(roomRow, secondaryButtonPrefab, "Clean View");
     }
 
     private Button CreateButton(Transform parent, GameObject prefab, string label)
@@ -1919,15 +1958,24 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var texts = _contentRoot.GetComponentsInChildren<TMP_Text>(true);
         _titleText = FindContentText("Header/Title") ?? (texts.Length > 0 ? texts[0] : null);
         _subtitleText = FindContentText("Header/Subtitle") ?? (texts.Length > 1 ? texts[1] : null);
-        _captureStatusText = FindContentText("StatusCard/CaptureStatusRow/CaptureValue");
+        _captureStatusText = FindContentText("StatusCard/TargetStatusRow/TargetValue") ??
+            FindContentText("StatusCard/CaptureStatusRow/CaptureValue");
         _styleStatusText = FindContentText("StatusCard/StyleStatusRow/StyleValue");
-        _cacheStatusText = FindContentText("StatusCard/CacheStatusRow/CacheValue");
-        _queueStatusText = FindContentText("StatusCard/JobsStatusRow/JobsValue");
-        _runtimeModelStatusText = FindContentText("StatusCard/RuntimeStatusRow/RuntimeValue");
-        _reuseStatusText = FindContentText("StatusCard/ReuseStatusRow/ReuseValue");
-        _rotationStatusText = FindContentText("StatusCard/RotateStatusRow/RotateValue");
-        _cleanViewStatusText = FindContentText("StatusCard/CleanStatusRow/CleanValue");
-        _objectStatusText = FindContentText("StatusCard/CardsStatusRow/CardsValue");
+        _queueStatusText = FindContentText("StatusCard/ProgressStatusRow/ProgressValue") ??
+            FindContentText("StatusCard/JobsStatusRow/JobsValue");
+        _runtimeModelStatusText = FindContentText("StatusCard/ModelStatusRow/ModelValue") ??
+            FindContentText("StatusCard/RuntimeStatusRow/RuntimeValue");
+        _reviewStatusText = FindContentText("StatusCard/ReviewStatusRow/ReviewValue");
+        _cacheStatusText = FindContentText("AdvancedControls/AdvancedStatusCard/CacheStatusRow/CacheValue") ??
+            FindContentText("StatusCard/CacheStatusRow/CacheValue");
+        _reuseStatusText = FindContentText("AdvancedControls/AdvancedStatusCard/ReuseStatusRow/ReuseValue") ??
+            FindContentText("StatusCard/ReuseStatusRow/ReuseValue");
+        _rotationStatusText = FindContentText("AdvancedControls/AdvancedStatusCard/RotateStatusRow/RotateValue") ??
+            FindContentText("StatusCard/RotateStatusRow/RotateValue");
+        _cleanViewStatusText = FindContentText("AdvancedControls/AdvancedStatusCard/CleanStatusRow/CleanValue") ??
+            FindContentText("StatusCard/CleanStatusRow/CleanValue");
+        _objectStatusText = FindContentText("AdvancedControls/AdvancedStatusCard/CardsStatusRow/CardsValue") ??
+            FindContentText("StatusCard/CardsStatusRow/CardsValue");
         _statusText = _captureStatusText ?? (texts.Length > 2 ? texts[2] : null);
         _pointerHintText = FindContentText("PointerHint") ?? (texts.Length > 3 ? texts[3] : null);
 
@@ -1938,7 +1986,8 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             (buttons.Length > 0 ? buttons[0] : null);
         _submitRuntimeGenerationButton = FindContentButton("PrimaryFlowButtons/Generate&LoadButton") ??
             FindContentButton("RuntimeLoadButtons/Submit+LoadButton");
-        _advancedToggleButton = FindContentButton("PrimaryFlowButtons/DebugButton");
+        _advancedToggleButton = FindContentButton("PrimaryFlowButtons/DetailsButton") ??
+            FindContentButton("PrimaryFlowButtons/DebugButton");
         _autoTargetButton = FindContentButton("AdvancedControls/AdvancedCaptureButtons/AutoTargetButton") ??
             FindContentButton("CaptureButtons/AutoTargetButton") ??
             (buttons.Length > 1 ? buttons[1] : null);
@@ -2119,15 +2168,15 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         if (pointerRayOrigin == null)
         {
             ClearPointerHover();
-            SetPointerHint("Pointer: right controller not found");
+            SetPointerHint(string.Empty);
             return;
         }
 
         var ray = new Ray(pointerRayOrigin.position, pointerRayOrigin.forward);
-        if (!TryGetPanelPoint(ray, out var localPoint, out var hitWorldPoint, out var hitDistance))
+        if (!TryGetPanelPoint(ray, out var localPoint, out _, out _))
         {
             ClearPointerHover();
-            SetPointerHint("Point right controller at the panel, press Trigger.");
+            SetPointerHint(string.Empty);
             return;
         }
 
@@ -2149,7 +2198,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var officialRayInteractionActive = preferOfficialCanvasInteractions && HasOfficialRayCanvasInteractionComponents();
         if (hoveredButton != null)
         {
-            SetPointerHint($"Trigger: {GetButtonLabel(hoveredButton)}");
+            SetPointerHint(GetButtonLabel(hoveredButton));
             if ((bridgeControllerTriggerToUnityButtons || !officialRayInteractionActive) &&
                 OVRInput.GetDown(pointerSelectButton, pointerController))
             {
@@ -2161,7 +2210,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
 
         if (hoveredDropdownImage != null)
         {
-            SetPointerHint("Trigger: switch style");
+            SetPointerHint("Style selector");
             if (OVRInput.GetDown(pointerSelectButton, pointerController))
             {
                 CycleThemeFromPointer();
@@ -2170,7 +2219,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
             return;
         }
 
-        SetPointerHint($"Panel hit {hitDistance:F1}m | aim at a button");
+        SetPointerHint(string.Empty);
     }
 
     private void HandlePanelVisibilityToggleInput()
@@ -2591,15 +2640,17 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var cleanLine = shellVisibilityToggle != null && shellVisibilityToggle.CleanViewActive ? "active" : "off";
         var cardsLine = worldStatusOverlay != null && worldStatusOverlay.IsOverlayVisible ? "visible" : "hidden";
 
-        SetStatusValue(_captureStatusText, StripStatusPrefix(captureLine, "Capture"));
-        SetStatusValue(_styleStatusText, StripStatusPrefix(themeLine, "Style"));
-        SetStatusValue(_cacheStatusText, StripStatusPrefix(cacheLine, "Cache"));
-        SetStatusValue(_queueStatusText, StripStatusPrefix(queueLine, "Queue"));
-        SetStatusValue(_runtimeModelStatusText, StripStatusPrefix(runtimeModelLine, "Runtime"));
-        SetStatusValue(_reuseStatusText, StripStatusPrefix(reuseLine, "Reuse"));
-        SetStatusValue(_rotationStatusText, StripStatusPrefix(rotationLine, "Rotate"));
+        SetStatusValue(_captureStatusText, CompactStatusLine(StripStatusPrefix(captureLine, "Capture"), 72));
+        SetStatusValue(_styleStatusText, CompactStatusLine(StripStatusPrefix(themeLine, "Style"), 72));
+        SetStatusValue(_queueStatusText, CompactStatusLine(StripStatusPrefix(queueLine, "Queue"), 72));
+        SetStatusValue(_runtimeModelStatusText, CompactStatusLine(StripStatusPrefix(runtimeModelLine, "Runtime"), 72));
+        SetStatusValue(_reviewStatusText, CompactStatusLine(StripStatusPrefix(reviewLine, "Review"), 72));
+        SetStatusValue(_cacheStatusText, CompactStatusLine(StripStatusPrefix(cacheLine, "Cache"), 72));
+        SetStatusValue(_reuseStatusText, CompactStatusLine(StripStatusPrefix(reuseLine, "Reuse"), 72));
+        SetStatusValue(_rotationStatusText, CompactStatusLine(StripStatusPrefix(rotationLine, "Rotate"), 72));
         SetStatusValue(_cleanViewStatusText, cleanLine);
         SetStatusValue(_objectStatusText, cardsLine);
+        UpdateActionAvailability();
 
         _builder.AppendLine(captureLine);
         _builder.AppendLine(themeLine);
@@ -2613,19 +2664,74 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         _builder.AppendLine();
         _builder.AppendLine($"Clean View: {cleanLine}");
         _builder.AppendLine($"Object Status Cards: {cardsLine}");
-        _builder.AppendLine($"Debug Controls: {(showAdvancedControls ? "expanded" : "hidden")}");
-        _builder.AppendLine("Controls: Capture | Generate & Load | Generate Room | Accept | Reject | Reset | Rotate 90 | Debug | Left Menu: Panel");
+        _builder.AppendLine($"Details: {(showAdvancedControls ? "expanded" : "hidden")}");
+        _builder.AppendLine("Controls: Capture | Generate & Load | Details | Accept | Reject | Reset | Rotate 90 | Left Menu: Panel");
 
         _latestSummary = $"[SceneShiftUISetDashboard]\nState: visible\n{_builder.ToString().TrimEnd()}";
 
         if (_titleText != null)
         {
-            _titleText.text = "SceneShift Control";
+            _titleText.text = "SceneShift";
         }
 
         if (_subtitleText != null)
         {
-            _subtitleText.text = "Quest Link / headset runtime panel";
+            _subtitleText.text = $"Room stylization | {BuildWorkflowStateLabel(captureLine, queueLine, runtimeModelLine)}";
+        }
+    }
+
+    private string BuildWorkflowStateLabel(string captureLine, string queueLine, string runtimeModelLine)
+    {
+        if (generatedObjectReviewController != null && generatedObjectReviewController.SelectedInstance != null)
+        {
+            return "Review object";
+        }
+
+        var runtimeState = (runtimeModelLine ?? string.Empty).ToLowerInvariant();
+        if (runtimeState.Contains("loaded") ||
+            (runtimeState.Contains("ready") && !runtimeState.Contains("not ready")))
+        {
+            return "Model ready";
+        }
+
+        var queueState = (queueLine ?? string.Empty).ToLowerInvariant();
+        if (queueState.Contains("running") || queueState.Contains("submitted") || queueState.Contains("queued"))
+        {
+            return "Generating";
+        }
+
+        var captureState = (captureLine ?? string.Empty).ToLowerInvariant();
+        return captureState.Contains("waiting") || captureState.Contains("unavailable")
+            ? "Ready"
+            : "Target captured";
+    }
+
+    private void UpdateActionAvailability()
+    {
+        var hasReviewCandidate = generatedObjectReviewController != null &&
+            generatedObjectReviewController.SelectedInstance != null;
+        SetButtonInteractable(_acceptGeneratedButton, hasReviewCandidate);
+        SetButtonInteractable(_rejectGeneratedButton, hasReviewCandidate);
+        SetButtonInteractable(_resetGeneratedButton, hasReviewCandidate);
+        SetButtonInteractable(_rotateSelectedButton, hasReviewCandidate && rotationCorrectionController != null);
+    }
+
+    private static void SetButtonInteractable(Button button, bool interactable)
+    {
+        if (button == null)
+        {
+            return;
+        }
+
+        button.interactable = interactable;
+        foreach (var text in button.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (text != null)
+            {
+                var color = text.color;
+                color.a = interactable ? 1f : 0.45f;
+                text.color = color;
+            }
         }
     }
 
@@ -2843,7 +2949,7 @@ public class SceneShiftUISetDashboard : MonoBehaviour
         var rect = canvas.GetComponent<RectTransform>();
         if (rect != null)
         {
-            rect.sizeDelta = panelSizePixels;
+            rect.sizeDelta = GetActivePanelSizePixels();
         }
 
         NormalizeCanvasRoot();

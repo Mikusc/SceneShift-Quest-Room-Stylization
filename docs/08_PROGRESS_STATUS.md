@@ -6,7 +6,7 @@ This file is the rolling implementation tracker for the current vertical slice. 
 
 ## Snapshot
 
-- Last updated: `2026-07-30`
+- Last updated: `2026-10-20`
 - Current priority: `Phase 1 - room stylization`
 - Canonical setting: `one real UNNC IEB office room`
 - Canonical scene: `Assets/Scenes/MR_RoomStylization.unity`
@@ -14,6 +14,27 @@ This file is the rolling implementation tracker for the current vertical slice. 
 - Current Mac validation constraint: Editor/`MetaXRSimulator` evidence is only a pre-device gate; standalone headset closure must come from a MQDH/test-channel build that is installed or updated on the headset.
 - Current demo target: a true-device generated-object vertical slice on Quest, while preserving the coherent deterministic room-stylization fallback
 - Target generated-object flow: `user style intent -> headset capture -> secure backend generation -> runtime 3D model load -> request-locked MRUK replacement -> accept/reject/reset/correction`
+
+## 2026-10-20 Public Source Sync
+
+- Synced the existing local compact / `Details` dashboard implementation and its baked canonical-scene hierarchy into an isolated publication checkout, without changing the working project.
+- Aligned the direct Interaction SDK declaration and lockfile depth with the already-resolved `205.0.0` package used by the updated Meta XR packages.
+- Reworked the public README around the project workflow, AI-assisted development, actual output, and validation boundaries. The previous README is preserved in `README_BEFORE_PUBLIC_SYNC_2026-10-20.md`.
+- Included one unmodified `2026-05-24` Editor / Meta XR Simulator screenshot, explicitly labeled as an earlier interface.
+- Excluded local assistant credentials, private skills, device/session identifiers, local MCP bridges, generated outputs, logs, caches, and builds. Added ignore rules for the previously untracked local-only inputs.
+- Verification for this sync: the changed dashboard C# file compiled against existing Unity/package assemblies (three serialized-field `CS0649` warnings); 20 shell scripts passed `bash -n`; backend Python parsed; fixed-url localhost submit/poll smoke passed without paid generation; packaged-input secret scan reported zero findings. The scene contains 591 unique serialized objects, no unresolved local references, and the same external GUID set as the previous committed scene.
+- This is source-publication verification. Unity was not launched, packages were not freshly imported, and no new APK or headset acceptance run was performed. The historical verification records below retain their original dates and scope.
+
+## 2026-08-19 Runtime UI Refresh
+
+- The baked `SceneShiftUISetDashboard` hierarchy was rebuilt in the canonical scene while preserving the official UISet backplate, ray, and poke interaction children.
+- The default panel now prioritizes the user workflow: theme selection, target capture, generation/loading, progress, model state, and review state.
+- Cache, reuse, rotation, clean-view, status-card, local-test, and recovery controls now live under the expandable `Details` section.
+- The panel switches between compact and expanded heights so diagnostics do not overlap the primary workflow.
+- `Accept`, `Reject`, `Reset`, and `Rotate 90` remain visually disabled until a generated candidate is selected; `Clean View` now uses a neutral secondary action style.
+- Persistent controller instructions were removed from the panel footer; brief command labels remain available through pointer hover feedback.
+- Unity compilation is clean and the Console has no project errors after restart. Editor Play verified both compact and expanded layouts. Official ray/poke clicking still needs a fresh `MetaXRSimulator` pass, followed by Quest validation.
+- Meta `UIVerificationTools.CaptureWindow` caused an Editor `EXC_BAD_ACCESS` in `ReadScreenPixel`; avoid that capture path and use normal Game View, simulator, or OS screenshots for visual checks.
 
 ## 2026-07-30 Audit And Hardening
 
@@ -44,7 +65,7 @@ This file is the rolling implementation tracker for the current vertical slice. 
 | M3 - Theme system and stylization planning | Mostly done | Generic scaffold plus built-in/custom Style identity is implemented. Style-aware prompt/cache IDs are in use. |
 | M4 - Stylization application | In progress | Surfaces, openings, window vista, generated furniture placement, and mood changes are implemented. Surface v3 and runtime-object generation can route through secure HTTPS backend endpoints; deployed endpoint smoke now passes, while real-office/headset visual validation remains. |
 | M5 - Manual correction mode | Partial / headset evidence collected | Runtime `Rotate 90`, bounded nudge, accept/reject/reset, and review-record persistence are wired for runtime-generated furniture. Editor Play and pre-device smoke pass the editability/persistence probes, and headset persistent files now include review records; a documented restart-restore pass is still required before demo-final status. |
-| M6 - Demo readiness | In progress | Main runtime panel, clean view, object status cards, and queue summaries exist. UI polish and final validation remain. |
+| M6 - Demo readiness | In progress | The main runtime panel now separates the primary workflow from expandable diagnostics, gates review actions by candidate state, and retains object status cards. Simulator ray/poke and Quest visual validation remain. |
 | M7 - NPC preparation | Deferred | Still out of scope until Phase 1 is stable. |
 | M8 - Generated object enrichment | In progress / elevated stretch target | APIMart image2, hosted upload, Seed3D, editor import, request-locked placement, secure backend proxy, and runtime GLB loading are wired. Latest headset ADB evidence contains real backend model URLs and local `mesh_textured_pbr.glb` files, but final closure still needs a recorded full headset flow and restart-restore validation. |
 
@@ -71,7 +92,7 @@ This file is the rolling implementation tracker for the current vertical slice. 
 - Door-host walls use the same wall material, tiling, opacity, and seam logic as other walls.
 - Window anchors can still cut a valid window opening out of the wall override so the open-center frame and 16:9 exterior vista remain visible.
 - `RoomMoodController` applies theme-linked lighting/ambient mood.
-- `SceneShiftUISetDashboard` provides the runtime control panel with theme selection, capture, auto target, reapply, clean view, and object status controls.
+- `SceneShiftUISetDashboard` provides a compact runtime workflow panel with theme selection, capture, generation/loading, progress, model/review state, and candidate review controls; technical and recovery actions are grouped under `Details`.
 - The canonical scene now stores a baked `SceneShiftDashboardContent` hierarchy built from official UISet button/dropdown prefab instances, so the complete panel can be inspected and edited before Play Mode. `SceneShiftUISetDashboard` reuses that hierarchy at runtime and retains a missing-content fallback.
 - The dashboard Inspector and `SceneShift/UI` Editor menu can rebuild or remove the baked hierarchy without touching the official ray/poke interaction children.
 - `GeneratedObjectRotationCorrectionController` adds a dashboard `Rotate 90` action for the currently selected/generated furniture target, using `ObjectId` first and gaze/viewport fallback second.
